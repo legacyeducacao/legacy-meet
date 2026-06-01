@@ -13,8 +13,8 @@ import Nature from '../public/background-images/ali-kazal-tbw_KQE3Cbg-unsplash.j
 
 // Background image paths
 const BACKGROUND_IMAGES = [
-  { name: 'Desk', path: Desk },
-  { name: 'Nature', path: Nature },
+  { name: 'Escritório', path: Desk },
+  { name: 'Natureza', path: Nature },
 ];
 
 // Background options
@@ -76,14 +76,14 @@ export function CameraSettings() {
       )}
 
       <section className="lk-button-group">
-        <TrackToggle source={Track.Source.Camera}>Camera</TrackToggle>
+        <TrackToggle source={Track.Source.Camera}>Câmera</TrackToggle>
         <div className="lk-button-group-menu">
           <MediaDeviceMenu kind="videoinput" />
         </div>
       </section>
 
       <div style={{ marginTop: '10px' }}>
-        <div style={{ marginBottom: '8px' }}>Background Effects</div>
+        <div style={{ marginBottom: '8px' }}>Efeitos de fundo</div>
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           <button
             onClick={() => selectBackground('none')}
@@ -94,7 +94,7 @@ export function CameraSettings() {
               minWidth: '80px',
             }}
           >
-            None
+            Nenhum
           </button>
 
           <button
@@ -132,7 +132,7 @@ export function CameraSettings() {
                 fontSize: '12px',
               }}
             >
-              Blur
+              Desfoque
             </span>
           </button>
 

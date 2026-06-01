@@ -10,7 +10,7 @@ export function RecordingIndicator() {
     if (isRecording !== wasRecording) {
       setWasRecording(isRecording);
       if (isRecording) {
-        toast('This meeting is being recorded', {
+        toast('Esta reunião está sendo gravada', {
           duration: 3000,
           icon: '🎥',
           position: 'top-center',

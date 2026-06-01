@@ -12,13 +12,13 @@ export default async function CustomRoomConnection(props: {
 }) {
   const { liveKitUrl, token, codec, singlePC } = await props.searchParams;
   if (typeof liveKitUrl !== 'string') {
-    return <h2>Missing LiveKit URL</h2>;
+    return <h2>URL do LiveKit ausente</h2>;
   }
   if (typeof token !== 'string') {
-    return <h2>Missing LiveKit token</h2>;
+    return <h2>Token do LiveKit ausente</h2>;
   }
   if (codec !== undefined && !isVideoCodec(codec)) {
-    return <h2>Invalid codec, if defined it has to be [{videoCodecs.join(', ')}].</h2>;
+    return <h2>Codec inválido; se definido, precisa ser um de [{videoCodecs.join(', ')}].</h2>;
   }
 
   return (

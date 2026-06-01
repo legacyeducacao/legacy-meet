@@ -1,40 +1,185 @@
-.main {
-  position: relative;
-  display: grid;
-  gap: 1rem;
-  justify-content: center;
-  place-content: center;
-  justify-items: center;
-  overflow: auto;
-  flex-grow: 1;
-}
-
-.tabContainer {
+.container {
+  display: flex;
   width: 100%;
-  max-width: 500px;
-  padding-inline: 2rem;
+  height: 100%;
+  overflow: auto;
 }
 
+/* ---------- Painel de marca (esquerda) ---------- */
+.brandPanel {
+  position: relative;
+  flex: 1 1 50%;
+  background-color: #03101d;
+  background-image: url('/Login-bg.svg');
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  overflow: hidden;
+}
+
+.brandCopyright {
+  position: absolute;
+  bottom: 2rem;
+  left: 0;
+  right: 0;
+  padding-inline: 2rem;
+  text-align: center;
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* ---------- Painel do formulário (direita) ---------- */
+.formPanel {
+  flex: 1 1 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  background-color: #ffffff;
+  color: #1d3a5d;
+  overflow: auto;
+}
+
+.formInner {
+  width: 100%;
+  max-width: 420px;
+}
+
+.formTitle {
+  margin: 0 0 0.5rem;
+  font-size: 2rem;
+  font-weight: 700;
+  text-align: center;
+  color: #1d3a5d;
+}
+
+.formSubtitle {
+  margin: 0 0 2rem;
+  text-align: center;
+  color: #5b6b7f;
+}
+
+/* ---------- Abas ---------- */
 .tabSelect {
   display: flex;
-  justify-content: stretch;
-  gap: 0.125rem;
-  padding: 0.125rem;
-  margin: 0 auto 1.5rem;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  gap: 0.25rem;
+  padding: 0.25rem;
+  margin-bottom: 1.5rem;
+  border: 1px solid #d8e1ec;
   border-radius: 0.5rem;
+  background-color: #f3f6fa;
 }
 
-.tabSelect > * {
-  width: 100%;
+.tabSelect > button {
+  flex: 1;
+  padding: 0.6rem;
+  border: none;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: #5b6b7f;
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.tabSelect > button[aria-pressed='true'] {
+  background-color: #1d3a5d;
+  color: #ffffff;
 }
 
 .tabContent {
   display: flex;
-  justify-content: center;
   flex-direction: column;
-  gap: 0.75rem;
-  padding: 1.5rem;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  gap: 1rem;
+}
+
+.lead {
+  margin: 0;
+  color: #5b6b7f;
+}
+
+/* ---------- Campos ---------- */
+.input,
+.textarea {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid #d8e1ec;
   border-radius: 0.5rem;
+  background-color: #f3f6fa;
+  color: #1d3a5d;
+  font: inherit;
+}
+
+.input::placeholder,
+.textarea::placeholder {
+  color: #9aa9bd;
+}
+
+.input:focus,
+.textarea:focus {
+  outline: none;
+  border-color: #275286;
+}
+
+/* ---------- Botão primário ---------- */
+.primaryButton {
+  width: 100%;
+  padding: 0.85rem;
+  border: none;
+  border-radius: 0.5rem;
+  background-color: #1d3a5d;
+  color: #ffffff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.primaryButton:hover {
+  background-color: #275286;
+}
+
+.checkboxRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #1d3a5d;
+}
+
+.passphraseRow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  color: #1d3a5d;
+}
+
+.divider {
+  border: none;
+  border-top: 1px solid #e1e8f0;
+  margin-block: 0.5rem;
+}
+
+/* ---------- Responsivo ---------- */
+@media (max-width: 860px) {
+  .container {
+    flex-direction: column;
+  }
+
+  .brandPanel {
+    flex: 0 0 auto;
+    min-height: 200px;
+    padding: 2rem;
+  }
+
+  .brandLogo {
+    width: min(60%, 260px);
+  }
+
+  .brandCopyright {
+    display: none;
+  }
+
+  .formPanel {
+    flex: 1 1 auto;
+  }
 }

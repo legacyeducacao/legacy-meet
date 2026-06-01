@@ -2,9 +2,18 @@
   box-sizing: border-box;
 }
 
+/* Paleta de cores Legacy aplicada sobre o tema da LiveKit */
+[data-lk-theme='default'] {
+  --lk-accent-bg: #275286;
+  --lk-accent-fg: #ffffff;
+  --lk-accent2: #1f4068;
+  --lk-accent3: #16314f;
+  --lk-accent4: #0f2238;
+}
+
 html {
   color-scheme: dark;
-  background-color: #111;
+  background-color: #0d1a2b;
 }
 
 html,
@@ -52,16 +61,108 @@ footer {
 
 footer a,
 h2 a {
-  color: #ff6352;
-  text-decoration-color: #a33529;
+  color: #97c6ff;
+  text-decoration-color: #275286;
   text-underline-offset: 0.125em;
 }
 
 footer a:hover,
 h2 a {
-  text-decoration-color: #ff6352;
+  text-decoration-color: #97c6ff;
 }
 
 h2 a {
   text-decoration: none;
+}
+
+/* Aba selecionada com a cor de destaque da Legacy */
+.lk-button[aria-pressed='true'] {
+  background-color: var(--lk-accent-bg);
+  color: var(--lk-accent-fg);
+}
+
+/* ---------- Tela de entrada (PreJoin) com identidade Legacy ---------- */
+.prejoin-stage {
+  padding: 1.5rem;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(39, 82, 134, 0.3) 0%, transparent 55%),
+    linear-gradient(160deg, #061222 0%, #0a1c33 100%);
+}
+
+.prejoin-card {
+  width: min(100%, 460px);
+  padding: 1.75rem;
+  background: linear-gradient(160deg, #0f2742 0%, #0a1c33 100%);
+  border: 1px solid rgba(151, 198, 255, 0.18);
+  border-radius: 1rem;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+.prejoin-header {
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+
+.prejoin-header img {
+  display: block;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 0.85rem;
+  filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.45));
+}
+
+.prejoin-header h1 {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.prejoin-header p {
+  margin: 0.4rem 0 0;
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* o card da própria LiveKit fica transparente dentro do nosso */
+[data-lk-theme] .prejoin-card .lk-prejoin {
+  width: 100%;
+  padding: 0;
+  gap: 1rem;
+  background: transparent;
+}
+
+[data-lk-theme] .prejoin-card .lk-video-container {
+  border: 1px solid rgba(151, 198, 255, 0.14);
+  border-radius: 0.75rem;
+}
+
+/* seletores de microfone / câmera */
+[data-lk-theme] .prejoin-card .lk-button-group .lk-button {
+  background-color: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(151, 198, 255, 0.14);
+}
+
+[data-lk-theme] .prejoin-card .lk-button-group .lk-button:not(:disabled):hover {
+  background-color: rgba(151, 198, 255, 0.12);
+}
+
+/* campo do nome */
+[data-lk-theme] .prejoin-card .lk-form-control {
+  background-color: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(151, 198, 255, 0.18);
+  border-radius: 0.625rem;
+  padding: 0.85rem 1rem;
+}
+
+[data-lk-theme] .prejoin-card .lk-form-control:focus {
+  outline: none;
+  border-color: #97c6ff;
+}
+
+/* botão Entrar na reunião */
+[data-lk-theme] .prejoin-card .lk-join-button {
+  padding-block: 0.9rem;
+  font-weight: 600;
+  border-radius: 0.625rem;
 }

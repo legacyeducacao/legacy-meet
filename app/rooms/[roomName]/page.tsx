@@ -22,7 +22,9 @@ export default async function Page({
       ? _searchParams.codec
       : 'vp9';
   const hq = _searchParams.hq === 'true' ? true : false;
-  const singlePC = _searchParams.singlePC !== 'false';
+  // Modo clássico (2 PeerConnections) por padrão — mais compatível com servidores
+  // LiveKit mais antigos. Use ?singlePC=true para forçar o modo single-PC.
+  const singlePC = _searchParams.singlePC === 'true';
 
   return (
     <PageClientImpl

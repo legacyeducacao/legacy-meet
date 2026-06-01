@@ -36,7 +36,7 @@ export function MicrophoneSettings() {
       }}
     >
       <section className="lk-button-group">
-        <TrackToggle source={Track.Source.Microphone}>Microphone</TrackToggle>
+        <TrackToggle source={Track.Source.Microphone}>Microfone</TrackToggle>
         <div className="lk-button-group-menu">
           <MediaDeviceMenu kind="audioinput" />
         </div>
@@ -48,7 +48,9 @@ export function MicrophoneSettings() {
         disabled={isNoiseFilterPending}
         aria-pressed={isNoiseFilterEnabled}
       >
-        {isNoiseFilterEnabled ? 'Disable' : 'Enable'} Enhanced Noise Cancellation
+        {isNoiseFilterEnabled
+          ? 'Desativar cancelamento de ruído avançado'
+          : 'Ativar cancelamento de ruído avançado'}
       </button>
     </div>
   );
