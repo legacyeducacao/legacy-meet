@@ -40,6 +40,7 @@ export function PageClientImpl(props: {
   title: string;
   record: boolean;
   transcribe: boolean;
+  hostKey: string;
 }) {
   const [preJoinChoices, setPreJoinChoices] = React.useState<LocalUserChoices | undefined>(
     undefined,
@@ -63,10 +64,13 @@ export function PageClientImpl(props: {
     if (props.region) {
       url.searchParams.append('region', props.region);
     }
+    if (props.hostKey) {
+      url.searchParams.append('hostKey', props.hostKey);
+    }
     const connectionDetailsResp = await fetch(url.toString());
     const connectionDetailsData = await connectionDetailsResp.json();
     setConnectionDetails(connectionDetailsData);
-  }, []);
+  }, [props.roomName, props.region, props.hostKey]);
   const handlePreJoinError = React.useCallback((e: any) => console.error(e), []);
 
   return (

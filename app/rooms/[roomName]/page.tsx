@@ -17,6 +17,7 @@ export default async function Page({
     title?: string;
     rec?: string;
     tx?: string;
+    h?: string;
   }>;
 }) {
   const _params = await params;
@@ -31,6 +32,7 @@ export default async function Page({
   const title = typeof _searchParams.title === 'string' ? _searchParams.title : '';
   const record = _searchParams.rec !== '0';
   const transcribe = record && _searchParams.tx !== '0';
+  const hostKey = typeof _searchParams.h === 'string' ? _searchParams.h : '';
 
   return (
     <PageClientImpl
@@ -43,6 +45,7 @@ export default async function Page({
       title={title}
       record={record}
       transcribe={transcribe}
+      hostKey={hostKey}
     />
   );
 }

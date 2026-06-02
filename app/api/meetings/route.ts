@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateRoomId } from '@/lib/client-utils';
 import { metaKey, writeJson } from '@/lib/recordings';
+import { signHostKey } from '@/lib/hostLink';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,6 +62,9 @@ export async function POST(req: NextRequest) {
   if (title) hostParams.set('title', title);
   hostParams.set('rec', record ? '1' : '0');
   hostParams.set('tx', transcribe ? '1' : '0');
+  // assinatura que concede o papel de anfitrião ao abrir este link (closer)
+  const hostKey = signHostKey(roomName);
+  if (hostKey) hostParams.set('h', hostKey);
 
   return NextResponse.json({
     roomName,
