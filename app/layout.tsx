@@ -13,13 +13,7 @@ export const metadata: Metadata = {
   openGraph: {
     siteName: 'Legacy Meet',
   },
-  icons: {
-    icon: [
-      { rel: 'icon', url: '/favicon.svg', type: 'image/svg+xml' },
-      { rel: 'icon', url: '/favicon.ico', sizes: 'any' },
-    ],
-    apple: [{ rel: 'mask-icon', url: '/favicon.svg', color: '#1D3A5D' }],
-  },
+  // O favicon vem de app/icon.svg (convenção do Next, com cache-busting automático).
 };
 
 export const viewport: Viewport = {
