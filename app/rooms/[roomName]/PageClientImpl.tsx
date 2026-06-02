@@ -9,6 +9,7 @@ import { SettingsMenu } from '@/lib/SettingsMenu';
 import { ConnectionDetails } from '@/lib/types';
 import { formatChatMessageLinks, LocalUserChoices, PreJoin, RoomContext } from '@livekit/components-react';
 import { LegacyVideoConference } from '@/lib/LegacyVideoConference';
+import { NoiseFilter } from '@/lib/NoiseFilter';
 import {
   ExternalE2EEKeyProvider,
   RoomOptions,
@@ -290,6 +291,7 @@ function VideoConferenceComponent(props: {
     <div className="lk-room-container">
       <RoomContext.Provider value={room}>
         <KeyboardShortcuts />
+        <NoiseFilter />
         <LegacyVideoConference
           chatMessageFormatter={formatChatMessageLinks}
           SettingsComponent={SHOW_SETTINGS_MENU ? SettingsMenu : undefined}
