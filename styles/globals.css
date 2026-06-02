@@ -2,6 +2,22 @@
   box-sizing: border-box;
 }
 
+@keyframes lk-rec-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@keyframes lk-lobby-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* Paleta de cores Legacy aplicada sobre o tema da LiveKit */
 [data-lk-theme='default'] {
   --lk-accent-bg: #275286;

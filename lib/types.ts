@@ -25,4 +25,5 @@ export type ConnectionDetails = {
   roomName: string;
   participantName: string;
   participantToken: string;
+  isHost: boolean;
 };

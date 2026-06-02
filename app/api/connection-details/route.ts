@@ -38,6 +38,11 @@ export async function GET(request: NextRequest) {
       return new NextResponse('Missing required query parameter: participantName', { status: 400 });
     }
 
+    // Host = membro da equipe logado (cookie staff_auth). Sem STAFF_PASSWORD
+    // configurado, todos entram como host (sala de espera desativada).
+    const staffPass = process.env.STAFF_PASSWORD;
+    const isHost = !staffPass || request.cookies.get('staff_auth')?.value === staffPass;
+
     // Generate participant token
     if (!randomParticipantPostfix) {
       randomParticipantPostfix = randomString(4);
@@ -49,6 +54,7 @@ export async function GET(request: NextRequest) {
         metadata,
       },
       roomName,
+      isHost,
     );
 
     // Return connection details
@@ -57,6 +63,7 @@ export async function GET(request: NextRequest) {
       roomName: roomName,
       participantToken: participantToken,
       participantName: participantName,
+      isHost,
     };
     return new NextResponse(JSON.stringify(data), {
       headers: {
@@ -71,18 +78,29 @@ export async function GET(request: NextRequest) {
   }
 }
 
-function createParticipantToken(userInfo: AccessTokenOptions, roomName: string) {
+function createParticipantToken(userInfo: AccessTokenOptions, roomName: string, isHost: boolean) {
   const at = new AccessToken(API_KEY, API_SECRET, userInfo);
   at.ttl = '5m';
-  const grant: VideoGrant = {
-    room: roomName,
-    roomJoin: true,
-    canPublish: true,
-    canPublishData: true,
-    canSubscribe: true,
-    // permite definir atributos próprios (ex.: "mão levantada")
-    canUpdateOwnMetadata: true,
-  };
+  // Host: pode tudo + admin (admitir/remover). Convidado: entra na "sala de espera"
+  // sem publicar nem assinar mídia até o host autorizar (server concede depois).
+  const grant: VideoGrant = isHost
+    ? {
+        room: roomName,
+        roomJoin: true,
+        canPublish: true,
+        canPublishData: true,
+        canSubscribe: true,
+        canUpdateOwnMetadata: true,
+        roomAdmin: true,
+      }
+    : {
+        room: roomName,
+        roomJoin: true,
+        canPublish: false,
+        canPublishData: false,
+        canSubscribe: false,
+        canUpdateOwnMetadata: true,
+      };
   at.addGrant(grant);
   // Fecha a sala logo após o último participante sair, para a gravação (egress)
   // finalizar rápido e a transcrição começar quase em seguida.

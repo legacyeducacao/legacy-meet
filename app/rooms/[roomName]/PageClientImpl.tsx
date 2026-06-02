@@ -9,6 +9,7 @@ import { SettingsMenu } from '@/lib/SettingsMenu';
 import { ConnectionDetails } from '@/lib/types';
 import { formatChatMessageLinks, LocalUserChoices, PreJoin, RoomContext } from '@livekit/components-react';
 import { LegacyVideoConference } from '@/lib/LegacyVideoConference';
+import { HostLobbyPanel } from '@/lib/HostLobbyPanel';
 import {
   ExternalE2EEKeyProvider,
   RoomOptions,
@@ -192,6 +193,16 @@ function VideoConferenceComponent(props: {
     };
   }, []);
 
+  // Sala de espera: o host (equipe logada) entra direto; o convidado entra "admitido"
+  // somente quando o host autoriza (o servidor concede canPublish/canSubscribe).
+  const isHost = props.connectionDetails.isHost;
+  const [admitted, setAdmitted] = React.useState(isHost);
+  const handlePermissions = React.useCallback(() => {
+    if (room.localParticipant.permissions?.canPublish) {
+      setAdmitted(true);
+    }
+  }, [room]);
+
   // Coleta os nomes de quem participou (para identificar os speakers na transcrição)
   const participantNamesRef = React.useRef<Set<string>>(new Set());
   const collectParticipants = React.useCallback(() => {
@@ -206,6 +217,10 @@ function VideoConferenceComponent(props: {
   const recordingStartedRef = React.useRef(false);
   const handleConnected = React.useCallback(() => {
     collectParticipants();
+    // Convidado: sinaliza que está na sala de espera para o host autorizar.
+    if (!isHost) {
+      room.localParticipant.setAttributes({ lobby: 'true' }).catch(() => {});
+    }
     const endpoint = process.env.NEXT_PUBLIC_LK_RECORD_ENDPOINT;
     if (!endpoint || !props.options.record || recordingStartedRef.current) {
       return;
@@ -220,7 +235,7 @@ function VideoConferenceComponent(props: {
     fetch(`${endpoint}/start?${params.toString()}`).catch((error) =>
       console.error('Falha ao iniciar a gravação automática:', error),
     );
-  }, [room, collectParticipants, props.options, props.userChoices.username]);
+  }, [room, collectParticipants, props.options, props.userChoices.username, isHost]);
 
   React.useEffect(() => {
     room.on(RoomEvent.Disconnected, handleOnLeave);
@@ -228,6 +243,7 @@ function VideoConferenceComponent(props: {
     room.on(RoomEvent.MediaDevicesError, handleError);
     room.on(RoomEvent.Connected, handleConnected);
     room.on(RoomEvent.ParticipantConnected, collectParticipants);
+    room.on(RoomEvent.ParticipantPermissionsChanged, handlePermissions);
 
     if (e2eeSetupComplete) {
       room
@@ -239,16 +255,6 @@ function VideoConferenceComponent(props: {
         .catch((error) => {
           handleError(error);
         });
-      if (props.userChoices.videoEnabled) {
-        room.localParticipant.setCameraEnabled(true).catch((error) => {
-          handleError(error);
-        });
-      }
-      if (props.userChoices.audioEnabled) {
-        room.localParticipant.setMicrophoneEnabled(true).catch((error) => {
-          handleError(error);
-        });
-      }
     }
     return () => {
       room.off(RoomEvent.Disconnected, handleOnLeave);
@@ -256,8 +262,28 @@ function VideoConferenceComponent(props: {
       room.off(RoomEvent.MediaDevicesError, handleError);
       room.off(RoomEvent.Connected, handleConnected);
       room.off(RoomEvent.ParticipantConnected, collectParticipants);
+      room.off(RoomEvent.ParticipantPermissionsChanged, handlePermissions);
     };
   }, [e2eeSetupComplete, room, props.connectionDetails, props.userChoices]);
+
+  // Liga câmera/microfone somente quando admitido (host: imediatamente; convidado:
+  // após o host autorizar). Convidado limpa o atributo de sala de espera ao entrar.
+  React.useEffect(() => {
+    if (!admitted) return;
+    if (props.userChoices.videoEnabled) {
+      room.localParticipant.setCameraEnabled(true).catch((error) => {
+        console.error('Falha ao habilitar a câmera:', error);
+      });
+    }
+    if (props.userChoices.audioEnabled) {
+      room.localParticipant.setMicrophoneEnabled(true).catch((error) => {
+        console.error('Falha ao habilitar o microfone:', error);
+      });
+    }
+    if (!isHost) {
+      room.localParticipant.setAttributes({ lobby: '' }).catch(() => {});
+    }
+  }, [admitted, room, props.userChoices.videoEnabled, props.userChoices.audioEnabled, isHost]);
 
   const lowPowerMode = useLowCPUOptimizer(room);
 
@@ -296,14 +322,81 @@ function VideoConferenceComponent(props: {
   return (
     <div className="lk-room-container">
       <RoomContext.Provider value={room}>
-        <KeyboardShortcuts />
-        <LegacyVideoConference
-          chatMessageFormatter={formatChatMessageLinks}
-          SettingsComponent={SHOW_SETTINGS_MENU ? SettingsMenu : undefined}
-        />
-        <DebugMode />
-        <RecordingIndicator />
+        {admitted ? (
+          <>
+            <KeyboardShortcuts />
+            <RecordingIndicator />
+            <LegacyVideoConference
+              chatMessageFormatter={formatChatMessageLinks}
+              SettingsComponent={SHOW_SETTINGS_MENU ? SettingsMenu : undefined}
+            />
+            {isHost && <HostLobbyPanel />}
+            <DebugMode />
+          </>
+        ) : (
+          <WaitingRoom name={props.userChoices.username} onLeave={() => room.disconnect()} />
+        )}
       </RoomContext.Provider>
+    </div>
+  );
+}
+
+function WaitingRoom(props: { name?: string; onLeave: () => void }) {
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '1.25rem',
+        padding: '2rem',
+        textAlign: 'center',
+        background:
+          'radial-gradient(circle at 50% 18%, rgba(39, 82, 134, 0.3) 0%, transparent 55%), linear-gradient(160deg, #061222 0%, #0a1c33 100%)',
+      }}
+    >
+      <img
+        src="/logo-legacy-meet.svg"
+        alt="Legacy Meet"
+        style={{ width: 64, height: 64, filter: 'drop-shadow(0 6px 16px rgba(0,0,0,0.45))' }}
+      />
+      <div
+        style={{
+          width: 36,
+          height: 36,
+          border: '3px solid rgba(151, 198, 255, 0.25)',
+          borderTopColor: '#97c6ff',
+          borderRadius: '50%',
+          animation: 'lk-lobby-spin 0.9s linear infinite',
+        }}
+      />
+      <h1 style={{ margin: 0, fontSize: '1.35rem', fontWeight: 700, color: '#fff' }}>
+        Aguardando o anfitrião autorizar sua entrada
+      </h1>
+      <p style={{ margin: 0, maxWidth: 420, fontSize: '0.95rem', color: 'rgba(255,255,255,0.65)' }}>
+        {props.name ? `Olá, ${props.name}! ` : ''}
+        Assim que o anfitrião permitir, você entrará na reunião automaticamente.
+      </p>
+      <button
+        type="button"
+        onClick={props.onLeave}
+        style={{
+          cursor: 'pointer',
+          marginTop: '0.5rem',
+          border: '1px solid rgba(255,255,255,0.25)',
+          background: 'transparent',
+          color: '#fff',
+          borderRadius: '0.625rem',
+          padding: '0.7rem 1.4rem',
+          fontSize: '0.9rem',
+          fontWeight: 600,
+        }}
+      >
+        Sair
+      </button>
     </div>
   );
 }
