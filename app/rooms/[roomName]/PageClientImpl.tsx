@@ -7,13 +7,8 @@ import { KeyboardShortcuts } from '@/lib/KeyboardShortcuts';
 import { RecordingIndicator } from '@/lib/RecordingIndicator';
 import { SettingsMenu } from '@/lib/SettingsMenu';
 import { ConnectionDetails } from '@/lib/types';
-import {
-  formatChatMessageLinks,
-  LocalUserChoices,
-  PreJoin,
-  RoomContext,
-  VideoConference,
-} from '@livekit/components-react';
+import { formatChatMessageLinks, LocalUserChoices, PreJoin, RoomContext } from '@livekit/components-react';
+import { LegacyVideoConference } from '@/lib/LegacyVideoConference';
 import {
   ExternalE2EEKeyProvider,
   RoomOptions,
@@ -29,7 +24,6 @@ import {
 import { useRouter } from 'next/navigation';
 import { useSetupE2EE } from '@/lib/useSetupE2EE';
 import { useLowCPUOptimizer } from '@/lib/usePerfomanceOptimiser';
-import { useLiveKitTranslations } from '@/lib/useLiveKitTranslations';
 
 const CONN_DETAILS_ENDPOINT =
   process.env.NEXT_PUBLIC_CONN_DETAILS_ENDPOINT ?? '/api/connection-details';
@@ -41,17 +35,20 @@ export function PageClientImpl(props: {
   hq: boolean;
   codec: VideoCodec;
   singlePeerConnection: boolean;
+  hostName: string;
+  record: boolean;
+  transcribe: boolean;
 }) {
   const [preJoinChoices, setPreJoinChoices] = React.useState<LocalUserChoices | undefined>(
     undefined,
   );
   const preJoinDefaults = React.useMemo(() => {
     return {
-      username: '',
+      username: props.hostName,
       videoEnabled: true,
       audioEnabled: true,
     };
-  }, []);
+  }, [props.hostName]);
   const [connectionDetails, setConnectionDetails] = React.useState<ConnectionDetails | undefined>(
     undefined,
   );
@@ -69,8 +66,6 @@ export function PageClientImpl(props: {
     setConnectionDetails(connectionDetailsData);
   }, []);
   const handlePreJoinError = React.useCallback((e: any) => console.error(e), []);
-
-  useLiveKitTranslations();
 
   return (
     <main data-lk-theme="default" style={{ height: '100%' }}>
@@ -101,6 +96,8 @@ export function PageClientImpl(props: {
             codec: props.codec,
             hq: props.hq,
             singlePeerConnection: props.singlePeerConnection,
+            record: props.record,
+            transcribe: props.transcribe,
           }}
         />
       )}
@@ -115,6 +112,8 @@ function VideoConferenceComponent(props: {
     hq: boolean;
     codec: VideoCodec;
     singlePeerConnection: boolean;
+    record: boolean;
+    transcribe: boolean;
   };
 }) {
   const keyProvider = new ExternalE2EEKeyProvider();
@@ -188,14 +187,17 @@ function VideoConferenceComponent(props: {
   const recordingStartedRef = React.useRef(false);
   const handleConnected = React.useCallback(() => {
     const endpoint = process.env.NEXT_PUBLIC_LK_RECORD_ENDPOINT;
-    if (!endpoint || recordingStartedRef.current) {
+    if (!endpoint || !props.options.record || recordingStartedRef.current) {
       return;
     }
     recordingStartedRef.current = true;
-    fetch(`${endpoint}/start?roomName=${encodeURIComponent(room.name)}`).catch((error) =>
+    const url = `${endpoint}/start?roomName=${encodeURIComponent(room.name)}&transcribe=${
+      props.options.transcribe ? '1' : '0'
+    }`;
+    fetch(url).catch((error) =>
       console.error('Falha ao iniciar a gravação automática:', error),
     );
-  }, [room]);
+  }, [room, props.options.record, props.options.transcribe]);
 
   React.useEffect(() => {
     room.on(RoomEvent.Disconnected, handleOnLeave);
@@ -257,7 +259,7 @@ function VideoConferenceComponent(props: {
     <div className="lk-room-container">
       <RoomContext.Provider value={room}>
         <KeyboardShortcuts />
-        <VideoConference
+        <LegacyVideoConference
           chatMessageFormatter={formatChatMessageLinks}
           SettingsComponent={SHOW_SETTINGS_MENU ? SettingsMenu : undefined}
         />

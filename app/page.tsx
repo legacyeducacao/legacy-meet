@@ -1,71 +1,36 @@
 'use client';
 
-import { useRouter, useSearchParams } from 'next/navigation';
-import React, { Suspense } from 'react';
+import { useRouter } from 'next/navigation';
+import React, { useState } from 'react';
 import { generateRoomId } from '@/lib/client-utils';
-import { MeetingType, MEETING_TYPES, roomNameWithType } from '@/lib/meeting-types';
 import styles from '../styles/Home.module.css';
 
-const TAB_CONTENT: Record<MeetingType, { label: string; description: string }> = {
-  comercial: {
-    label: 'Comercial',
-    description: 'Inicie uma reunião comercial da Legacy. A gravação começa automaticamente.',
-  },
-  executoria: {
-    label: 'Executoria',
-    description: 'Inicie uma reunião de executoria da Legacy. A gravação começa automaticamente.',
-  },
-};
-
-function Tabs(props: React.PropsWithChildren<{}>) {
-  const searchParams = useSearchParams();
-  const activeTab = searchParams?.get('tab') as MeetingType | null;
-  const tabIndex = activeTab ? MEETING_TYPES.indexOf(activeTab) : 0;
-  const safeIndex = tabIndex >= 0 ? tabIndex : 0;
-
-  const router = useRouter();
-  function onTabSelected(index: number) {
-    router.push(`/?tab=${MEETING_TYPES[index]}`);
-  }
-
-  const tabs = React.Children.map(props.children, (child, index) => {
-    return (
-      <button
-        onClick={() => onTabSelected(index)}
-        aria-pressed={safeIndex === index}
-      >
-        {/* @ts-ignore */}
-        {child?.props.label}
-      </button>
-    );
-  });
-
-  return (
-    <div className={styles.tabContainer}>
-      <div className={styles.tabSelect}>{tabs}</div>
-      {/* @ts-ignore */}
-      {props.children[safeIndex]}
-    </div>
-  );
-}
-
-function MeetingTab(props: { label: string; type: MeetingType; description: string }) {
-  const router = useRouter();
-  const startMeeting = () => {
-    const roomName = roomNameWithType(props.type, generateRoomId());
-    router.push(`/rooms/${roomName}`);
-  };
-  return (
-    <div className={styles.tabContent}>
-      <p className={styles.lead}>{props.description}</p>
-      <button className={styles.primaryButton} onClick={startMeeting}>
-        Iniciar reunião
-      </button>
-    </div>
-  );
-}
-
 export default function Page() {
+  const router = useRouter();
+  const [name, setName] = useState('');
+  const [record, setRecord] = useState(true);
+  const [transcribe, setTranscribe] = useState(true);
+
+  // Transcrição depende da gravação (transcrevemos o arquivo gravado).
+  const onRecordChange = (checked: boolean) => {
+    setRecord(checked);
+    if (!checked) setTranscribe(false);
+  };
+  const onTranscribeChange = (checked: boolean) => {
+    setTranscribe(checked);
+    if (checked) setRecord(true);
+  };
+
+  const createMeeting = (event: React.FormEvent) => {
+    event.preventDefault();
+    const roomId = generateRoomId();
+    const params = new URLSearchParams();
+    if (name.trim()) params.set('name', name.trim());
+    params.set('rec', record ? '1' : '0');
+    params.set('tx', transcribe ? '1' : '0');
+    router.push(`/rooms/${roomId}?${params.toString()}`);
+  };
+
   return (
     <main className={styles.container}>
       <section className={styles.brandPanel} aria-label="Legacy Meet">
@@ -76,21 +41,46 @@ export default function Page() {
       <section className={styles.formPanel}>
         <div className={styles.formInner}>
           <h1 className={styles.formTitle}>Seja bem-vindo!</h1>
-          <p className={styles.formSubtitle}>Escolha o tipo de reunião da Legacy.</p>
-          <Suspense fallback="Carregando">
-            <Tabs>
-              <MeetingTab
-                label={TAB_CONTENT.comercial.label}
-                type="comercial"
-                description={TAB_CONTENT.comercial.description}
+          <p className={styles.formSubtitle}>Crie uma reunião da Legacy.</p>
+
+          <form className={styles.tabContent} onSubmit={createMeeting}>
+            <div className={styles.field}>
+              <label className={styles.fieldLabel} htmlFor="host-name">
+                Seu nome
+              </label>
+              <input
+                id="host-name"
+                className={styles.input}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Digite seu nome"
+                autoComplete="name"
+                required
               />
-              <MeetingTab
-                label={TAB_CONTENT.executoria.label}
-                type="executoria"
-                description={TAB_CONTENT.executoria.description}
+            </div>
+
+            <label className={styles.checkboxRow}>
+              <input
+                type="checkbox"
+                checked={record}
+                onChange={(e) => onRecordChange(e.target.checked)}
               />
-            </Tabs>
-          </Suspense>
+              <span>Gravar reunião</span>
+            </label>
+
+            <label className={styles.checkboxRow}>
+              <input
+                type="checkbox"
+                checked={transcribe}
+                onChange={(e) => onTranscribeChange(e.target.checked)}
+              />
+              <span>Transcrever reunião</span>
+            </label>
+
+            <button className={styles.primaryButton} type="submit">
+              Criar reunião
+            </button>
+          </form>
         </div>
       </section>
     </main>

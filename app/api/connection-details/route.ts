@@ -75,6 +75,8 @@ function createParticipantToken(userInfo: AccessTokenOptions, roomName: string) 
     canPublish: true,
     canPublishData: true,
     canSubscribe: true,
+    // permite definir atributos próprios (ex.: "mão levantada")
+    canUpdateOwnMetadata: true,
   };
   at.addGrant(grant);
   return at.toJwt();

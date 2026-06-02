@@ -98,6 +98,18 @@
   color: #5b6b7f;
 }
 
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.fieldLabel {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #1d3a5d;
+}
+
 /* ---------- Campos ---------- */
 .input,
 .textarea {

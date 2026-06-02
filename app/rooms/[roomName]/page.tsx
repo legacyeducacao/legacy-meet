@@ -13,6 +13,9 @@ export default async function Page({
     hq?: string;
     codec?: string;
     singlePC?: string;
+    name?: string;
+    rec?: string;
+    tx?: string;
   }>;
 }) {
   const _params = await params;
@@ -23,6 +26,9 @@ export default async function Page({
       : 'vp9';
   const hq = _searchParams.hq === 'true' ? true : false;
   const singlePC = _searchParams.singlePC !== 'false';
+  const hostName = typeof _searchParams.name === 'string' ? _searchParams.name : '';
+  const record = _searchParams.rec !== '0';
+  const transcribe = record && _searchParams.tx !== '0';
 
   return (
     <PageClientImpl
@@ -31,6 +37,9 @@ export default async function Page({
       hq={hq}
       codec={codec}
       singlePeerConnection={singlePC}
+      hostName={hostName}
+      record={record}
+      transcribe={transcribe}
     />
   );
 }

@@ -1,6 +1,5 @@
 import { EgressClient, EncodedFileOutput, S3Upload } from 'livekit-server-sdk';
 import { NextRequest, NextResponse } from 'next/server';
-import { meetingTypeFromRoomName } from '@/lib/meeting-types';
 
 export async function GET(req: NextRequest) {
   try {
@@ -24,27 +23,18 @@ export async function GET(req: NextRequest) {
       S3_KEY_ID,
       S3_KEY_SECRET,
       S3_BUCKET,
-      S3_BUCKET_COMERCIAL,
-      S3_BUCKET_EXECUTORIA,
       S3_ENDPOINT,
       S3_REGION,
     } = process.env;
 
-    // O tipo da reunião está codificado no prefixo do nome da sala
-    // (ex: "comercial-...", "executoria-...") e define em qual bucket gravar.
-    const meetingType = meetingTypeFromRoomName(roomName);
-    const bucketByType: Record<typeof meetingType, string | undefined> = {
-      comercial: S3_BUCKET_COMERCIAL,
-      executoria: S3_BUCKET_EXECUTORIA,
-    };
-    const bucket = bucketByType[meetingType] ?? S3_BUCKET;
-
-    if (!bucket) {
-      return new NextResponse(
-        `Bucket não configurado para reuniões do tipo "${meetingType}"`,
-        { status: 500 },
-      );
+    if (!S3_BUCKET) {
+      return new NextResponse('Bucket de gravação (S3_BUCKET) não configurado', { status: 500 });
     }
+
+    // Se a reunião deve ser transcrita, gravamos numa pasta separada para que o
+    // passo de transcrição (pós-reunião) saiba quais arquivos processar.
+    const shouldTranscribe = req.nextUrl.searchParams.get('transcribe') === '1';
+    const folder = shouldTranscribe ? 'com-transcricao' : 'gravacoes';
 
     const hostURL = new URL(LIVEKIT_URL!);
     hostURL.protocol = 'https:';
@@ -57,7 +47,7 @@ export async function GET(req: NextRequest) {
     }
 
     const fileOutput = new EncodedFileOutput({
-      filepath: `${meetingType}/${new Date(Date.now()).toISOString()}-${roomName}.mp4`,
+      filepath: `${folder}/${new Date(Date.now()).toISOString()}-${roomName}.mp4`,
       output: {
         case: 's3',
         value: new S3Upload({
@@ -65,7 +55,7 @@ export async function GET(req: NextRequest) {
           accessKey: S3_KEY_ID,
           secret: S3_KEY_SECRET,
           region: S3_REGION,
-          bucket,
+          bucket: S3_BUCKET,
         }),
       },
     });
