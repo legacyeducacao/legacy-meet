@@ -17,7 +17,6 @@ import { KeyboardShortcuts } from '@/lib/KeyboardShortcuts';
 import { SettingsMenu } from '@/lib/SettingsMenu';
 import { useSetupE2EE } from '@/lib/useSetupE2EE';
 import { useLowCPUOptimizer } from '@/lib/usePerfomanceOptimiser';
-import { NoiseFilter } from '@/lib/NoiseFilter';
 
 export function VideoConferenceClientImpl(props: {
   liveKitUrl: string;
@@ -37,6 +36,12 @@ export function VideoConferenceClientImpl(props: {
         videoSimulcastLayers: [VideoPresets.h540, VideoPresets.h216],
         red: !e2eeEnabled,
         videoCodec: props.codec,
+      },
+      audioCaptureDefaults: {
+        // Cancelamento de ruído nativo do navegador sempre ligado
+        noiseSuppression: true,
+        echoCancellation: true,
+        autoGainControl: true,
       },
       adaptiveStream: { pixelDensity: 'screen' },
       dynacast: true,
@@ -87,7 +92,6 @@ export function VideoConferenceClientImpl(props: {
     <div className="lk-room-container">
       <RoomContext.Provider value={room}>
         <KeyboardShortcuts />
-        <NoiseFilter />
         <LegacyVideoConference
           chatMessageFormatter={formatChatMessageLinks}
           SettingsComponent={
