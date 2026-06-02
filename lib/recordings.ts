@@ -1,10 +1,12 @@
 import {
+  DeleteObjectCommand,
   GetObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { deleteDriveFile } from './drive';
 
 export interface Utterance {
   speaker: string;
@@ -156,4 +158,34 @@ export async function writeJson(key: string, obj: unknown): Promise<void> {
       ContentType: 'application/json',
     }),
   );
+}
+
+async function deleteObject(key: string): Promise<void> {
+  try {
+    await s3().send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: key }));
+  } catch (e) {
+    console.error('Falha ao apagar objeto', key, e);
+  }
+}
+
+/** Apaga uma gravação: vídeo (Drive ou MinIO), transcrição, meta e manifesto. */
+export async function deleteRecording(id: string): Promise<void> {
+  const manifest = await getManifest(id);
+  if (manifest) {
+    if (manifest.storage === 'gdrive') {
+      const driveId = manifest.gdriveFolderId || manifest.gdriveFileId;
+      if (driveId) {
+        try {
+          await deleteDriveFile(driveId);
+        } catch (e) {
+          console.error('Falha ao apagar do Drive', e);
+        }
+      }
+    } else if (manifest.videoKey) {
+      await deleteObject(manifest.videoKey);
+    }
+    if (manifest.transcriptTxtKey) await deleteObject(manifest.transcriptTxtKey);
+    if (manifest.roomName) await deleteObject(metaKey(manifest.roomName));
+  }
+  await deleteObject(`${MANIFEST_PREFIX}${id}.json`);
 }

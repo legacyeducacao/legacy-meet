@@ -58,14 +58,18 @@
 }
 
 .card {
-  display: block;
+  position: relative;
   padding: 1.1rem 1.25rem;
   background: #fff;
   border: 1px solid #e1e8f0;
   border-radius: 0.75rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.cardLink {
+  display: block;
   text-decoration: none;
   color: inherit;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .card:hover {
@@ -76,6 +80,122 @@
 .cardTitle {
   font-weight: 700;
   margin: 0 0 0.35rem;
+  padding-right: 2.4rem;
+}
+
+/* ---------- Toolbar (busca + datas) ---------- */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  margin-bottom: 1.25rem;
+}
+
+.toolbarSearch {
+  flex: 1;
+  min-width: 220px;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid #d8e1ec;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: #1d3a5d;
+  font: inherit;
+}
+
+.toolbarSearch:focus {
+  outline: none;
+  border-color: #275286;
+}
+
+.dateField {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: #5b6b7f;
+}
+
+.dateField input {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid #d8e1ec;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: #1d3a5d;
+  font: inherit;
+}
+
+.clearBtn {
+  padding: 0.5rem 0.85rem;
+  border: 1px solid #d8e1ec;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: #1d3a5d;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+.clearBtn:hover {
+  border-color: #97c6ff;
+}
+
+/* ---------- Botão excluir ---------- */
+.deleteBtn {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border: 1px solid #f0d4d4;
+  border-radius: 0.45rem;
+  background: #fff;
+  color: #c0392b;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.deleteBtn:hover {
+  background: #fdeaea;
+  border-color: #e6b0b0;
+}
+
+.deleteBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ---------- Paginação ---------- */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.pagination button {
+  padding: 0.5rem 0.9rem;
+  border: 1px solid #d8e1ec;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: #1d3a5d;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.pagination button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pagination span {
+  font-size: 0.85rem;
+  color: #5b6b7f;
 }
 
 .cardMeta {

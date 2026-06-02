@@ -24,3 +24,15 @@ export async function getDriveAccessToken(): Promise<string> {
   }
   return data.access_token;
 }
+
+/** Apaga um arquivo ou pasta do Drive (apagar a pasta remove o conteúdo). */
+export async function deleteDriveFile(fileId: string): Promise<void> {
+  const token = await getDriveAccessToken();
+  const resp = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${fileId}?supportsAllDrives=true`,
+    { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!resp.ok && resp.status !== 404) {
+    throw new Error(`drive_delete_failed ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+  }
+}
