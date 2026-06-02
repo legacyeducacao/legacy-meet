@@ -71,7 +71,7 @@ export function PageClientImpl(props: {
   return (
     <main data-lk-theme="default" style={{ height: '100%' }}>
       {connectionDetails === undefined || preJoinChoices === undefined ? (
-        <div className="prejoin-stage" style={{ display: 'grid', placeItems: 'center', height: '100%' }}>
+        <div className="prejoin-stage">
           <div className="prejoin-card">
             <div className="prejoin-header">
               <img src="/favicon.svg" alt="Legacy Meet" width={52} height={52} />
