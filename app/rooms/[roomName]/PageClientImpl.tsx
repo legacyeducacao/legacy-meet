@@ -180,11 +180,6 @@ function VideoConferenceComponent(props: {
   const connectOptions = React.useMemo((): RoomConnectOptions => {
     return {
       autoSubscribe: true,
-      rtcConfig: {
-        iceTransportPolicy: 'all',
-      },
-      // dá mais tempo pro fallback TCP acontecer antes do timeout
-      peerConnectionTimeout: 30_000,
     };
   }, []);
 
