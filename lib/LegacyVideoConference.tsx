@@ -76,6 +76,36 @@ function HandIcon({ size = 20 }: { size?: number }) {
   );
 }
 
+/** Ícone de alto-falante. */
+function SpeakerIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M3 10v4a1 1 0 0 0 1 1h3l4 4V5L7 9H4a1 1 0 0 0-1 1z" />
+      <path
+        d="M16 8.5a4 4 0 0 1 0 7"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <path
+        d="M18.5 6a7 7 0 0 1 0 12"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 /** Barra de controles da reunião com os rótulos em português. */
 function LegacyControlBar(props: {
   controls?: { microphone?: boolean; camera?: boolean; screenShare?: boolean; chat?: boolean; settings?: boolean };
@@ -201,6 +231,17 @@ function LegacyControlBar(props: {
           </div>
         </div>
       )}
+
+      {/* Seletor de saída de áudio (alto-falante / fone) */}
+      <div className="lk-button-group">
+        <span className="lk-button">
+          <SpeakerIcon />
+          Alto-falante
+        </span>
+        <div className="lk-button-group-menu">
+          <MediaDeviceMenu kind="audiooutput" />
+        </div>
+      </div>
 
       {visible.screenShare && (
         <TrackToggle
