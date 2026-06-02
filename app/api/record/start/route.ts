@@ -60,6 +60,9 @@ export async function GET(req: NextRequest) {
           secret: S3_KEY_SECRET,
           region: S3_REGION,
           bucket: S3_BUCKET,
+          // MinIO atrás do EasyPanel: o certificado vale só para o host base,
+          // não para "<bucket>.host". Path-style evita o erro de TLS no upload.
+          forcePathStyle: true,
         }),
       },
     });
