@@ -1,6 +1,6 @@
 import { EgressClient, EncodedFileOutput, S3Upload } from 'livekit-server-sdk';
 import { NextRequest, NextResponse } from 'next/server';
-import { metaKey, writeJson } from '@/lib/recordings';
+import { metaKey, readJson, writeJson, type MeetingMeta } from '@/lib/recordings';
 
 export async function GET(req: NextRequest) {
   try {
@@ -83,11 +83,14 @@ export async function GET(req: NextRequest) {
     try {
       const title = req.nextUrl.searchParams.get('title') ?? '';
       const host = req.nextUrl.searchParams.get('host') ?? '';
+      // Mescla com o que já existe (ex.: título/host definidos pelo CRM ao agendar),
+      // sem sobrescrever com valores vazios quando o convidado entra primeiro.
+      const existing = (await readJson<MeetingMeta>(metaKey(roomName))) ?? {};
       await writeJson(metaKey(roomName), {
-        title,
-        host,
-        createdAt: new Date().toISOString(),
-        participants: host ? [host] : [],
+        title: title || existing.title || '',
+        host: host || existing.host || '',
+        createdAt: existing.createdAt || new Date().toISOString(),
+        participants: existing.participants?.length ? existing.participants : host ? [host] : [],
       });
     } catch (e) {
       console.error('Falha ao gravar metadados da reunião:', e);
