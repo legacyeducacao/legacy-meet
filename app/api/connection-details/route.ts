@@ -1,7 +1,12 @@
 import { randomString } from '@/lib/client-utils';
 import { getLiveKitURL } from '@/lib/getLiveKitURL';
 import { ConnectionDetails } from '@/lib/types';
-import { AccessToken, AccessTokenOptions, VideoGrant } from 'livekit-server-sdk';
+import {
+  AccessToken,
+  AccessTokenOptions,
+  RoomConfiguration,
+  VideoGrant,
+} from 'livekit-server-sdk';
 import { NextRequest, NextResponse } from 'next/server';
 
 const API_KEY = process.env.LIVEKIT_API_KEY;
@@ -79,6 +84,13 @@ function createParticipantToken(userInfo: AccessTokenOptions, roomName: string) 
     canUpdateOwnMetadata: true,
   };
   at.addGrant(grant);
+  // Fecha a sala logo após o último participante sair, para a gravação (egress)
+  // finalizar rápido e a transcrição começar quase em seguida.
+  at.roomConfig = new RoomConfiguration({
+    name: roomName,
+    emptyTimeout: 60, // sala criada e nunca acessada fecha em 60s
+    departureTimeout: 2, // fecha ~2s após o último sair
+  });
   return at.toJwt();
 }
 
