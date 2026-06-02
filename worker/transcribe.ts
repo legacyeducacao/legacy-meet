@@ -273,7 +273,7 @@ async function transcribeChunkOnce(audioB64: string, participants: string[]): Pr
       json_schema: { name: 'transcription', strict: true, schema: TRANSCRIPTION_SCHEMA },
     },
     temperature: 0,
-    max_tokens: 16384,
+    max_tokens: 8192,
     reasoning: { exclude: true },
   };
   const resp = await fetch(OPENROUTER_URL, {
@@ -567,21 +567,27 @@ async function processRecording(rec: RecordingObject) {
       }
     }
 
-    if (allUtts.length === 0 && skipped.length > 0) {
-      throw new Error(`todos os chunks falharam (length/pile-up): ${skipped.join(', ')}`);
+    // Se TODOS os chunks falharam (alucinação/length), NÃO relança erro — senão o
+    // worker reprocessaria a mesma gravação pra sempre, queimando créditos. Em vez
+    // disso, finaliza marcando como "failed" e mantém o vídeo no MinIO p/ reprocesso.
+    const transcriptionFailed = allUtts.length === 0 && skipped.length > 0;
+    if (transcriptionFailed) {
+      log(
+        `transcrição falhou (chunks pulados: ${skipped.join(', ')}) — finalizando sem novas tentativas, vídeo mantido no MinIO`,
+      );
     }
 
     // Texto corrido para download (mantido no MinIO como referência do manifesto)
     const plainText = utterancesToPlainText(allUtts);
     await uploadText(transcriptKey(id, 'txt'), plainText, 'text/plain; charset=utf-8');
 
-    // Arquivamento: cria uma pasta por reunião no Drive (vídeo + transcrição) e
-    // remove o vídeo do MinIO. Se o Drive não estiver configurado, mantém no MinIO.
+    // Arquivamento: só move pro Drive se a transcrição deu certo (senão mantém no
+    // MinIO para permitir reprocessar). Cria uma pasta por reunião no Drive.
     let storage: 's3' | 'gdrive' = 's3';
     let gdriveFileId: string | null = null;
     let gdriveFolderId: string | null = null;
     let videoKey: string | null = key;
-    if (DRIVE_ENABLED) {
+    if (DRIVE_ENABLED && !transcriptionFailed) {
       const token = await getDriveAccessToken();
       const folderName = `${formatDateBR(createdAt)} - ${title || roomName}`;
       log(`arquivando no Google Drive em "${folderName}"`);
@@ -607,7 +613,7 @@ async function processRecording(rec: RecordingObject) {
       gdriveFileId,
       gdriveFolderId,
       transcriptTxtKey: transcriptKey(id, 'txt'),
-      transcriptionStatus: 'complete' as const,
+      transcriptionStatus: transcriptionFailed ? ('failed' as const) : ('complete' as const),
       model: OPENROUTER_MODEL,
       participants,
       skippedChunks: skipped,

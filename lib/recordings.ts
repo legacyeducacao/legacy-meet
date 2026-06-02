@@ -26,7 +26,7 @@ export interface RecordingManifest {
   gdriveFileId: string | null;
   gdriveFolderId?: string | null;
   transcriptTxtKey: string;
-  transcriptionStatus: 'complete' | 'pending';
+  transcriptionStatus: 'complete' | 'pending' | 'failed';
   model?: string;
   participants?: string[];
   skippedChunks?: number[];

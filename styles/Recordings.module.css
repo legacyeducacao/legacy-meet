@@ -217,6 +217,16 @@
   color: #275286;
 }
 
+.badgeFail {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: #fdeaea;
+  color: #c0392b;
+}
+
 .empty {
   padding: 3rem 1rem;
   text-align: center;

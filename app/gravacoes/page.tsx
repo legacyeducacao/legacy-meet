@@ -177,7 +177,11 @@ export default function GravacoesPage() {
                 <span>{formatDate(rec.createdAt)}</span>
                 <span>· {formatDuration(rec.durationSeconds)}</span>
                 {rec.storage === 'gdrive' && <span className={styles.badge}>Google Drive</span>}
-                <span className={styles.badge}>{rec.utteranceCount} falas</span>
+                {rec.transcriptionStatus === 'failed' ? (
+                  <span className={styles.badgeFail}>Transcrição falhou</span>
+                ) : (
+                  <span className={styles.badge}>{rec.utteranceCount} falas</span>
+                )}
               </div>
             </Link>
           </div>
