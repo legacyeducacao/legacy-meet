@@ -274,7 +274,7 @@ function VideoConferenceComponent(props: {
         keepalive: true,
       }).catch(() => {});
     }
-    router.push('/');
+    router.push('/obrigado');
   }, [router, room, collectParticipants]);
   const handleError = React.useCallback((error: Error) => {
     console.error(error);
