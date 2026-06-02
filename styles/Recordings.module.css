@@ -1,0 +1,271 @@
+.page {
+  min-height: 100%;
+  background-color: #f4f7fb;
+  color: #1d3a5d;
+  padding: 1.5rem clamp(1rem, 4vw, 3rem);
+  overflow: auto;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.5rem;
+  border: 1px solid #d8e1ec;
+  background: #fff;
+  color: #1d3a5d;
+  text-decoration: none;
+  font-size: 1.1rem;
+}
+
+.subtitle {
+  color: #5b6b7f;
+  font-size: 0.9rem;
+}
+
+/* ---------- Lista ---------- */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.card {
+  display: block;
+  padding: 1.1rem 1.25rem;
+  background: #fff;
+  border: 1px solid #e1e8f0;
+  border-radius: 0.75rem;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.card:hover {
+  border-color: #97c6ff;
+  box-shadow: 0 6px 20px rgba(29, 58, 93, 0.08);
+}
+
+.cardTitle {
+  font-weight: 700;
+  margin: 0 0 0.35rem;
+}
+
+.cardMeta {
+  font-size: 0.82rem;
+  color: #5b6b7f;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: #eaf2fd;
+  color: #275286;
+}
+
+.empty {
+  padding: 3rem 1rem;
+  text-align: center;
+  color: #5b6b7f;
+}
+
+/* ---------- Detalhe ---------- */
+.detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .detail {
+    grid-template-columns: 1fr;
+  }
+}
+
+.videoCard {
+  background: #fff;
+  border: 1px solid #e1e8f0;
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+}
+
+.video {
+  width: 100%;
+  border-radius: 0.5rem;
+  background: #000;
+  aspect-ratio: 16 / 9;
+}
+
+.videoFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+  font-size: 0.82rem;
+  color: #5b6b7f;
+}
+
+.download {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.8rem;
+  border: 1px solid #d8e1ec;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: #1d3a5d;
+  text-decoration: none;
+  font-size: 0.82rem;
+}
+
+.transcriptCard {
+  background: #fff;
+  border: 1px solid #e1e8f0;
+  border-radius: 0.75rem;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  max-height: 75vh;
+}
+
+.transcriptHeader {
+  font-weight: 700;
+  margin: 0 0 0.75rem;
+}
+
+.search {
+  width: 100%;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid #d8e1ec;
+  border-radius: 0.5rem;
+  background: #f3f6fa;
+  color: #1d3a5d;
+  font: inherit;
+  margin-bottom: 0.75rem;
+}
+
+.search:focus {
+  outline: none;
+  border-color: #275286;
+}
+
+.utterances {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding-right: 0.25rem;
+}
+
+.utterance {
+  border: 1px solid #eef2f7;
+  border-radius: 0.6rem;
+  padding: 0.6rem 0.75rem;
+}
+
+.utteranceHead {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.speaker {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: #1d3a5d;
+}
+
+.timestamp {
+  font-size: 0.72rem;
+  color: #5b6b7f;
+  background: #eef2f7;
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+  cursor: pointer;
+}
+
+.uttText {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #2d3f55;
+  line-height: 1.45;
+}
+
+.mark {
+  background: #fff3b0;
+  border-radius: 3px;
+}
+
+/* ---------- Login ---------- */
+.loginWrap {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  background: #f4f7fb;
+  padding: 1.5rem;
+}
+
+.loginCard {
+  width: min(100%, 360px);
+  background: #fff;
+  border: 1px solid #e1e8f0;
+  border-radius: 0.75rem;
+  padding: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.loginCard h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: #1d3a5d;
+  text-align: center;
+}
+
+.primaryButton {
+  padding: 0.7rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: #1d3a5d;
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.primaryButton:hover {
+  background: #275286;
+}
+
+.error {
+  color: #c0392b;
+  font-size: 0.85rem;
+  text-align: center;
+  margin: 0;
+}

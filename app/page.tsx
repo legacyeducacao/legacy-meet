@@ -81,6 +81,12 @@ export default function Page() {
               Criar reunião
             </button>
           </form>
+
+          <p style={{ textAlign: 'center', marginTop: '1.5rem' }}>
+            <a href="/gravacoes" style={{ color: '#275286', fontSize: '0.9rem' }}>
+              Ver gravações e transcrições →
+            </a>
+          </p>
         </div>
       </section>
     </main>

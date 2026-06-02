@@ -32,9 +32,13 @@ export async function GET(req: NextRequest) {
     }
 
     // Se a reunião deve ser transcrita, gravamos numa pasta separada para que o
-    // passo de transcrição (pós-reunião) saiba quais arquivos processar.
+    // worker de transcrição (pós-reunião) saiba quais arquivos processar.
     const shouldTranscribe = req.nextUrl.searchParams.get('transcribe') === '1';
     const folder = shouldTranscribe ? 'com-transcricao' : 'gravacoes';
+
+    // id URL-safe: "<sala>__<timestamp>". O worker deriva sala/data a partir dele.
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const recordingId = `${roomName}__${stamp}`;
 
     const hostURL = new URL(LIVEKIT_URL!);
     hostURL.protocol = 'https:';
@@ -47,7 +51,7 @@ export async function GET(req: NextRequest) {
     }
 
     const fileOutput = new EncodedFileOutput({
-      filepath: `${folder}/${new Date(Date.now()).toISOString()}-${roomName}.mp4`,
+      filepath: `${folder}/${recordingId}.mp4`,
       output: {
         case: 's3',
         value: new S3Upload({
