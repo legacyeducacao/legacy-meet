@@ -14,6 +14,7 @@ export default async function Page({
     codec?: string;
     singlePC?: string;
     name?: string;
+    title?: string;
     rec?: string;
     tx?: string;
   }>;
@@ -27,6 +28,7 @@ export default async function Page({
   const hq = _searchParams.hq === 'true' ? true : false;
   const singlePC = _searchParams.singlePC !== 'false';
   const hostName = typeof _searchParams.name === 'string' ? _searchParams.name : '';
+  const title = typeof _searchParams.title === 'string' ? _searchParams.title : '';
   const record = _searchParams.rec !== '0';
   const transcribe = record && _searchParams.tx !== '0';
 
@@ -38,6 +40,7 @@ export default async function Page({
       codec={codec}
       singlePeerConnection={singlePC}
       hostName={hostName}
+      title={title}
       record={record}
       transcribe={transcribe}
     />

@@ -1,6 +1,7 @@
 import {
   GetObjectCommand,
   ListObjectsV2Command,
+  PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -14,15 +15,18 @@ export interface Utterance {
 
 export interface RecordingManifest {
   id: string;
+  title?: string;
   roomName: string;
   createdAt: string;
   durationSeconds: number;
   storage: 's3' | 'gdrive';
   videoKey: string | null;
   gdriveFileId: string | null;
+  gdriveFolderId?: string | null;
   transcriptTxtKey: string;
   transcriptionStatus: 'complete' | 'pending';
   model?: string;
+  participants?: string[];
   skippedChunks?: number[];
   utterances: Utterance[];
 }
@@ -120,4 +124,36 @@ export async function getObjectText(key: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+// ---------- Metadados da reunião (título, host, participantes) ----------
+const META_PREFIX = 'meta/';
+export const metaKey = (roomName: string) => `${META_PREFIX}${roomName}.json`;
+
+export interface MeetingMeta {
+  title?: string;
+  host?: string;
+  createdAt?: string;
+  participants?: string[];
+}
+
+export async function readJson<T = unknown>(key: string): Promise<T | null> {
+  const text = await getObjectText(key);
+  if (text == null) return null;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+}
+
+export async function writeJson(key: string, obj: unknown): Promise<void> {
+  await s3().send(
+    new PutObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: key,
+      Body: JSON.stringify(obj),
+      ContentType: 'application/json',
+    }),
+  );
 }

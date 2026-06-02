@@ -1,5 +1,6 @@
 import { EgressClient, EncodedFileOutput, S3Upload } from 'livekit-server-sdk';
 import { NextRequest, NextResponse } from 'next/server';
+import { metaKey, writeJson } from '@/lib/recordings';
 
 export async function GET(req: NextRequest) {
   try {
@@ -76,6 +77,21 @@ export async function GET(req: NextRequest) {
         layout: 'speaker',
       },
     );
+
+    // Metadados da reunião (título/host/participantes) para o worker usar no
+    // nome da pasta do Drive e na identificação dos speakers. Não falha a gravação.
+    try {
+      const title = req.nextUrl.searchParams.get('title') ?? '';
+      const host = req.nextUrl.searchParams.get('host') ?? '';
+      await writeJson(metaKey(roomName), {
+        title,
+        host,
+        createdAt: new Date().toISOString(),
+        participants: host ? [host] : [],
+      });
+    } catch (e) {
+      console.error('Falha ao gravar metadados da reunião:', e);
+    }
 
     return new NextResponse(null, { status: 200 });
   } catch (error) {

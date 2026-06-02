@@ -6,6 +6,18 @@
   overflow: auto;
 }
 
+/* Página de detalhe ocupa a viewport inteira (vídeo + transcrição em 100vh) */
+.detailPage {
+  height: 100vh;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  background-color: #f4f7fb;
+  color: #1d3a5d;
+  padding: 1.25rem clamp(1rem, 3vw, 2.5rem);
+  overflow: hidden;
+}
+
 .topbar {
   display: flex;
   align-items: center;
@@ -93,19 +105,29 @@
 
 /* ---------- Detalhe ---------- */
 .detail {
+  flex: 1;
+  min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
   gap: 1.25rem;
-  align-items: start;
+  align-items: stretch;
 }
 
 @media (max-width: 900px) {
+  .detailPage {
+    height: auto;
+    min-height: 100vh;
+    overflow: auto;
+  }
   .detail {
     grid-template-columns: 1fr;
   }
 }
 
 .videoCard {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   background: #fff;
   border: 1px solid #e1e8f0;
   border-radius: 0.75rem;
@@ -113,10 +135,12 @@
 }
 
 .video {
+  flex: 1;
+  min-height: 0;
   width: 100%;
   border-radius: 0.5rem;
   background: #000;
-  aspect-ratio: 16 / 9;
+  object-fit: contain;
 }
 
 .videoFooter {
@@ -140,6 +164,11 @@
   color: #1d3a5d;
   text-decoration: none;
   font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.download:hover {
+  border-color: #97c6ff;
 }
 
 .transcriptCard {
@@ -149,7 +178,8 @@
   padding: 1rem;
   display: flex;
   flex-direction: column;
-  max-height: 75vh;
+  min-height: 0;
+  height: 100%;
 }
 
 .transcriptHeader {
@@ -174,6 +204,8 @@
 }
 
 .utterances {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;

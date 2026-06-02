@@ -48,7 +48,7 @@ export default async function GravacoesPage() {
       <div className={styles.grid}>
         {items.map((rec) => (
           <Link key={rec.id} href={`/gravacoes/${encodeURIComponent(rec.id)}`} className={styles.card}>
-            <p className={styles.cardTitle}>Reunião · {rec.roomName}</p>
+            <p className={styles.cardTitle}>{rec.title?.trim() || `Reunião · ${rec.roomName}`}</p>
             <div className={styles.cardMeta}>
               <span>{formatDate(rec.createdAt)}</span>
               <span>· {formatDuration(rec.durationSeconds)}</span>

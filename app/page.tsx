@@ -9,6 +9,7 @@ import styles from '../styles/Home.module.css';
 export default function Page() {
   const router = useRouter();
   const [name, setName] = useState('');
+  const [title, setTitle] = useState('');
   const [record, setRecord] = useState(true);
   const [transcribe, setTranscribe] = useState(true);
 
@@ -27,6 +28,7 @@ export default function Page() {
     const roomId = generateRoomId();
     const params = new URLSearchParams();
     if (name.trim()) params.set('name', name.trim());
+    if (title.trim()) params.set('title', title.trim());
     params.set('rec', record ? '1' : '0');
     params.set('tx', transcribe ? '1' : '0');
     router.push(`/rooms/${roomId}?${params.toString()}`);
@@ -57,6 +59,19 @@ export default function Page() {
                 placeholder="Digite seu nome"
                 autoComplete="name"
                 required
+              />
+            </div>
+
+            <div className={styles.field}>
+              <label className={styles.fieldLabel} htmlFor="meeting-title">
+                Título da reunião
+              </label>
+              <input
+                id="meeting-title"
+                className={styles.input}
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Ex: Reunião com João"
               />
             </div>
 

@@ -9,7 +9,7 @@
  */
 import { spawn } from 'node:child_process';
 import { createWriteStream, readFileSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -170,7 +170,13 @@ async function splitAudio(
 }
 
 // --------------------------- OpenRouter ---------------------------
-const PROMPT = `Você é um transcritor de áudio. Vai receber um áudio de uma reunião empresarial em português brasileiro.
+function buildPrompt(participants: string[]): string {
+  const speakerSection = participants.length
+    ? `Os participantes desta reunião são: ${participants.join(', ')}. ` +
+      `Use o NOME EXATO de um deles quando conseguir identificar pela voz/contexto; ` +
+      `se não conseguir, use "Pessoa 1", "Pessoa 2", etc, mantendo consistência.`
+    : `Se houver vozes distintas, use "Pessoa 1", "Pessoa 2", etc, mantendo consistência.`;
+  return `Você é um transcritor de áudio. Vai receber um áudio de uma reunião empresarial em português brasileiro.
 
 REGRAS ABSOLUTAS - TRANSCRIÇÃO LITERAL:
 - Transcreva EXATAMENTE o que foi dito. Palavra por palavra.
@@ -191,13 +197,14 @@ REGRAS CRÍTICAS sobre timestamps:
 - Timestamps em segundos relativos ao início DESTE áudio (começa em 0).
 
 Para o campo "speaker":
-- Se houver vozes distintas, use "Pessoa 1", "Pessoa 2", etc, mantendo consistência.
-- Se for só uma voz, sempre o mesmo speaker.
+${speakerSection}
+- Se for só uma voz, mantenha sempre o mesmo speaker.
 
 Retorne APENAS um objeto JSON no formato:
 {"utterances": [{"speaker": "...", "text": "...", "start": 0.0, "end": 2.5}, ...]}
 
 Se o áudio estiver mudo, com ruído sem fala ou sem conteúdo transcrevível, retorne {"utterances": []}.`;
+}
 
 const TRANSCRIPTION_SCHEMA = {
   type: 'object',
@@ -249,14 +256,14 @@ function parseTranscriptionContent(content: unknown): { utterances?: unknown[] }
   throw new Error(`não foi possível parsear a transcrição; início: ${s.slice(0, 200)}`);
 }
 
-async function transcribeChunkOnce(audioB64: string): Promise<unknown[]> {
+async function transcribeChunkOnce(audioB64: string, participants: string[]): Promise<unknown[]> {
   const body = {
     model: OPENROUTER_MODEL,
     messages: [
       {
         role: 'user',
         content: [
-          { type: 'text', text: PROMPT },
+          { type: 'text', text: buildPrompt(participants) },
           { type: 'input_audio', input_audio: { data: audioB64, format: 'mp3' } },
         ],
       },
@@ -321,12 +328,12 @@ async function transcribeChunkOnce(audioB64: string): Promise<unknown[]> {
   return utterances;
 }
 
-async function transcribeChunk(chunkPath: string): Promise<unknown[]> {
+async function transcribeChunk(chunkPath: string, participants: string[]): Promise<unknown[]> {
   const audioB64 = (await readFile(chunkPath)).toString('base64');
   let lastErr: unknown;
   for (let attempt = 1; attempt <= CHUNK_RETRY_ATTEMPTS; attempt++) {
     try {
-      return await transcribeChunkOnce(audioB64);
+      return await transcribeChunkOnce(audioB64, participants);
     } catch (e) {
       if (e instanceof NonRetryableChunkError) throw e;
       lastErr = e;
@@ -415,11 +422,36 @@ async function getDriveAccessToken(): Promise<string> {
   return data.access_token;
 }
 
-/** Faz upload resumível do arquivo para o Drive e devolve o fileId. */
-async function uploadToDrive(filePath: string, name: string): Promise<string> {
-  const token = await getDriveAccessToken();
+/** Cria uma pasta no Drive e devolve o folderId. */
+async function driveCreateFolder(token: string, name: string, parentId?: string): Promise<string> {
+  const metadata: Record<string, unknown> = {
+    name,
+    mimeType: 'application/vnd.google-apps.folder',
+  };
+  if (parentId) metadata.parents = [parentId];
+  const resp = await fetch('https://www.googleapis.com/drive/v3/files?supportsAllDrives=true', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(metadata),
+  });
+  if (!resp.ok) {
+    throw new Error(`drive_folder_failed ${resp.status}: ${(await resp.text()).slice(0, 300)}`);
+  }
+  const data: any = await resp.json();
+  if (!data.id) throw new Error('drive_folder_no_id');
+  return data.id;
+}
+
+/** Faz upload resumível de um arquivo para o Drive e devolve o fileId. */
+async function driveUploadFile(
+  token: string,
+  filePath: string,
+  name: string,
+  mimeType: string,
+  parentId?: string,
+): Promise<string> {
   const metadata: Record<string, unknown> = { name };
-  if (GOOGLE_DRIVE_FOLDER_ID) metadata.parents = [GOOGLE_DRIVE_FOLDER_ID];
+  if (parentId) metadata.parents = [parentId];
 
   const initResp = await fetch(
     'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true',
@@ -428,7 +460,7 @@ async function uploadToDrive(filePath: string, name: string): Promise<string> {
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json; charset=UTF-8',
-        'X-Upload-Content-Type': 'video/mp4',
+        'X-Upload-Content-Type': mimeType,
       },
       body: JSON.stringify(metadata),
     },
@@ -442,7 +474,7 @@ async function uploadToDrive(filePath: string, name: string): Promise<string> {
   const fileBuffer = await readFile(filePath);
   const putResp = await fetch(sessionUri, {
     method: 'PUT',
-    headers: { 'Content-Type': 'video/mp4', 'Content-Length': String(fileBuffer.length) },
+    headers: { 'Content-Type': mimeType, 'Content-Length': String(fileBuffer.length) },
     body: fileBuffer,
   });
   if (!putResp.ok) {
@@ -451,6 +483,29 @@ async function uploadToDrive(filePath: string, name: string): Promise<string> {
   const result: any = await putResp.json();
   if (!result.id) throw new Error(`drive_upload_no_id: ${JSON.stringify(result).slice(0, 300)}`);
   return result.id;
+}
+
+interface MeetingMeta {
+  title?: string;
+  host?: string;
+  participants?: string[];
+}
+
+async function getMeta(roomName: string): Promise<MeetingMeta | null> {
+  try {
+    const res = await s3.send(new GetObjectCommand({ Bucket: S3_BUCKET, Key: `meta/${roomName}.json` }));
+    const text = await (res.Body as any).transformToString();
+    return JSON.parse(text) as MeetingMeta;
+  } catch {
+    return null;
+  }
+}
+
+function formatDateBR(iso: string): string {
+  const d = new Date(iso);
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${dd}/${mm}/${d.getFullYear()}`;
 }
 
 // --------------------------- Processamento ---------------------------
@@ -472,6 +527,15 @@ async function processRecording(rec: RecordingObject) {
     const chunkDir = path.join(tmp, 'chunks');
     await mkdir(chunkDir, { recursive: true });
 
+    const meta = await getMeta(roomName);
+    const participants = meta?.participants?.length
+      ? meta.participants
+      : meta?.host
+        ? [meta.host]
+        : [];
+    const title = (meta?.title || '').trim();
+    if (participants.length) log(`participantes: ${participants.join(', ')}`);
+
     await downloadToFile(key, videoPath);
     await extractAudio(videoPath, audioPath);
     const durationSeconds = Math.round(await getAudioDuration(audioPath));
@@ -484,7 +548,7 @@ async function processRecording(rec: RecordingObject) {
       log(`chunk ${i + 1}/${chunks.length} (offset=${offset}s)`);
       let utts: unknown[];
       try {
-        utts = await transcribeChunk(chunkPath);
+        utts = await transcribeChunk(chunkPath, participants);
       } catch (e) {
         if (e instanceof NonRetryableChunkError) {
           log(`chunk ${i + 1} pulado: ${e.message}`);
@@ -507,37 +571,45 @@ async function processRecording(rec: RecordingObject) {
       throw new Error(`todos os chunks falharam (length/pile-up): ${skipped.join(', ')}`);
     }
 
-    // Texto corrido para download
-    await uploadText(
-      transcriptKey(id, 'txt'),
-      utterancesToPlainText(allUtts),
-      'text/plain; charset=utf-8',
-    );
+    // Texto corrido para download (mantido no MinIO como referência do manifesto)
+    const plainText = utterancesToPlainText(allUtts);
+    await uploadText(transcriptKey(id, 'txt'), plainText, 'text/plain; charset=utf-8');
 
-    // Arquivamento: Drive (se configurado) ou mantém no MinIO
+    // Arquivamento: cria uma pasta por reunião no Drive (vídeo + transcrição) e
+    // remove o vídeo do MinIO. Se o Drive não estiver configurado, mantém no MinIO.
     let storage: 's3' | 'gdrive' = 's3';
     let gdriveFileId: string | null = null;
+    let gdriveFolderId: string | null = null;
     let videoKey: string | null = key;
     if (DRIVE_ENABLED) {
-      log(`arquivando no Google Drive: ${id}.mp4`);
-      gdriveFileId = await uploadToDrive(videoPath, `${id}.mp4`);
+      const token = await getDriveAccessToken();
+      const folderName = `${formatDateBR(createdAt)} - ${title || roomName}`;
+      log(`arquivando no Google Drive em "${folderName}"`);
+      gdriveFolderId = await driveCreateFolder(token, folderName, GOOGLE_DRIVE_FOLDER_ID);
+      gdriveFileId = await driveUploadFile(token, videoPath, `${id}.mp4`, 'video/mp4', gdriveFolderId);
+      const txtPath = path.join(tmp, 'transcricao.txt');
+      await writeFile(txtPath, plainText, 'utf-8');
+      await driveUploadFile(token, txtPath, `${id}.txt`, 'text/plain', gdriveFolderId);
       await deleteObject(key);
       storage = 'gdrive';
       videoKey = null;
-      log(`arquivado no Drive (fileId=${gdriveFileId}) e removido do MinIO`);
+      log(`arquivado no Drive (pasta=${gdriveFolderId}, vídeo=${gdriveFileId}) e removido do MinIO`);
     }
 
     const manifest = {
       id,
+      title,
       roomName,
       createdAt,
       durationSeconds,
       storage,
       videoKey,
       gdriveFileId,
+      gdriveFolderId,
       transcriptTxtKey: transcriptKey(id, 'txt'),
       transcriptionStatus: 'complete' as const,
       model: OPENROUTER_MODEL,
+      participants,
       skippedChunks: skipped,
       utterances: allUtts,
     };

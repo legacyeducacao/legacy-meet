@@ -36,6 +36,7 @@ export function PageClientImpl(props: {
   codec: VideoCodec;
   singlePeerConnection: boolean;
   hostName: string;
+  title: string;
   record: boolean;
   transcribe: boolean;
 }) {
@@ -98,6 +99,7 @@ export function PageClientImpl(props: {
             singlePeerConnection: props.singlePeerConnection,
             record: props.record,
             transcribe: props.transcribe,
+            title: props.title,
           }}
         />
       )}
@@ -114,6 +116,7 @@ function VideoConferenceComponent(props: {
     singlePeerConnection: boolean;
     record: boolean;
     transcribe: boolean;
+    title: string;
   };
 }) {
   const keyProvider = new ExternalE2EEKeyProvider();
@@ -182,28 +185,42 @@ function VideoConferenceComponent(props: {
     };
   }, []);
 
-  // Gravação automática ao entrar: o bucket é escolhido pelo prefixo do nome da
-  // sala (comercial-/executoria-) dentro do endpoint /api/record/start.
+  // Coleta os nomes de quem participou (para identificar os speakers na transcrição)
+  const participantNamesRef = React.useRef<Set<string>>(new Set());
+  const collectParticipants = React.useCallback(() => {
+    const add = (n?: string) => {
+      if (n && n.trim()) participantNamesRef.current.add(n.trim());
+    };
+    add(room.localParticipant?.name);
+    room.remoteParticipants.forEach((p) => add(p.name));
+  }, [room]);
+
+  // Gravação automática ao entrar; bucket/pasta definidos no /api/record/start.
   const recordingStartedRef = React.useRef(false);
   const handleConnected = React.useCallback(() => {
+    collectParticipants();
     const endpoint = process.env.NEXT_PUBLIC_LK_RECORD_ENDPOINT;
     if (!endpoint || !props.options.record || recordingStartedRef.current) {
       return;
     }
     recordingStartedRef.current = true;
-    const url = `${endpoint}/start?roomName=${encodeURIComponent(room.name)}&transcribe=${
-      props.options.transcribe ? '1' : '0'
-    }`;
-    fetch(url).catch((error) =>
+    const params = new URLSearchParams({
+      roomName: room.name,
+      transcribe: props.options.transcribe ? '1' : '0',
+      title: props.options.title,
+      host: props.userChoices.username ?? '',
+    });
+    fetch(`${endpoint}/start?${params.toString()}`).catch((error) =>
       console.error('Falha ao iniciar a gravação automática:', error),
     );
-  }, [room, props.options.record, props.options.transcribe]);
+  }, [room, collectParticipants, props.options, props.userChoices.username]);
 
   React.useEffect(() => {
     room.on(RoomEvent.Disconnected, handleOnLeave);
     room.on(RoomEvent.EncryptionError, handleEncryptionError);
     room.on(RoomEvent.MediaDevicesError, handleError);
     room.on(RoomEvent.Connected, handleConnected);
+    room.on(RoomEvent.ParticipantConnected, collectParticipants);
 
     if (e2eeSetupComplete) {
       room
@@ -231,13 +248,27 @@ function VideoConferenceComponent(props: {
       room.off(RoomEvent.EncryptionError, handleEncryptionError);
       room.off(RoomEvent.MediaDevicesError, handleError);
       room.off(RoomEvent.Connected, handleConnected);
+      room.off(RoomEvent.ParticipantConnected, collectParticipants);
     };
   }, [e2eeSetupComplete, room, props.connectionDetails, props.userChoices]);
 
   const lowPowerMode = useLowCPUOptimizer(room);
 
   const router = useRouter();
-  const handleOnLeave = React.useCallback(() => router.push('/'), [router]);
+  const handleOnLeave = React.useCallback(() => {
+    // envia os nomes dos participantes para o meta sidecar (identificação de speakers)
+    collectParticipants();
+    const names = [...participantNamesRef.current];
+    if (names.length) {
+      fetch(`/api/record/participants?roomName=${encodeURIComponent(room.name)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ names }),
+        keepalive: true,
+      }).catch(() => {});
+    }
+    router.push('/');
+  }, [router, room, collectParticipants]);
   const handleError = React.useCallback((error: Error) => {
     console.error(error);
     alert(`Ocorreu um erro inesperado, verifique o console para mais detalhes: ${error.message}`);

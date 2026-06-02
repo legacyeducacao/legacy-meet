@@ -60,13 +60,13 @@ export function RecordingDetail({ manifest }: { manifest: RecordingManifest }) {
   };
 
   return (
-    <div className={styles.page}>
+    <div className={styles.detailPage}>
       <div className={styles.topbar}>
         <Link className={styles.back} href="/gravacoes" aria-label="Voltar">
           ←
         </Link>
         <div>
-          <h1>Reunião · {manifest.roomName}</h1>
+          <h1>{manifest.title?.trim() || `Reunião · ${manifest.roomName}`}</h1>
           <div className={styles.subtitle}>
             {new Date(manifest.createdAt).toLocaleString('pt-BR')}
           </div>
