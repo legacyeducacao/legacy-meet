@@ -86,6 +86,9 @@ export function PageClientImpl(props: {
               micLabel="Microfone"
               camLabel="Câmera"
               userLabel="Seu nome"
+              // Não restaura o nome do localStorage: o host vem pré-preenchido pelo
+              // parâmetro da URL; o convidado (link sem nome) digita o próprio.
+              persistUserChoices={false}
             />
           </div>
         </div>
