@@ -8,10 +8,27 @@
  * resultado de volta no bucket (.json + .txt). Sem banco de dados.
  */
 import { spawn } from 'node:child_process';
-import { createWriteStream } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile, readdir } from 'node:fs/promises';
+import { createWriteStream, readFileSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+
+// Carrega .env (raiz do projeto e/ou worker/) sem sobrescrever variáveis já
+// definidas no ambiente — útil para rodar local. No deploy as envs já existem.
+function loadEnvFile(filePath: string) {
+  try {
+    for (const line of readFileSync(filePath, 'utf8').split(/\r?\n/)) {
+      const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/i);
+      if (m && process.env[m[1]] === undefined) {
+        process.env[m[1]] = m[2].replace(/^["']|["']$/g, '').trim();
+      }
+    }
+  } catch {
+    // arquivo ausente — tudo bem
+  }
+}
+loadEnvFile(path.resolve(process.cwd(), '../.env'));
+loadEnvFile(path.resolve(process.cwd(), '.env'));
 import { pipeline } from 'node:stream/promises';
 import type { Readable } from 'node:stream';
 import {

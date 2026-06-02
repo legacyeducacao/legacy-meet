@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import React, { useState } from 'react';
 import { generateRoomId } from '@/lib/client-utils';
@@ -83,9 +84,9 @@ export default function Page() {
           </form>
 
           <p style={{ textAlign: 'center', marginTop: '1.5rem' }}>
-            <a href="/gravacoes" style={{ color: '#275286', fontSize: '0.9rem' }}>
+            <Link href="/gravacoes" style={{ color: '#275286', fontSize: '0.9rem' }}>
               Ver gravações e transcrições →
-            </a>
+            </Link>
           </p>
         </div>
       </section>
