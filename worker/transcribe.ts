@@ -92,7 +92,10 @@ for (const sig of ['SIGTERM', 'SIGINT'] as const) {
   });
 }
 
-const log = (...args: unknown[]) => console.log(new Date().toISOString(), ...args);
+// Timestamp dos logs no horário de São Paulo. Usa toLocaleString com timeZone
+// explícito (ICU embutido no Node) — funciona sem tzdata no container.
+const log = (...args: unknown[]) =>
+  console.log(new Date().toLocaleString('sv-SE', { timeZone: 'America/Sao_Paulo' }), ...args);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 interface Utterance {
@@ -523,10 +526,14 @@ async function getMeta(roomName: string): Promise<MeetingMeta | null> {
 }
 
 function formatDateBR(iso: string): string {
-  const d = new Date(iso);
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  return `${dd}/${mm}/${d.getFullYear()}`;
+  // timeZone explícito (ICU embutido no Node) garante a data de São Paulo mesmo
+  // sem tzdata no container e sem depender da env TZ.
+  return new Date(iso).toLocaleDateString('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
 }
 
 // --------------------------- Processamento ---------------------------
