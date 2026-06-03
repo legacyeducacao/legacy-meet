@@ -256,6 +256,15 @@ function parseTranscriptionContent(content: unknown): { utterances?: unknown[] }
   throw new Error(`não foi possível parsear a transcrição; início: ${s.slice(0, 200)}`);
 }
 
+// Detecta texto em loop ("é, é, é..." / "é um, é um..."): pouca variedade de
+// palavras indica alucinação do modelo, não fala real.
+function isRepetitiveText(text: string): boolean {
+  const words = text.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length < 20) return false;
+  const unique = new Set(words.map((w) => w.replace(/[.,!?;:]+$/g, '')));
+  return unique.size / words.length < 0.15;
+}
+
 async function transcribeChunkOnce(audioB64: string, participants: string[]): Promise<unknown[]> {
   const body = {
     model: OPENROUTER_MODEL,
@@ -310,8 +319,21 @@ async function transcribeChunkOnce(audioB64: string, participants: string[]): Pr
   if (content == null) {
     throw new Error(`openrouter sem content. raw: ${JSON.stringify(data).slice(0, 400)}`);
   }
-  const parsed = parseTranscriptionContent(content);
-  const utterances = (parsed.utterances ?? []) as Array<Record<string, unknown>>;
+  let parsed: { utterances?: unknown[] };
+  try {
+    parsed = parseTranscriptionContent(content);
+  } catch (e) {
+    // Conteúdo ilegível costuma ser alucinação/repetição; reprocessar o mesmo
+    // áudio repete o erro. Não insiste (poupa retries e créditos).
+    throw new NonRetryableChunkError(e instanceof Error ? e.message : 'conteúdo ilegível');
+  }
+  const raw = (parsed.utterances ?? []) as Array<Record<string, unknown>>;
+
+  // Descarta utterances em loop ("é, é, é..."): alucinação, não fala real.
+  const utterances = raw.filter((u) => !isRepetitiveText(String(u.text ?? '')));
+  if (raw.length && !utterances.length) {
+    throw new NonRetryableChunkError('todas as utterances eram repetição (alucinação)');
+  }
 
   // Detecta "pile-up": muitas utterances com o mesmo start (alucinação massiva).
   const counts = new Map<number, number>();
@@ -550,12 +572,12 @@ async function processRecording(rec: RecordingObject) {
       try {
         utts = await transcribeChunk(chunkPath, participants);
       } catch (e) {
-        if (e instanceof NonRetryableChunkError) {
-          log(`chunk ${i + 1} pulado: ${e.message}`);
-          skipped.push(i + 1);
-          continue;
-        }
-        throw e;
+        // Pula o chunk em QUALQUER falha (alucinação, parse, rede). Nunca derruba
+        // a gravação inteira — assim sempre escrevemos um manifesto ao final e o
+        // worker não reprocessa o mesmo arquivo para sempre.
+        log(`chunk ${i + 1} pulado: ${e instanceof Error ? e.message : String(e)}`);
+        skipped.push(i + 1);
+        continue;
       }
       for (const raw of utts as Array<Record<string, unknown>>) {
         const text = String(raw.text ?? '').trim();
