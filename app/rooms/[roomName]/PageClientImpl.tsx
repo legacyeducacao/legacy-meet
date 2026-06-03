@@ -108,6 +108,7 @@ export function PageClientImpl(props: {
             record: props.record,
             transcribe: props.transcribe,
             title: props.title,
+            hostKey: props.hostKey,
           }}
         />
       )}
@@ -125,6 +126,7 @@ function VideoConferenceComponent(props: {
     record: boolean;
     transcribe: boolean;
     title: string;
+    hostKey: string;
   };
 }) {
   const keyProvider = new ExternalE2EEKeyProvider();
@@ -334,7 +336,7 @@ function VideoConferenceComponent(props: {
               chatMessageFormatter={formatChatMessageLinks}
               SettingsComponent={SHOW_SETTINGS_MENU ? SettingsMenu : undefined}
             />
-            {isHost && <HostLobbyPanel />}
+            {isHost && <HostLobbyPanel hostKey={props.options.hostKey} />}
             <DebugMode />
           </>
         ) : (

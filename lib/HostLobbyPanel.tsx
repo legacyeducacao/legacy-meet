@@ -6,7 +6,7 @@ import { RoomEvent } from 'livekit-client';
 
 // Painel exibido apenas para o anfitrião: lista convidados aguardando na "sala de
 // espera" (atributo lobby='true') e permite Admitir ou Recusar cada um.
-export function HostLobbyPanel() {
+export function HostLobbyPanel({ hostKey }: { hostKey?: string }) {
   const room = useRoomContext();
   const participants = useParticipants({
     updateOnlyOn: [
@@ -25,18 +25,26 @@ export function HostLobbyPanel() {
     async (path: 'admit' | 'reject', identity: string) => {
       setBusy(identity);
       try {
-        await fetch(`/api/room/${path}`, {
+        const resp = await fetch(`/api/room/${path}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ roomName: room.name, identity }),
+          body: JSON.stringify({ roomName: room.name, identity, hostKey }),
         });
+        if (!resp.ok) {
+          const msg = await resp.text().catch(() => '');
+          console.error(`Falha ao ${path === 'admit' ? 'admitir' : 'recusar'} (${resp.status}):`, msg);
+          alert(
+            `Não foi possível ${path === 'admit' ? 'admitir' : 'recusar'} o convidado.` +
+              (msg ? ` ${msg}` : ''),
+          );
+        }
       } catch (e) {
         console.error(`Falha ao ${path === 'admit' ? 'admitir' : 'recusar'} convidado:`, e);
       } finally {
         setBusy(null);
       }
     },
-    [room],
+    [room, hostKey],
   );
 
   if (waiting.length === 0) return null;
