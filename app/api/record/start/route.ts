@@ -1,4 +1,4 @@
-import { EgressClient, EncodedFileOutput, S3Upload } from 'livekit-server-sdk';
+import { EgressClient, EncodedFileOutput, EncodingOptions, S3Upload } from 'livekit-server-sdk';
 import { NextRequest, NextResponse } from 'next/server';
 import { metaKey, readJson, writeJson, type MeetingMeta } from '@/lib/recordings';
 
@@ -75,6 +75,16 @@ export async function GET(req: NextRequest) {
       },
       {
         layout: 'speaker',
+        // 480p + 24fps: reuniões são "cabeça falante", então isso mantém boa
+        // legibilidade gastando bem menos CPU/memória por gravação (mais
+        // gravações simultâneas no mesmo host) e gerando arquivos menores.
+        encodingOptions: new EncodingOptions({
+          width: 854,
+          height: 480,
+          framerate: 24,
+          videoBitrate: 1000,
+          audioBitrate: 128,
+        }),
       },
     );
 
