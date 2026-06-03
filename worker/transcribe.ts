@@ -68,7 +68,6 @@ const DRIVE_ENABLED = !!(
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const CHUNK_RETRY_ATTEMPTS = 3;
-const CHUNK_MIN_COMPLETION_TOKENS = 50;
 const PILEUP_THRESHOLD = 5; // utterances no mesmo timestamp = alucinação
 
 if (!S3_ENDPOINT || !S3_KEY_ID || !S3_KEY_SECRET || !OPENROUTER_API_KEY) {
@@ -307,9 +306,9 @@ async function transcribeChunkOnce(audioB64: string, participants: string[]): Pr
     `openrouter usage prompt=${usage.prompt_tokens} completion=${completionTokens} finish=${finishReason}`,
   );
 
-  if (completionTokens && completionTokens < CHUNK_MIN_COMPLETION_TOKENS) {
-    throw new Error(`resposta curta demais (completion=${completionTokens}) - provável transitório`);
-  }
+  // Resposta curta NÃO é erro: `{"utterances":[]}` é o modelo dizendo "sem fala
+  // aqui" (silêncio), resultado válido. Deixamos o parse decidir — se for ilegível,
+  // o catch do parse trata; se for vazio, aceitamos como chunk sem fala.
   if (finishReason === 'length') {
     throw new NonRetryableChunkError(
       `saída truncada no max_tokens (finish=length) - provável alucinação/loop, descartando`,
