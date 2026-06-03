@@ -35,8 +35,11 @@ export async function POST(req: NextRequest) {
 
   const title = (body.title ?? '').trim();
   const host = (body.host ?? '').trim();
-  const record = body.record !== false; // padrão: gravar
-  const transcribe = record && body.transcribe !== false; // padrão: transcrever
+  // Blindagem: reuniões criadas pela API SEMPRE gravam e transcrevem. Ignoramos
+  // record/transcribe do corpo de propósito — links sem gravação (rec=0) vindos
+  // do CRM estavam fazendo reuniões não gravarem. Toda reunião do CRM deve gravar.
+  const record = true;
+  const transcribe = true;
   const roomName =
     (body.roomName?.trim() || generateRoomId()).toLowerCase().replace(/[^a-z0-9_-]/g, '-');
 
