@@ -525,15 +525,25 @@ async function getMeta(roomName: string): Promise<MeetingMeta | null> {
   }
 }
 
-function formatDateBR(iso: string): string {
-  // timeZone explícito (ICU embutido no Node) garante a data de São Paulo mesmo
-  // sem tzdata no container e sem depender da env TZ.
-  return new Date(iso).toLocaleDateString('pt-BR', {
+function formatDateTimeBR(iso: string): string {
+  // timeZone explícito (ICU embutido no Node) garante data/hora de São Paulo mesmo
+  // sem tzdata no container e sem depender da env TZ. Ex.: "03/06/2026 - 16h30".
+  const d = new Date(iso);
+  const date = d.toLocaleDateString('pt-BR', {
     timeZone: 'America/Sao_Paulo',
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
   });
+  const time = d
+    .toLocaleTimeString('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+    .replace(':', 'h');
+  return `${date} - ${time}`;
 }
 
 // --------------------------- Processamento ---------------------------
@@ -617,7 +627,7 @@ async function processRecording(rec: RecordingObject) {
     let videoKey: string | null = key;
     if (DRIVE_ENABLED && !transcriptionFailed) {
       const token = await getDriveAccessToken();
-      const folderName = `${formatDateBR(createdAt)} - ${title || roomName}`;
+      const folderName = `${formatDateTimeBR(createdAt)} - ${title || roomName}`;
       log(`arquivando no Google Drive em "${folderName}"`);
       gdriveFolderId = await driveCreateFolder(token, folderName, GOOGLE_DRIVE_FOLDER_ID);
       gdriveFileId = await driveUploadFile(token, videoPath, `${id}.mp4`, 'video/mp4', gdriveFolderId);
