@@ -397,6 +397,17 @@ function recordingIdFromKey(recordingKey: string): string {
   return path.basename(recordingKey).replace(/\.mp4$/i, '');
 }
 
+// Extrai o horário de INÍCIO da reunião do id "<sala>__<stamp>", onde stamp é o
+// ISO gerado no /api/record/start (quando alguém entrou) com [:.] trocados por -.
+// Ex.: "ecok-srde__2026-06-03T17-18-30-989Z" → 2026-06-03T17:18:30.989Z.
+function startTimeFromId(id: string): Date | null {
+  const stamp = id.split('__')[1];
+  const m = stamp?.match(/^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/);
+  if (!m) return null;
+  const d = new Date(`${m[1]}T${m[2]}:${m[3]}:${m[4]}.${m[5]}Z`);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 function transcriptKey(id: string, ext: string): string {
   return `${OUTPUT_PREFIX}${id}.${ext}`;
 }
@@ -555,7 +566,9 @@ async function processRecording(rec: RecordingObject) {
   const key = rec.key;
   const id = recordingIdFromKey(key);
   const roomName = id.split('__')[0];
-  const createdAt = (rec.lastModified ?? new Date()).toISOString();
+  // Início da reunião (do nome do arquivo). Cai no lastModified só se o id não
+  // tiver o stamp esperado.
+  const createdAt = (startTimeFromId(id) ?? rec.lastModified ?? new Date()).toISOString();
   log(`processando ${key} (id=${id})`);
 
   const tmp = await mkdtemp(path.join(tmpdir(), 'transcribe-'));
