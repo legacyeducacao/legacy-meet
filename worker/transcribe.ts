@@ -263,6 +263,17 @@ function parseTranscriptionContent(content: unknown): { utterances?: unknown[] }
     parsed = tryParse(s.slice(first, last + 1));
     if (parsed) return parsed;
   }
+  // SALVAMENTO: quando o JSON vem truncado (finish=length em chunk denso) ou
+  // levemente malformado, extrai os objetos de utterance completos que der, em
+  // vez de jogar o chunk inteiro fora. Recupera quase tudo de trechos densos.
+  const salvaged: unknown[] = [];
+  const re = /\{[^{}]*\}/g;
+  let mm: RegExpExecArray | null;
+  while ((mm = re.exec(s))) {
+    const o = tryParse(mm[0]);
+    if (o && typeof (o as { text?: unknown }).text === 'string') salvaged.push(o);
+  }
+  if (salvaged.length) return { utterances: salvaged };
   throw new Error(`não foi possível parsear a transcrição; início: ${s.slice(0, 200)}`);
 }
 
@@ -292,7 +303,10 @@ async function transcribeChunkOnce(audioB64: string, participants: string[]): Pr
       json_schema: { name: 'transcription', strict: true, schema: TRANSCRIPTION_SCHEMA },
     },
     temperature: 0,
-    max_tokens: 8192,
+    // Alto o suficiente para um chunk denso de 5 min caber sem truncar (antes
+    // 8192 cortava trechos com muita fala). Se ainda truncar, o salvamento no
+    // parse recupera as utterances completas.
+    max_tokens: 16384,
     reasoning: { exclude: true },
   };
   const resp = await fetch(OPENROUTER_URL, {
@@ -320,10 +334,12 @@ async function transcribeChunkOnce(audioB64: string, participants: string[]): Pr
   // Resposta curta NÃO é erro: `{"utterances":[]}` é o modelo dizendo "sem fala
   // aqui" (silêncio), resultado válido. Deixamos o parse decidir — se for ilegível,
   // o catch do parse trata; se for vazio, aceitamos como chunk sem fala.
+  // finish=length NÃO é mais descarte automático: na maioria das vezes é um
+  // trecho DENSO de conversa cuja transcrição passou do max_tokens (não é
+  // alucinação). Seguimos para parsear/salvar o que veio; alucinação real
+  // (repetição) é barrada pelo filtro isRepetitiveText/pile-up abaixo.
   if (finishReason === 'length') {
-    throw new NonRetryableChunkError(
-      `saída truncada no max_tokens (finish=length) - provável alucinação/loop, descartando`,
-    );
+    log(`chunk truncado no max_tokens (finish=length) - salvando o que foi transcrito`);
   }
   const content = choice.message?.content;
   if (content == null) {
