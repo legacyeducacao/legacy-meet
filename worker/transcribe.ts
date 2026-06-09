@@ -9,7 +9,7 @@
  */
 import { spawn } from 'node:child_process';
 import { createWriteStream, readFileSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -155,14 +155,22 @@ async function splitAudio(
   let idx = 0;
   while (offset < duration) {
     const outPath = path.join(chunkDir, `chunk_${String(idx).padStart(3, '0')}.mp3`);
+    // RE-ENCODE (não -c copy): cortar o MP3 no meio do stream com copy gera chunks
+    // desalinhados/sem header que o decoder do modelo lê como ruído → ele alucina
+    // ou devolve vazio e o chunk é descartado (buracos na transcrição). Re-encodar
+    // a partir do áudio íntegro garante um MP3 limpo e decodável. -ss antes do -i
+    // = seek rápido; re-encode = chunk válido.
     await runProcess('ffmpeg', [
       '-y', '-loglevel', 'error',
       '-ss', String(offset),
-      '-t', String(chunkSeconds),
       '-i', audioPath,
-      '-c', 'copy',
+      '-t', String(chunkSeconds),
+      '-ac', '1', '-ar', '16000',
+      '-c:a', 'libmp3lame', '-b:a', '64k',
       outPath,
     ]);
+    const { size } = await stat(outPath);
+    log(`  chunk ${idx} offset=${offset}s tamanho=${(size / 1024).toFixed(0)}KB`);
     chunks.push({ path: outPath, offset });
     offset += chunkSeconds;
     idx += 1;
@@ -608,6 +616,7 @@ async function processRecording(rec: RecordingObject) {
         skipped.push(i + 1);
         continue;
       }
+      let added = 0;
       for (const raw of utts as Array<Record<string, unknown>>) {
         const text = String(raw.text ?? '').trim();
         if (!text) continue;
@@ -615,7 +624,9 @@ async function processRecording(rec: RecordingObject) {
         const end = Number(raw.end ?? start) + offset;
         const speaker = String(raw.speaker ?? 'Pessoa 1').trim();
         allUtts.push({ speaker, text, start, end });
+        added += 1;
       }
+      log(`chunk ${i + 1} → ${added} utterance(s)`);
     }
 
     // Se TODOS os chunks falharam (alucinação/length), NÃO relança erro — senão o
