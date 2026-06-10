@@ -21,6 +21,36 @@ export function HostLobbyPanel({ hostKey }: { hostKey?: string }) {
     (p) => !p.isLocal && p.attributes?.lobby === 'true',
   );
 
+  // Notificação sonora quando um NOVO convidado entra na sala de espera.
+  const audioRef = React.useRef<HTMLAudioElement | null>(null);
+  const prevWaitingRef = React.useRef<Set<string>>(new Set());
+  const waitingKey = waiting
+    .map((p) => p.identity)
+    .sort()
+    .join(',');
+
+  React.useEffect(() => {
+    if (typeof Audio !== 'undefined' && !audioRef.current) {
+      const a = new Audio('/correct-bell-twinkle-jam-fx-1-00-05.mp3');
+      a.volume = 0.7;
+      a.preload = 'auto';
+      audioRef.current = a;
+    }
+  }, []);
+
+  React.useEffect(() => {
+    const current = new Set(waiting.map((p) => p.identity));
+    const isNew = [...current].some((id) => !prevWaitingRef.current.has(id));
+    if (isNew && audioRef.current) {
+      audioRef.current.currentTime = 0;
+      audioRef.current.play().catch(() => {
+        /* autoplay bloqueado — host ainda não interagiu; ignora */
+      });
+    }
+    prevWaitingRef.current = current;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waitingKey]);
+
   const act = React.useCallback(
     async (path: 'admit' | 'reject', identity: string) => {
       setBusy(identity);
