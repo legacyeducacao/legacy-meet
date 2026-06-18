@@ -10,6 +10,7 @@ import { ConnectionDetails } from '@/lib/types';
 import { formatChatMessageLinks, LocalUserChoices, PreJoin, RoomContext } from '@livekit/components-react';
 import { LegacyVideoConference } from '@/lib/LegacyVideoConference';
 import { HostLobbyPanel } from '@/lib/HostLobbyPanel';
+import { HostParticipantsPanel } from '@/lib/HostParticipantsPanel';
 import {
   ExternalE2EEKeyProvider,
   RoomOptions,
@@ -180,10 +181,12 @@ function VideoConferenceComponent(props: {
       publishDefaults: publishDefaults,
       audioCaptureDefaults: {
         deviceId: props.userChoices.audioDeviceId ?? undefined,
-        // Cancelamento de ruído nativo do navegador sempre ligado
+        // Cancelamento de ruído + eco ligados; auto-ganho DESLIGADO (evita o volume
+        // variar sozinho/"pumping"). O cancelamento de eco é mantido pra não gerar
+        // microfonia em quem usa alto-falante.
         noiseSuppression: true,
         echoCancellation: true,
-        autoGainControl: true,
+        autoGainControl: false,
       },
       adaptiveStream: true,
       dynacast: true,
@@ -230,6 +233,20 @@ function VideoConferenceComponent(props: {
     if (room.localParticipant.permissions?.canPublish) {
       setAdmitted(true);
     }
+  }, [room]);
+
+  // Co-anfitrião: o anfitrião principal pode promover (atributo cohost='true');
+  // o cliente promovido passa a ver os painéis de anfitrião.
+  const [isCohost, setIsCohost] = React.useState(false);
+  React.useEffect(() => {
+    const update = () => setIsCohost(room.localParticipant.attributes?.cohost === 'true');
+    update();
+    room.on(RoomEvent.ParticipantAttributesChanged, update);
+    room.on(RoomEvent.Connected, update);
+    return () => {
+      room.off(RoomEvent.ParticipantAttributesChanged, update);
+      room.off(RoomEvent.Connected, update);
+    };
   }, [room]);
 
   // Coleta os nomes de quem participou (para identificar os speakers na transcrição)
@@ -359,7 +376,30 @@ function VideoConferenceComponent(props: {
               chatMessageFormatter={formatChatMessageLinks}
               SettingsComponent={SHOW_SETTINGS_MENU ? SettingsMenu : undefined}
             />
-            {isHost && <HostLobbyPanel hostKey={props.options.hostKey} />}
+            {(isHost || isCohost) && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '0.75rem',
+                  right: '0.75rem',
+                  zIndex: 30,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.6rem',
+                  alignItems: 'flex-end',
+                }}
+              >
+                <HostLobbyPanel
+                  hostKey={props.options.hostKey}
+                  participantToken={props.connectionDetails.participantToken}
+                />
+                <HostParticipantsPanel
+                  hostKey={props.options.hostKey}
+                  participantToken={props.connectionDetails.participantToken}
+                  canPromote={isHost}
+                />
+              </div>
+            )}
             <DebugMode />
           </>
         ) : (

@@ -6,7 +6,13 @@ import { RoomEvent } from 'livekit-client';
 
 // Painel exibido apenas para o anfitrião: lista convidados aguardando na "sala de
 // espera" (atributo lobby='true') e permite Admitir ou Recusar cada um.
-export function HostLobbyPanel({ hostKey }: { hostKey?: string }) {
+export function HostLobbyPanel({
+  hostKey,
+  participantToken,
+}: {
+  hostKey?: string;
+  participantToken?: string;
+}) {
   const room = useRoomContext();
   const participants = useParticipants({
     updateOnlyOn: [
@@ -58,7 +64,7 @@ export function HostLobbyPanel({ hostKey }: { hostKey?: string }) {
         const resp = await fetch(`/api/room/${path}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ roomName: room.name, identity, hostKey }),
+          body: JSON.stringify({ roomName: room.name, identity, hostKey, participantToken }),
         });
         if (!resp.ok) {
           const msg = await resp.text().catch(() => '');
@@ -74,7 +80,7 @@ export function HostLobbyPanel({ hostKey }: { hostKey?: string }) {
         setBusy(null);
       }
     },
-    [room, hostKey],
+    [room, hostKey, participantToken],
   );
 
   if (waiting.length === 0) return null;
@@ -82,10 +88,6 @@ export function HostLobbyPanel({ hostKey }: { hostKey?: string }) {
   return (
     <div
       style={{
-        position: 'absolute',
-        top: '0.75rem',
-        right: '0.75rem',
-        zIndex: 30,
         width: 'min(92vw, 320px)',
         background: 'rgba(15, 39, 66, 0.96)',
         color: '#fff',
