@@ -56,6 +56,28 @@ export function PageClientImpl(props: {
     undefined,
   );
 
+  // Limpa a barra de endereços: remove `name` (nome do host) e `h` (chave de
+  // anfitrião) da URL logo ao carregar. Os valores já foram lidos no servidor e
+  // estão nas props, então o host segue pré-preenchido e com privilégio; mas se
+  // ele copiar a URL da barra para convidar, o link não leva o nome dele (o
+  // convidado digita o próprio) nem vira anfitrião por engano.
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('name') || url.searchParams.has('h')) {
+      url.searchParams.delete('name');
+      url.searchParams.delete('h');
+      const qs = url.searchParams.toString();
+      window.history.replaceState(null, '', url.pathname + (qs ? `?${qs}` : ''));
+    }
+  }, []);
+
+  // Nome é obrigatório para entrar (vale para host e convidado).
+  const handleValidate = React.useCallback(
+    (values: LocalUserChoices) => !!values.username && values.username.trim().length > 0,
+    [],
+  );
+
   const handlePreJoinSubmit = React.useCallback(async (values: LocalUserChoices) => {
     setPreJoinChoices(values);
     const url = new URL(CONN_DETAILS_ENDPOINT, window.location.origin);
@@ -87,6 +109,7 @@ export function PageClientImpl(props: {
               defaults={preJoinDefaults}
               onSubmit={handlePreJoinSubmit}
               onError={handlePreJoinError}
+              onValidate={handleValidate}
               joinLabel="Entrar na reunião"
               micLabel="Microfone"
               camLabel="Câmera"
