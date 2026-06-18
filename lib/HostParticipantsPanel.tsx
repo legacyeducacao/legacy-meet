@@ -129,18 +129,24 @@ export function HostParticipantsPanel({
                 <span style={{ display: 'flex', gap: '0.3rem', flexShrink: 0 }}>
                   <button
                     type="button"
-                    disabled={busy === p.identity || !mic?.trackSid}
-                    title={!mic?.trackSid ? 'Sem microfone publicado' : ''}
+                    disabled={busy === p.identity || !mic?.trackSid || muted}
+                    title={
+                      muted
+                        ? 'Microfone mutado — só o próprio participante pode reativar'
+                        : !mic?.trackSid
+                          ? 'Sem microfone publicado'
+                          : 'Mutar microfone'
+                    }
                     onClick={() =>
                       post(
                         'mute',
-                        { identity: p.identity, trackSid: mic!.trackSid, muted: !muted },
+                        { identity: p.identity, trackSid: mic!.trackSid, muted: true },
                         p.identity,
                       )
                     }
                     style={{
                       ...smallBtn(muted ? 'transparent' : '#7a3030', '1px solid rgba(255,255,255,0.25)'),
-                      opacity: !mic?.trackSid ? 0.4 : 1,
+                      opacity: !mic?.trackSid || muted ? 0.5 : 1,
                     }}
                   >
                     {muted ? 'Mutado' : 'Mutar'}
