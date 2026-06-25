@@ -357,6 +357,34 @@ export function LegacyVideoConference({
   const participants = useParticipants({ updateOnlyOn: [RoomEvent.ParticipantAttributesChanged] });
   const raisedHands = participants.filter((p) => p.attributes?.hand_raised === 'true');
 
+  // Toca um som quando alguém NOVO levanta a mão (para todos na sala).
+  const handAudioRef = React.useRef<HTMLAudioElement | null>(null);
+  const prevRaisedRef = React.useRef<Set<string>>(new Set());
+  const raisedKey = raisedHands
+    .map((p) => p.identity)
+    .sort()
+    .join(',');
+  React.useEffect(() => {
+    if (typeof Audio !== 'undefined' && !handAudioRef.current) {
+      const a = new Audio('/levantada-de-mao.mp3');
+      a.volume = 0.6;
+      a.preload = 'auto';
+      handAudioRef.current = a;
+    }
+  }, []);
+  React.useEffect(() => {
+    const current = new Set(raisedHands.map((p) => p.identity));
+    const isNew = [...current].some((id) => !prevRaisedRef.current.has(id));
+    if (isNew && handAudioRef.current) {
+      handAudioRef.current.currentTime = 0;
+      handAudioRef.current.play().catch(() => {
+        /* autoplay bloqueado antes de interagir — ignora */
+      });
+    }
+    prevRaisedRef.current = current;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [raisedKey]);
+
   // Ao sair, a sala desconecta e os tracks ficam inconsistentes por um instante,
   // o que faz o GridLayout da LiveKit lançar erro de paginação. Não renderizamos
   // o layout quando já desconectado.
@@ -408,7 +436,10 @@ export function LegacyVideoConference({
           }}
         >
           <HandIcon size={16} />
-          <span>{raisedHands.map((p) => p.name || p.identity).join(', ')}</span>
+          <span>
+            {raisedHands.map((p) => p.name || p.identity).join(', ')}{' '}
+            {raisedHands.length > 1 ? 'levantaram a mão' : 'levantou a mão'}
+          </span>
         </div>
       )}
       {showLayout && (
