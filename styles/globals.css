@@ -217,3 +217,22 @@ h2 a {
     height: 18px;
   }
 }
+
+/* ---------- Chat dentro da tela ---------- */
+/* Bug: ao abrir o chat, o vídeo (item flex/grid) não encolhia (min-width:auto
+   padrão), então o chat empurrava o layout pra fora da tela no notebook. Aqui
+   o vídeo passa a poder encolher, o chat tem largura limitada, e qualquer
+   sobra é cortada dentro do container. */
+[data-lk-theme] .lk-video-conference {
+  overflow: hidden;
+}
+
+[data-lk-theme] .lk-video-conference-inner {
+  min-width: 0;
+}
+
+[data-lk-theme] .lk-chat {
+  flex-shrink: 0;
+  width: min(320px, 85vw);
+  max-width: 85vw;
+}
