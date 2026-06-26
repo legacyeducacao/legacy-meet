@@ -2,16 +2,21 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import React, { useState } from 'react';
-import { generateRoomId } from '@/lib/client-utils';
+import React, { useEffect, useState } from 'react';
 import styles from '../styles/Home.module.css';
+
+type Client = { id: string; name: string };
 
 export default function Page() {
   const router = useRouter();
-  const [name, setName] = useState('');
-  const [title, setTitle] = useState('');
+  const [sector, setSector] = useState<'comercial' | 'executoria'>('executoria');
+  const [prospectName, setProspectName] = useState('');
+  const [clients, setClients] = useState<Client[]>([]);
+  const [tenantId, setTenantId] = useState('');
   const [record, setRecord] = useState(true);
   const [transcribe, setTranscribe] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
 
   // Transcrição depende da gravação (transcrevemos o arquivo gravado).
   const onRecordChange = (checked: boolean) => {
@@ -23,15 +28,61 @@ export default function Page() {
     if (checked) setRecord(true);
   };
 
-  const createMeeting = (event: React.FormEvent) => {
+  // Carrega clientes quando o setor é executoria
+  useEffect(() => {
+    if (sector !== 'executoria') return;
+    fetch('/api/clients')
+      .then((r) => r.json())
+      .then((json) => {
+        const list: Client[] = json.clients ?? [];
+        setClients(list);
+        setTenantId(list[0]?.id ?? '');
+      })
+      .catch(() => setClients([]));
+  }, [sector]);
+
+  const createMeeting = async (event: React.FormEvent) => {
     event.preventDefault();
-    const roomId = generateRoomId();
-    const params = new URLSearchParams();
-    if (name.trim()) params.set('name', name.trim());
-    if (title.trim()) params.set('title', title.trim());
-    params.set('rec', record ? '1' : '0');
-    params.set('tx', transcribe ? '1' : '0');
-    router.push(`/rooms/${roomId}?${params.toString()}`);
+    setError('');
+    setBusy(true);
+
+    const body: Record<string, unknown> = {
+      sector,
+      record,
+      transcribe,
+    };
+    if (sector === 'comercial') {
+      if (prospectName.trim()) body.title = prospectName.trim();
+    } else {
+      if (!tenantId) {
+        setError('Selecione um cliente para a reunião de Executoria.');
+        setBusy(false);
+        return;
+      }
+      body.tenantId = tenantId;
+    }
+
+    try {
+      const res = await fetch('/api/meetings/local', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        setError(text || 'Erro ao criar reunião.');
+        setBusy(false);
+        return;
+      }
+      const { roomName } = await res.json();
+      const params = new URLSearchParams();
+      params.set('rec', record ? '1' : '0');
+      params.set('tx', transcribe ? '1' : '0');
+      router.push(`/rooms/${roomName}?${params.toString()}`);
+    } catch {
+      setError('Erro de rede ao criar reunião.');
+      setBusy(false);
+    }
   };
 
   return (
@@ -48,32 +99,56 @@ export default function Page() {
 
           <form className={styles.tabContent} onSubmit={createMeeting}>
             <div className={styles.field}>
-              <label className={styles.fieldLabel} htmlFor="host-name">
-                Seu nome
+              <label className={styles.fieldLabel} htmlFor="sector">
+                Setor
               </label>
-              <input
-                id="host-name"
+              <select
+                id="sector"
                 className={styles.input}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Digite seu nome"
-                autoComplete="name"
-                required
-              />
+                value={sector}
+                onChange={(e) => setSector(e.target.value as 'comercial' | 'executoria')}
+              >
+                <option value="executoria">Executoria</option>
+                <option value="comercial">Comercial</option>
+              </select>
             </div>
 
-            <div className={styles.field}>
-              <label className={styles.fieldLabel} htmlFor="meeting-title">
-                Título da reunião
-              </label>
-              <input
-                id="meeting-title"
-                className={styles.input}
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Ex: Reunião com João"
-              />
-            </div>
+            {sector === 'executoria' && (
+              <div className={styles.field}>
+                <label className={styles.fieldLabel} htmlFor="tenant">
+                  Cliente
+                </label>
+                <select
+                  id="tenant"
+                  className={styles.input}
+                  value={tenantId}
+                  onChange={(e) => setTenantId(e.target.value)}
+                  required
+                >
+                  {clients.length === 0 && <option value="">Carregando...</option>}
+                  {clients.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {sector === 'comercial' && (
+              <div className={styles.field}>
+                <label className={styles.fieldLabel} htmlFor="prospect-name">
+                  Nome do prospect
+                </label>
+                <input
+                  id="prospect-name"
+                  className={styles.input}
+                  value={prospectName}
+                  onChange={(e) => setProspectName(e.target.value)}
+                  placeholder="Ex: João Silva"
+                />
+              </div>
+            )}
 
             <label className={styles.checkboxRow}>
               <input
@@ -93,8 +168,10 @@ export default function Page() {
               <span>Transcrever reunião</span>
             </label>
 
-            <button className={styles.primaryButton} type="submit">
-              Criar reunião
+            {error && <p style={{ color: '#ff8a8a', marginTop: '0.5rem' }}>{error}</p>}
+
+            <button className={styles.primaryButton} type="submit" disabled={busy}>
+              {busy ? 'Criando...' : 'Criar reunião'}
             </button>
           </form>
 
