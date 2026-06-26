@@ -147,7 +147,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
 
         <div className="flex-1 overflow-y-auto bg-background text-foreground [color-scheme:light]">
-          <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">{children}</main>
+          <main className="p-8">{children}</main>
         </div>
       </div>
     </div>
