@@ -4,7 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
-import { Home, Video, Users, LogOut } from 'lucide-react';
+import { Home, Calendar, Video, Users, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 
@@ -35,6 +35,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const nav = [
     { href: '/', label: 'Início', icon: Home },
+    { href: '/agenda', label: 'Agenda', icon: Calendar },
     { href: '/gravacoes', label: 'Gravações', icon: Video },
     ...(me?.role === 'MASTER'
       ? [{ href: '/admin/usuarios', label: 'Usuários', icon: Users }]
