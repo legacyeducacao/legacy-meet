@@ -165,7 +165,8 @@
 
 /* Paleta de cores Legacy aplicada sobre o tema da LiveKit */
 [data-lk-theme='default'] {
-  --lk-accent-bg: #275286;
+  /* mesmo azul primário do Legacy Plan (token --primary) na chamada */
+  --lk-accent-bg: hsl(var(--primary));
   --lk-accent-fg: #ffffff;
   --lk-accent2: #1f4068;
   --lk-accent3: #16314f;
