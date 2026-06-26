@@ -42,7 +42,14 @@ export async function POST(req: NextRequest) {
     .single();
   if (error || !meeting) return new NextResponse('Falha ao criar reunião: ' + (error?.message ?? ''), { status: 500 });
 
-  await admin.from('meet_meeting_sector').insert({ meeting_id: meeting.id, sector });
+  const { error: sectorError } = await admin
+    .from('meet_meeting_sector')
+    .insert({ meeting_id: meeting.id, sector });
+  if (sectorError) {
+    // não deixa reunião "fantasma" sem setor: desfaz a reunião e falha.
+    await admin.from('meetings').delete().eq('id', meeting.id);
+    return new NextResponse('Falha ao registrar o setor: ' + sectorError.message, { status: 500 });
+  }
 
   return NextResponse.json({ roomName });
 }
