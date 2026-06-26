@@ -104,18 +104,51 @@ dev, mantém-se o fallback "todos host" para não travar o desenvolvimento.
 - **Limite de escopo:** criar com role **EXECUTOR** (ou MASTER) — papéis internos
   do meet. Não mexe em CLIENT/COLLABORATOR/tenant de clientes do Legacy Plan.
 
-### Reunião ↔ usuário (integração leve)
-- Ao criar/iniciar uma reunião por um **usuário logado** (fluxo da home e, no
-  futuro, agendamento), grava uma linha em `meetings`:
-  `host_id = uid`, `room_name = <roomId gerado>`, `title`, `recording_enabled`,
-  `auto_transcribe`, `status = 'live'` (ou `'scheduled'` no agendamento),
-  `tenant_id = NULL` (reuniões internas do meet não têm tenant de cliente).
-- Implementação: endpoint server (ex.: estender o fluxo de criação ou um
-  `POST /api/meetings/local`) que faz o insert usando a sessão do host.
-- A gravação no MinIO segue idêntica; o nome da sala (`room_name`) é a chave de
-  ligação. **Sem** mudança no worker/egress.
-- Fluxo do **CRM** (`/api/meetings`, x-api-key) também passa a inserir a linha
-  `meetings` (host opcional), mantendo `hostUrl/guestUrl`.
+### Reunião ↔ usuário (reuso das tabelas do Legacy Plan)
+**Decisão (pós-análise do banco):** reusamos a tabela `meetings` do Legacy Plan.
+Ela é **multi-tenant** — `tenant_id` é NOT NULL, além de `title`,
+`scheduled_start_at`, `scheduled_end_at`, `room_name`. Logo, **toda reunião do
+meet pertence a um cliente (tenant)**: ao criar/agendar, o executor escolhe o
+cliente.
+- Padrão de sala: `room_name = 'meet_' || uuid` (mesmo formato já usado).
+- Insert na `meetings` (server-side, **service_role**, com checagem de papel/posse
+  no nosso código — evita lutar com a RLS multi-tenant): `tenant_id` (cliente
+  escolhido), `host_id = uid`, `title`, `room_name`, `scheduled_start_at`/
+  `scheduled_end_at` (instant: now / now+1h), `status` ('live' instant, 'scheduled'
+  no agendamento), `recording_enabled`, `auto_transcribe`.
+- Cliente disponível ao executor: `client_tenants` onde `executor_id = uid` (ou via
+  `client_executor_assignments`); MASTER vê todos.
+- A gravação no MinIO segue idêntica; `room_name` é a chave de ligação. **Sem**
+  mudança no worker/egress.
+- Fluxo do **CRM** (`/api/meetings`, x-api-key) também insere a linha `meetings`
+  (host opcional, tenant via payload), mantendo `hostUrl/guestUrl`.
+
+> Nota p/ o subprojeto de NPS: `meeting_nps_responses.respondent_user_id` é NOT
+> NULL (exige um usuário). Como os convidados do meet entram sem login, o NPS
+> anônimo provavelmente usará o caminho `nps_public_links`/`nps_public_responses`
+> (que já existe) — a decidir no design do NPS.
+
+### Dois setores: Comercial e Executoria
+O meet tem **dois setores**, escolhidos no fluxo de criação/agendamento:
+- **Executoria** — reunião com um **cliente** do Plan. O fluxo pede o cliente;
+  `meetings.tenant_id` = tenant do cliente escolhido.
+- **Comercial** — **call de venda**, sem cliente. O fluxo **não** pede cliente;
+  `meetings.tenant_id` = um **tenant sentinela "Comercial"** (fixo, definido em env
+  `MEET_COMMERCIAL_TENANT_ID`). O nome do prospect vai em `title`/`description`.
+
+Como `meetings` é do Legacy Plan e não devemos alterá-la, o **setor** é registrado
+numa **tabela própria do meet**: `meet_meeting_sector (meeting_id uuid PK
+references meetings(id) on delete cascade, sector text check (sector in
+('comercial','executoria')), created_at timestamptz default now())`. Assim o setor
+fica explícito e confiável para filtros/relatórios, sem tocar no schema deles.
+
+Tenant sentinela "Comercial": no início do plano, confirmar se reusamos um tenant
+interno existente (ex.: "Legacy Educação Corporativa") ou criamos um dedicado —
+cuidando para **não** poluir as listas de clientes do Legacy Plan.
+
+**NPS por setor:** o formulário de NPS (subprojeto 3) é **obrigatório apenas em
+reuniões de Executoria**. **Comercial não tem NPS** (call de venda). O setor
+(`meet_meeting_sector`) decide se o NPS é exigido no fim da reunião.
 
 ### `/gravacoes` por usuário
 - A listagem (hoje lê manifestos do MinIO) passa a:
