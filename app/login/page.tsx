@@ -1,51 +1,48 @@
 'use client';
-
-import React, { useState } from 'react';
+import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import styles from '@/styles/Recordings.module.css';
+import { createBrowserSupabase } from '@/lib/supabase/client';
 
-export default function StaffLoginPage() {
+export default function LoginPage() {
   const router = useRouter();
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [email, setEmail] = React.useState('');
+  const [password, setPassword] = React.useState('');
+  const [error, setError] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
 
-  const submit = async (e: React.FormEvent) => {
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
+    setBusy(true);
     setError('');
-    const res = await fetch('/api/staff/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password }),
-    });
-    setLoading(false);
-    if (res.ok) {
-      const next = new URLSearchParams(window.location.search).get('next') || '/';
-      router.push(next);
-      router.refresh();
-    } else {
-      setError('Senha incorreta');
+    const supabase = createBrowserSupabase();
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    setBusy(false);
+    if (error) {
+      setError('E-mail ou senha inválidos.');
+      return;
     }
+    router.push('/');
+    router.refresh();
   };
 
   return (
-    <div className={styles.loginWrap}>
-      <form className={styles.loginCard} onSubmit={submit}>
-        <h1>Legacy Meet — Acesso da equipe</h1>
-        <input
-          className={styles.search}
-          type="password"
-          placeholder="Senha de acesso"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          autoFocus
-        />
-        {error && <p className={styles.error}>{error}</p>}
-        <button className={styles.primaryButton} type="submit" disabled={loading}>
-          {loading ? 'Entrando…' : 'Entrar'}
+    <main data-lk-theme="default" style={{ height: '100%', display: 'flex' }}>
+      <form onSubmit={onSubmit} className="prejoin-card" style={{ margin: 'auto', width: 'min(100%,420px)' }}>
+        <div className="prejoin-header">
+          <img src="/favicon.svg" alt="Legacy Meet" width={52} height={52} />
+          <h1>Entrar</h1>
+          <p>Acesse com sua conta Legacy.</p>
+        </div>
+        <input className="lk-form-control" type="email" placeholder="E-mail" value={email}
+          onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
+        <input className="lk-form-control" type="password" placeholder="Senha" value={password}
+          onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password"
+          style={{ marginTop: '0.75rem' }} />
+        {error && <p style={{ color: '#ff8a8a', marginTop: '0.5rem' }}>{error}</p>}
+        <button className="lk-button lk-join-button" type="submit" disabled={busy} style={{ marginTop: '1rem', width: '100%' }}>
+          {busy ? 'Entrando…' : 'Entrar'}
         </button>
       </form>
-    </div>
+    </main>
   );
 }
