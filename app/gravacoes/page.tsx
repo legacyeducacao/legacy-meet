@@ -2,7 +2,13 @@
 
 import Link from 'next/link';
 import React, { useEffect, useMemo, useState } from 'react';
-import styles from '@/styles/Recordings.module.css';
+import { Search, ChevronLeft, ChevronRight, Trash2, Video } from 'lucide-react';
+import { AppShell } from '@/components/AppShell';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface Rec {
   id: string;
@@ -36,15 +42,6 @@ function formatDate(iso: string): string {
 function formatDuration(seconds: number): string {
   if (!seconds) return '—';
   return `${Math.round(seconds / 60)} min`;
-}
-
-function TrashIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-      <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
-      <path d="M10 11v6M14 11v6" />
-    </svg>
-  );
 }
 
 export default function GravacoesPage() {
@@ -120,95 +117,184 @@ export default function GravacoesPage() {
   const hasFilters = !!(query || from || to);
 
   return (
-    <div className={styles.page}>
-      <div className={styles.topbar}>
-        <h1>Gravações</h1>
-      </div>
+    <AppShell>
+      <div className="space-y-6">
+        {/* Header */}
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Gravações</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Acesse e gerencie todas as reuniões gravadas.
+          </p>
+        </div>
 
-      <div className={styles.toolbar}>
-        <input
-          className={styles.toolbarSearch}
-          placeholder="Buscar por título…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        <label className={styles.dateField}>
-          De
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-        </label>
-        <label className={styles.dateField}>
-          Até
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-        </label>
-        {hasFilters && (
-          <button
-            type="button"
-            className={styles.clearBtn}
-            onClick={() => {
-              setQuery('');
-              setFrom('');
-              setTo('');
-            }}
-          >
-            Limpar
-          </button>
+        {/* Toolbar */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <Input
+              className="pl-9"
+              placeholder="Buscar por título…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-2 text-sm text-muted-foreground whitespace-nowrap">
+              De
+              <Input
+                type="date"
+                className="w-36"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+              />
+            </label>
+            <label className="flex items-center gap-2 text-sm text-muted-foreground whitespace-nowrap">
+              Até
+              <Input
+                type="date"
+                className="w-36"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+              />
+            </label>
+          </div>
+          {hasFilters && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setQuery('');
+                setFrom('');
+                setTo('');
+              }}
+            >
+              Limpar
+            </Button>
+          )}
+        </div>
+
+        {/* Loading skeleton */}
+        {loading && (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Card key={i} className="rounded-xl">
+                <CardHeader>
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-3 w-1/2 mt-1" />
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap gap-2">
+                    <Skeleton className="h-5 w-16 rounded-full" />
+                    <Skeleton className="h-5 w-20 rounded-full" />
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+
+        {/* Error */}
+        {error && (
+          <Card className="rounded-xl">
+            <CardContent className="py-8 text-center text-sm text-muted-foreground">
+              Não foi possível carregar: {error}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Empty state */}
+        {!loading && !error && filtered.length === 0 && (
+          <Card className="rounded-xl">
+            <CardContent className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
+              <Video className="h-10 w-10 opacity-40" />
+              <p className="text-sm">Nenhuma gravação encontrada.</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Grid */}
+        {!loading && !error && pageItems.length > 0 && (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {pageItems.map((rec) => (
+              <Card key={rec.id} className="rounded-xl relative group">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  title="Excluir gravação"
+                  disabled={deletingId === rec.id}
+                  onClick={() => handleDelete(rec)}
+                  className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+                <Link
+                  href={`/gravacoes/${encodeURIComponent(rec.id)}`}
+                  className="block focus:outline-none"
+                >
+                  <CardHeader className="pb-2">
+                    <p className="font-semibold text-sm leading-snug pr-8 text-foreground group-hover:text-primary transition-colors">
+                      {rec.title?.trim() || `Reunião · ${rec.roomName}`}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatDate(rec.createdAt)} · {formatDuration(rec.durationSeconds)}
+                    </p>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-wrap gap-1.5">
+                      {rec.storage === 'gdrive' && (
+                        <Badge variant="secondary">Google Drive</Badge>
+                      )}
+                      {rec.transcriptionStatus === 'failed' ? (
+                        <Badge variant="destructive">Transcrição falhou</Badge>
+                      ) : (
+                        <Badge variant="secondary">{rec.utteranceCount} falas</Badge>
+                      )}
+                      {rec.sector && (
+                        <Badge variant="secondary">
+                          {rec.sector === 'comercial' ? 'Comercial' : 'Executoria'}
+                        </Badge>
+                      )}
+                      {rec.hostName && (
+                        <Badge variant="secondary">{rec.hostName}</Badge>
+                      )}
+                    </div>
+                  </CardContent>
+                </Link>
+              </Card>
+            ))}
+          </div>
+        )}
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center gap-4">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={safePage <= 1}
+              onClick={() => setPage((p) => p - 1)}
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Anterior
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              {safePage} / {totalPages}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={safePage >= totalPages}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              Próxima
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
         )}
       </div>
-
-      {loading && <p className={styles.empty}>Carregando…</p>}
-      {error && <p className={styles.empty}>Não foi possível carregar: {error}</p>}
-      {!loading && !error && filtered.length === 0 && (
-        <p className={styles.empty}>Nenhuma gravação encontrada.</p>
-      )}
-
-      <div className={styles.grid}>
-        {pageItems.map((rec) => (
-          <div key={rec.id} className={styles.card}>
-            <button
-              type="button"
-              className={styles.deleteBtn}
-              title="Excluir gravação"
-              disabled={deletingId === rec.id}
-              onClick={() => handleDelete(rec)}
-            >
-              <TrashIcon />
-            </button>
-            <Link href={`/gravacoes/${encodeURIComponent(rec.id)}`} className={styles.cardLink}>
-              <p className={styles.cardTitle}>{rec.title?.trim() || `Reunião · ${rec.roomName}`}</p>
-              <div className={styles.cardMeta}>
-                <span>{formatDate(rec.createdAt)}</span>
-                <span>· {formatDuration(rec.durationSeconds)}</span>
-                {rec.storage === 'gdrive' && <span className={styles.badge}>Google Drive</span>}
-                {rec.transcriptionStatus === 'failed' ? (
-                  <span className={styles.badgeFail}>Transcrição falhou</span>
-                ) : (
-                  <span className={styles.badge}>{rec.utteranceCount} falas</span>
-                )}
-                {rec.sector && (
-                  <span className={styles.badge}>
-                    {rec.sector === 'comercial' ? 'Comercial' : 'Executoria'}
-                  </span>
-                )}
-                {rec.hostName && <span className={styles.badge}>{rec.hostName}</span>}
-              </div>
-            </Link>
-          </div>
-        ))}
-      </div>
-
-      {totalPages > 1 && (
-        <div className={styles.pagination}>
-          <button type="button" disabled={safePage <= 1} onClick={() => setPage((p) => p - 1)}>
-            ← Anterior
-          </button>
-          <span>
-            {safePage} / {totalPages}
-          </span>
-          <button type="button" disabled={safePage >= totalPages} onClick={() => setPage((p) => p + 1)}>
-            Próxima →
-          </button>
-        </div>
-      )}
-    </div>
+    </AppShell>
   );
 }

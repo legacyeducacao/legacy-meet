@@ -2,7 +2,9 @@ import Link from 'next/link';
 import { getManifest, canAccessRecording } from '@/lib/recordings';
 import { getCurrentUser } from '@/lib/auth';
 import { RecordingDetail } from './RecordingDetail';
-import styles from '@/styles/Recordings.module.css';
+import { AppShell } from '@/components/AppShell';
+import { Card, CardContent } from '@/components/ui/card';
+import { ArrowLeft } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,14 +17,22 @@ export default async function Page(ctx: { params: Promise<{ id: string }> }) {
 
   if (!manifest) {
     return (
-      <div className={styles.page}>
-        <div className={styles.topbar}>
-          <Link className={styles.back} href="/gravacoes">
-            ←
+      <AppShell>
+        <div className="space-y-4">
+          <Link
+            href="/gravacoes"
+            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Voltar para Gravações
           </Link>
-          <h1>Gravação não encontrada</h1>
+          <Card className="rounded-xl">
+            <CardContent className="py-16 text-center text-sm text-muted-foreground">
+              Gravação não encontrada ou sem permissão de acesso.
+            </CardContent>
+          </Card>
         </div>
-      </div>
+      </AppShell>
     );
   }
 
