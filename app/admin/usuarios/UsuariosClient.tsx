@@ -1,13 +1,56 @@
 'use client';
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
+import { UserPlus } from 'lucide-react';
+
+import { AppShell } from '@/components/AppShell';
+import { cn } from '@/lib/utils';
+
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from '@/components/ui/card';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 
 type UserRow = { id: string; name: string | null; email: string; role: string };
+
+function getInitials(name: string | null, email: string): string {
+  if (name) {
+    const parts = name.trim().split(/\s+/);
+    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+  return email.slice(0, 2).toUpperCase();
+}
 
 export default function UsuariosClient() {
   const router = useRouter();
   const [users, setUsers] = React.useState<UserRow[]>([]);
   const [loadError, setLoadError] = React.useState('');
+  const [loading, setLoading] = React.useState(true);
 
   // form state
   const [name, setName] = React.useState('');
@@ -20,6 +63,7 @@ export default function UsuariosClient() {
 
   const loadUsers = React.useCallback(async () => {
     setLoadError('');
+    setLoading(true);
     try {
       const res = await fetch('/api/admin/users');
       if (!res.ok) { setLoadError('Erro ao carregar usuários.'); return; }
@@ -27,6 +71,8 @@ export default function UsuariosClient() {
       setUsers(json.users ?? []);
     } catch {
       setLoadError('Erro de rede ao carregar usuários.');
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -60,89 +106,151 @@ export default function UsuariosClient() {
   };
 
   return (
-    <div style={{ maxWidth: 720, margin: '0 auto' }}>
-      <h1 style={{ marginBottom: '1.5rem' }}>Gerenciar Usuários</h1>
+    <AppShell>
+      <div className="space-y-6">
+        {/* Page header */}
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Usuários</h1>
+          <p className="text-sm text-muted-foreground">Gerencie quem acessa o Legacy Meet.</p>
+        </div>
 
-      {/* Lista */}
-      <section style={{ marginBottom: '2rem' }}>
-        <h2 style={{ fontSize: '1rem', marginBottom: '0.75rem', opacity: 0.7 }}>Usuários cadastrados</h2>
-        {loadError && <p style={{ color: '#ff8a8a' }}>{loadError}</p>}
-        {!loadError && users.length === 0 && <p style={{ opacity: 0.5 }}>Nenhum usuário encontrado.</p>}
-        {users.length > 0 && (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.15)' }}>
-                <th style={{ textAlign: 'left', padding: '0.4rem 0.6rem' }}>Nome</th>
-                <th style={{ textAlign: 'left', padding: '0.4rem 0.6rem' }}>E-mail</th>
-                <th style={{ textAlign: 'left', padding: '0.4rem 0.6rem' }}>Papel</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((u) => (
-                <tr key={u.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-                  <td style={{ padding: '0.4rem 0.6rem' }}>{u.name ?? '—'}</td>
-                  <td style={{ padding: '0.4rem 0.6rem' }}>{u.email}</td>
-                  <td style={{ padding: '0.4rem 0.6rem' }}>{u.role}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
+        <div className="grid gap-6 lg:grid-cols-3">
+          {/* Create-user form */}
+          <Card className="lg:col-span-1">
+            <CardHeader>
+              <CardTitle>Novo usuário</CardTitle>
+              <CardDescription>Preencha os dados para criar um acesso.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={onSubmit} className="space-y-4">
+                <div className="space-y-1">
+                  <Label htmlFor="u-name">Nome</Label>
+                  <Input
+                    id="u-name"
+                    type="text"
+                    placeholder="Nome completo"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                    autoComplete="off"
+                  />
+                </div>
 
-      {/* Form */}
-      <section>
-        <h2 style={{ fontSize: '1rem', marginBottom: '0.75rem', opacity: 0.7 }}>Adicionar usuário</h2>
-        <form onSubmit={onSubmit} className="prejoin-card" style={{ padding: '1.5rem' }}>
-          <input
-            className="lk-form-control"
-            type="text"
-            placeholder="Nome completo"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-            style={{ marginBottom: '0.75rem' }}
-          />
-          <input
-            className="lk-form-control"
-            type="email"
-            placeholder="E-mail"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            style={{ marginBottom: '0.75rem' }}
-          />
-          <input
-            className="lk-form-control"
-            type="password"
-            placeholder="Senha inicial"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            autoComplete="new-password"
-            style={{ marginBottom: '0.75rem' }}
-          />
-          <select
-            className="lk-form-control"
-            value={role}
-            onChange={(e) => setRole(e.target.value as 'EXECUTOR' | 'MASTER')}
-            style={{ marginBottom: '1rem' }}
-          >
-            <option value="EXECUTOR">EXECUTOR</option>
-            <option value="MASTER">MASTER</option>
-          </select>
-          {formError && <p style={{ color: '#ff8a8a', marginBottom: '0.5rem' }}>{formError}</p>}
-          {formMsg && <p style={{ color: '#7dffb3', marginBottom: '0.5rem' }}>{formMsg}</p>}
-          <button
-            className="lk-button lk-join-button"
-            type="submit"
-            disabled={busy}
-            style={{ width: '100%' }}
-          >
-            {busy ? 'Criando…' : 'Criar usuário'}
-          </button>
-        </form>
-      </section>
-    </div>
+                <div className="space-y-1">
+                  <Label htmlFor="u-email">E-mail</Label>
+                  <Input
+                    id="u-email"
+                    type="email"
+                    placeholder="usuario@email.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    autoComplete="off"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="u-password">Senha</Label>
+                  <Input
+                    id="u-password"
+                    type="password"
+                    placeholder="Senha inicial"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    autoComplete="new-password"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="u-role">Papel</Label>
+                  <Select
+                    value={role}
+                    onValueChange={(v) => setRole(v as 'EXECUTOR' | 'MASTER')}
+                  >
+                    <SelectTrigger id="u-role">
+                      <SelectValue placeholder="Selecione o papel" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="EXECUTOR">EXECUTOR</SelectItem>
+                      <SelectItem value="MASTER">MASTER</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {formError && (
+                  <p className="text-sm font-medium text-destructive">{formError}</p>
+                )}
+                {formMsg && (
+                  <p className="text-sm text-primary font-medium">{formMsg}</p>
+                )}
+
+                <Button type="submit" disabled={busy} className="w-full gap-2">
+                  <UserPlus className="h-4 w-4" />
+                  {busy ? 'Criando…' : 'Criar usuário'}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+
+          {/* User list */}
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle>Usuários cadastrados</CardTitle>
+              <CardDescription>Todos os usuários com acesso à plataforma.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loadError && (
+                <p className="text-sm font-medium text-destructive">{loadError}</p>
+              )}
+
+              {loading && !loadError && (
+                <div className="space-y-2">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <Skeleton key={i} className="h-10 w-full rounded-md" />
+                  ))}
+                </div>
+              )}
+
+              {!loading && !loadError && users.length === 0 && (
+                <p className="text-sm text-muted-foreground">Nenhum usuário encontrado.</p>
+              )}
+
+              {!loading && !loadError && users.length > 0 && (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nome</TableHead>
+                      <TableHead>E-mail</TableHead>
+                      <TableHead>Papel</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {users.map((u) => (
+                      <TableRow key={u.id}>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Avatar className="h-7 w-7 text-xs">
+                              <AvatarFallback>{getInitials(u.name, u.email)}</AvatarFallback>
+                            </Avatar>
+                            <span>{u.name ?? '—'}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">{u.email}</TableCell>
+                        <TableCell>
+                          <Badge variant={u.role === 'MASTER' ? 'default' : 'secondary'}>
+                            {u.role}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </AppShell>
   );
 }
