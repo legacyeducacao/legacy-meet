@@ -1,3 +1,4 @@
+import { getCurrentUser } from '@/lib/auth';
 import { randomString } from '@/lib/client-utils';
 import { getLiveKitURL } from '@/lib/getLiveKitURL';
 import { verifyHostKey } from '@/lib/hostLink';
@@ -39,16 +40,11 @@ export async function GET(request: NextRequest) {
       return new NextResponse('Missing required query parameter: participantName', { status: 400 });
     }
 
-    // Host = membro da equipe logado (cookie staff_auth) OU link de anfitrião
+    // Host = membro da equipe logado (sessão Supabase) OU link de anfitrião
     // assinado (parâmetro `hostKey`, gerado pelo /api/meetings para o closer).
-    // Sem STAFF_PASSWORD configurado, todos entram como host (sala de espera
-    // desativada).
-    const staffPass = process.env.STAFF_PASSWORD;
     const hostKey = request.nextUrl.searchParams.get('hostKey');
-    const isHost =
-      !staffPass ||
-      request.cookies.get('staff_auth')?.value === staffPass ||
-      verifyHostKey(roomName, hostKey);
+    const user = await getCurrentUser();
+    const isHost = !!user || verifyHostKey(roomName, hostKey);
 
     // Generate participant token
     if (!randomParticipantPostfix) {
