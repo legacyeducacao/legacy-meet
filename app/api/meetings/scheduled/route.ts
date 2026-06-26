@@ -16,17 +16,17 @@ export async function GET() {
   if (!user) return new NextResponse('Não autorizado', { status: 401 });
 
   const admin = createAdminSupabase();
-  let query = admin
+  // !inner em meet_meeting_sector: traz SOMENTE reuniões criadas pelo Meet
+  // (ignora as do Planner do Legacy Plan, que compartilham a tabela `meetings`).
+  // host_id = user.id: cada usuário vê apenas as suas próprias reuniões.
+  const { data, error } = await admin
     .from('meetings')
     .select(
-      'id, title, room_name, scheduled_start_at, recording_enabled, auto_transcribe, host_id, users:host_id(name), client_tenants:tenant_id(name), meet_meeting_sector(sector)',
+      'id, title, room_name, scheduled_start_at, recording_enabled, auto_transcribe, host_id, users:host_id(name), client_tenants:tenant_id(name), meet_meeting_sector!inner(sector)',
     )
     .eq('status', 'scheduled')
+    .eq('host_id', user.id)
     .order('scheduled_start_at', { ascending: true });
-
-  if (user.role !== 'MASTER') query = query.eq('host_id', user.id);
-
-  const { data, error } = await query;
   if (error) return new NextResponse('Erro ao buscar a agenda: ' + error.message, { status: 500 });
 
   const meetings = ((data ?? []) as any[]).map((m) => ({

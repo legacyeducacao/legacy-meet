@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import React, { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
-import { CalendarPlus, Clock, Copy, Play, X } from 'lucide-react';
+import { CalendarPlus, ChevronLeft, ChevronRight, Clock, Copy, Play, X } from 'lucide-react';
 import { AppShell } from '@/components/AppShell';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -14,6 +14,8 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SearchableSelect } from '@/components/ui/searchable-select';
+
+const PAGE_SIZE = 6;
 
 type Client = { id: string; name: string };
 type Scheduled = {
@@ -62,6 +64,11 @@ export default function AgendaPage() {
   const [meetings, setMeetings] = useState<Scheduled[]>([]);
   const [loadingList, setLoadingList] = useState(true);
   const [actingId, setActingId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+
+  const totalPages = Math.max(1, Math.ceil(meetings.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageItems = meetings.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   const onRecordChange = (checked: boolean) => {
     setRecord(checked);
@@ -91,6 +98,7 @@ export default function AgendaPage() {
       if (!res.ok) throw new Error(await res.text());
       const json = await res.json();
       setMeetings(json.meetings ?? []);
+      setPage(1);
     } catch {
       setMeetings([]);
     } finally {
@@ -317,7 +325,7 @@ export default function AgendaPage() {
               </CardContent>
             </Card>
           ) : (
-            meetings.map((m) => {
+            pageItems.map((m) => {
               const overdue = new Date(m.startAt).getTime() < Date.now();
               return (
                 <Card key={m.id}>
@@ -375,6 +383,34 @@ export default function AgendaPage() {
                 </Card>
               );
             })
+          )}
+
+          {!loadingList && totalPages > 1 && (
+            <div className="flex items-center justify-center gap-4 pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1"
+                disabled={safePage <= 1}
+                onClick={() => setPage((p) => p - 1)}
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Anterior
+              </Button>
+              <span className="text-sm text-muted-foreground">
+                {safePage} / {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1"
+                disabled={safePage >= totalPages}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Próxima
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
           )}
         </div>
       </div>
