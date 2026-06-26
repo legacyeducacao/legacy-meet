@@ -25,22 +25,27 @@ export async function POST(req: NextRequest) {
     name?: string;
     role?: string;
   };
-  if (!email || !password || !name)
+  const cleanEmail = (email ?? '').trim();
+  const cleanName = (name ?? '').trim();
+  if (!cleanEmail || !password || !cleanName)
     return new NextResponse('email, password e name são obrigatórios', { status: 400 });
   const finalRole = role === 'MASTER' ? 'MASTER' : 'EXECUTOR';
   const admin = createAdminSupabase();
   const { data: created, error } = await admin.auth.admin.createUser({
-    email: email.trim(),
+    email: cleanEmail,
     password,
     email_confirm: true,
-    user_metadata: { name },
+    user_metadata: { name: cleanName },
   });
   if (error || !created.user)
     return new NextResponse('Falha ao criar: ' + (error?.message ?? ''), { status: 400 });
   const { error: e2 } = await admin
     .from('users')
-    .insert({ id: created.user.id, email: email.trim(), name, role: finalRole });
-  if (e2)
-    return new NextResponse('Conta criada, mas falha no perfil: ' + e2.message, { status: 500 });
+    .insert({ id: created.user.id, email: cleanEmail, name: cleanName, role: finalRole });
+  if (e2) {
+    // desfaz a conta no Auth pra não deixar usuário órfão (sem perfil em public.users)
+    await admin.auth.admin.deleteUser(created.user.id).catch(() => {});
+    return new NextResponse('Falha ao criar o perfil do usuário: ' + e2.message, { status: 500 });
+  }
   return NextResponse.json({ ok: true });
 }
