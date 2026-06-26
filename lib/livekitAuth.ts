@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { NextRequest } from 'next/server';
 import { RoomServiceClient } from 'livekit-server-sdk';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, isInternalRole } from '@/lib/auth';
 import { verifyHostKey } from './hostLink';
 
 export function roomService() {
@@ -46,8 +46,9 @@ export async function authorizeHostAction(
   opts: { allowCohost?: boolean } = {},
 ): Promise<boolean> {
   const { allowCohost = true } = opts;
-  if (await getCurrentUser()) return true;
   if (verifyHostKey(roomName, body.hostKey)) return true;
+  const user = await getCurrentUser();
+  if (user && isInternalRole(user.role)) return true;
   if (!allowCohost) return false;
   const identity = verifyLivekitToken(body.participantToken, roomName);
   if (identity) {

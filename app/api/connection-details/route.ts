@@ -1,4 +1,4 @@
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, isInternalRole } from '@/lib/auth';
 import { randomString } from '@/lib/client-utils';
 import { getLiveKitURL } from '@/lib/getLiveKitURL';
 import { verifyHostKey } from '@/lib/hostLink';
@@ -40,11 +40,13 @@ export async function GET(request: NextRequest) {
       return new NextResponse('Missing required query parameter: participantName', { status: 400 });
     }
 
-    // Host = membro da equipe logado (sessão Supabase) OU link de anfitrião
-    // assinado (parâmetro `hostKey`, gerado pelo /api/meetings para o closer).
+    // Host = link de anfitrião assinado (hostKey) OU membro interno logado (MASTER/EXECUTOR).
     const hostKey = request.nextUrl.searchParams.get('hostKey');
-    const user = await getCurrentUser();
-    const isHost = !!user || verifyHostKey(roomName, hostKey);
+    let isHost = verifyHostKey(roomName, hostKey);
+    if (!isHost) {
+      const user = await getCurrentUser();
+      isHost = !!user && isInternalRole(user.role);
+    }
 
     // Generate participant token
     if (!randomParticipantPostfix) {
