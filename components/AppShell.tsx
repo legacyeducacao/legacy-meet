@@ -88,6 +88,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               variant="ghost"
               size="sm"
               onClick={logout}
+              aria-label="Sair"
               className="gap-2 text-muted-foreground"
             >
               <LogOut className="h-4 w-4" />
