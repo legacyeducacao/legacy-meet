@@ -94,7 +94,7 @@ export default function Page() {
 
   return (
     <AppShell>
-      <div className="flex min-h-[calc(100vh-8rem)] items-center justify-center">
+      <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center">
         <div className="w-full max-w-xl">
         <div className="mb-6">
           <h1 className="text-2xl font-bold tracking-tight">Seja bem-vindo!</h1>
