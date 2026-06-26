@@ -7,6 +7,7 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { deleteDriveFile } from './drive';
+import { createAdminSupabase } from '@/lib/supabase/admin';
 
 export interface Utterance {
   speaker: string;
@@ -166,6 +167,39 @@ async function deleteObject(key: string): Promise<void> {
   } catch (e) {
     console.error('Falha ao apagar objeto', key, e);
   }
+}
+
+// ---------- Dono/setor da reunião por room_name ----------
+
+export type RoomOwner = {
+  roomName: string;
+  hostId: string | null;
+  hostName: string | null;
+  sector: string | null;
+};
+
+export async function getRoomOwners(roomNames: string[]): Promise<Map<string, RoomOwner>> {
+  const out = new Map<string, RoomOwner>();
+  if (!roomNames.length) return out;
+  const admin = createAdminSupabase();
+  const { data } = await admin
+    .from('meetings')
+    .select('room_name, host_id, users:host_id(name), meet_meeting_sector(sector)')
+    .in('room_name', roomNames);
+  for (const m of (data ?? []) as Array<{
+    room_name: string;
+    host_id: string | null;
+    users?: { name?: string | null } | null;
+    meet_meeting_sector?: { sector?: string | null } | null;
+  }>) {
+    out.set(m.room_name, {
+      roomName: m.room_name,
+      hostId: m.host_id,
+      hostName: m.users?.name ?? null,
+      sector: m.meet_meeting_sector?.sector ?? null,
+    });
+  }
+  return out;
 }
 
 /** Apaga uma gravação: vídeo (Drive ou MinIO), transcrição, meta e manifesto. */

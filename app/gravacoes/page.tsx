@@ -13,6 +13,8 @@ interface Rec {
   storage: 's3' | 'gdrive';
   transcriptionStatus: string;
   utteranceCount: number;
+  hostName?: string | null;
+  sector?: string | null;
 }
 
 const PAGE_SIZE = 9;
@@ -182,6 +184,12 @@ export default function GravacoesPage() {
                 ) : (
                   <span className={styles.badge}>{rec.utteranceCount} falas</span>
                 )}
+                {rec.sector && (
+                  <span className={styles.badge}>
+                    {rec.sector === 'comercial' ? 'Comercial' : 'Executoria'}
+                  </span>
+                )}
+                {rec.hostName && <span className={styles.badge}>{rec.hostName}</span>}
               </div>
             </Link>
           </div>
