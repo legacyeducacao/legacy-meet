@@ -141,6 +141,15 @@
   }
 }
 
+/* Utilitário do Legacy Plan: esconde a barra de rolagem (usado por TabsList etc.) */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 /* ─── Existing Meet / LiveKit CSS below — do NOT modify ─────────────────── */
 
 * {
