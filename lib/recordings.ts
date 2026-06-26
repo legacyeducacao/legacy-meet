@@ -182,10 +182,11 @@ export async function getRoomOwners(roomNames: string[]): Promise<Map<string, Ro
   const out = new Map<string, RoomOwner>();
   if (!roomNames.length) return out;
   const admin = createAdminSupabase();
-  const { data } = await admin
+  const { data, error } = await admin
     .from('meetings')
     .select('room_name, host_id, users:host_id(name), meet_meeting_sector(sector)')
     .in('room_name', roomNames);
+  if (error) console.error('getRoomOwners', error);
   for (const m of (data ?? []) as Array<{
     room_name: string;
     host_id: string | null;
@@ -200,6 +201,18 @@ export async function getRoomOwners(roomNames: string[]): Promise<Map<string, Ro
     });
   }
   return out;
+}
+
+export async function canAccessRecording(
+  id: string,
+  user: { id: string; role: string } | null,
+): Promise<boolean> {
+  if (!user) return false;
+  if (user.role === 'MASTER') return true;
+  const roomName = id.split('__')[0];
+  const owners = await getRoomOwners([roomName]);
+  const o = owners.get(roomName);
+  return !!o && o.hostId === user.id;
 }
 
 /** Apaga uma gravação: vídeo (Drive ou MinIO), transcrição, meta e manifesto. */

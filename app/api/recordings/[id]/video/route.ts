@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getManifest, getSignedVideoUrl } from '@/lib/recordings';
+import { canAccessRecording, getManifest, getSignedVideoUrl } from '@/lib/recordings';
 import { getDriveAccessToken } from '@/lib/drive';
+import { getCurrentUser } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
+  const user = await getCurrentUser();
+  if (!(await canAccessRecording(id, user))) {
+    return new NextResponse('Não encontrado', { status: 404 });
+  }
   const manifest = await getManifest(id);
   if (!manifest) {
     return new NextResponse('Gravação não encontrada', { status: 404 });
