@@ -52,7 +52,7 @@ export default function LoginPage() {
       </div>
 
       {/* Painel do formulário (direita) */}
-      <div className="flex flex-1 items-center justify-center overflow-auto bg-white p-8">
+      <div className="flex flex-1 items-center justify-center overflow-auto bg-white p-8 text-foreground [color-scheme:light]">
         <div className="w-full max-w-sm">
           <h1 className="mb-1 text-center text-3xl font-bold text-primary">Seja bem-vindo!</h1>
           <p className="mb-8 text-center text-muted-foreground">

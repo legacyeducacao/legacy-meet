@@ -55,7 +55,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div className="h-full overflow-y-auto bg-background text-foreground">
+    <div className="h-full overflow-y-auto bg-background text-foreground [color-scheme:light]">
       <header className="sticky top-0 z-40 border-b border-border/60 bg-card/80 backdrop-blur supports-[backdrop-filter]:bg-card/60">
         <div className="mx-auto flex h-16 max-w-6xl items-center gap-3 px-4 sm:px-6">
           <Link href="/" className="flex items-center gap-2 font-bold text-primary">
