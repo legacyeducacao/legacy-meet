@@ -26,3 +26,4 @@ Task 5: complete (commits 76061c1 + fix 360c26e, review: spec 8/8; fix aplicado:
 == STATUS: Tasks 1,3,4,5 DONE na branch feat/fundacao-auth (nao mergeado/deployado). ==
 == Tasks 2,6,7,8 PAUSADAS: faltam SUPABASE_SERVICE_ROLE_KEY + ok p/ escrever na base de producao do Legacy Plan. ==
 Task 6: complete (commit 56e59da + fix 777d3d0, review: spec OK; C1 corrigido: rollback se sector insert falhar. Minors I1/I2/I3/M* anotados p/ review final).
+Task 7: complete (commit 383b5ac + fix 550a07a, review: spec 100%, sem Critical; I1 corrigido (rollback orfao) + trim server. I2 (msg de erro do Auth) anotado p/ review final).
