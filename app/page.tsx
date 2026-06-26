@@ -10,13 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 
 type Client = { id: string; name: string };
 
@@ -100,7 +94,8 @@ export default function Page() {
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-xl">
+      <div className="flex min-h-[calc(100vh-8rem)] items-center justify-center">
+        <div className="w-full max-w-xl">
         <div className="mb-6">
           <h1 className="text-2xl font-bold tracking-tight">Seja bem-vindo!</h1>
           <p className="text-muted-foreground">Crie uma reunião da Legacy.</p>
@@ -129,18 +124,14 @@ export default function Page() {
               {sector === 'executoria' ? (
                 <div className="space-y-2">
                   <Label htmlFor="tenant">Cliente</Label>
-                  <Select value={tenantId} onValueChange={setTenantId}>
-                    <SelectTrigger id="tenant" className="w-full">
-                      <SelectValue placeholder="Carregando clientes…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {clients.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <SearchableSelect
+                    value={tenantId}
+                    onValueChange={setTenantId}
+                    options={clients.map((c) => ({ value: c.id, label: c.name }))}
+                    placeholder={clients.length ? 'Selecione um cliente' : 'Carregando clientes…'}
+                    searchPlaceholder="Buscar cliente…"
+                    emptyText="Nenhum cliente encontrado."
+                  />
                   {sector === 'executoria' && clients.length === 0 && (
                     <p className="text-xs text-muted-foreground">
                       Nenhum cliente disponível para a sua conta.
@@ -187,6 +178,7 @@ export default function Page() {
             </form>
           </CardContent>
         </Card>
+        </div>
       </div>
     </AppShell>
   );
