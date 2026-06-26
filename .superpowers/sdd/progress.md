@@ -29,3 +29,4 @@ Task 6: complete (commit 56e59da + fix 777d3d0, review: spec OK; C1 corrigido: r
 Task 7: complete (commit 383b5ac + fix 550a07a, review: spec 100%, sem Critical; I1 corrigido (rollback orfao) + trim server. I2 (msg de erro do Auth) anotado p/ review final).
 Task 8: complete (commit 1f56aed + fix 3c8efc4, review: spec 100%; gap fechado: ownership nas rotas /api/recordings/[id] (GET/DELETE/video). Minors M1/M2 anotados).
 == FUNDACAO: 8/8 tasks DONE na branch feat/fundacao-auth. Pendente: review final + service_role no prod + deploy. ==
+Review final (opus): 1 bloqueador -> /gravacoes/[id]/page.tsx sem ownership. CORRIGIDO em eb49f68. Demais confirmados OK (service_role nao vaza, convidado nao vira host, isolamento ok). Deferidos nao-bloqueadores registrados. FUNDACAO PRONTA (pos-fix).
