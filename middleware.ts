@@ -1,40 +1,41 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
 
-// Login fixo da equipe (sem banco). Protege a criação de reuniões (home) e o
-// viewer de gravações. Convidados entram pelo link (/rooms/...) SEM login —
-// essas rotas não estão no matcher abaixo.
-const STAFF_COOKIE = 'staff_auth';
+// Rotas PÚBLICAS (sem login): login, sala, obrigado, e APIs usadas por convidados/CRM/worker.
+const PUBLIC_PREFIXES = ['/login', '/rooms', '/obrigado'];
+const PUBLIC_API_PREFIXES = [
+  '/api/connection-details', '/api/room/', '/api/meetings', '/api/record/', '/api/auth/',
+];
 
-export function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
+function isPublic(path: string) {
+  if (PUBLIC_PREFIXES.some((p) => path === p || path.startsWith(p + '/') || path === '/login')) return true;
+  if (path.startsWith('/api/')) return PUBLIC_API_PREFIXES.some((p) => path.startsWith(p));
+  return false;
+}
 
-  // Libera a tela de login e a rota de login
-  if (pathname === '/login' || pathname === '/api/staff/login') {
-    return NextResponse.next();
+export async function middleware(req: NextRequest) {
+  const res = NextResponse.next();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll: () => req.cookies.getAll(),
+        setAll: (toSet) => toSet.forEach(({ name, value, options }) => res.cookies.set(name, value, options)),
+      },
+    },
+  );
+  const { data: { user } } = await supabase.auth.getUser();
+
+  const path = req.nextUrl.pathname;
+  if (!isPublic(path) && !user) {
+    const url = req.nextUrl.clone();
+    url.pathname = '/login';
+    return NextResponse.redirect(url);
   }
-
-  const expected = process.env.STAFF_PASSWORD;
-  // Sem senha configurada → não bloqueia (útil em dev)
-  if (!expected) {
-    return NextResponse.next();
-  }
-
-  if (req.cookies.get(STAFF_COOKIE)?.value === expected) {
-    return NextResponse.next();
-  }
-
-  if (pathname.startsWith('/api/')) {
-    return new NextResponse('Não autorizado', { status: 401 });
-  }
-
-  const url = req.nextUrl.clone();
-  url.pathname = '/login';
-  url.searchParams.set('next', pathname);
-  return NextResponse.redirect(url);
+  return res;
 }
 
 export const config = {
-  // Protegido: home (criar reunião) + viewer de gravações.
-  // Aberto (fora do matcher): /rooms/*, /obrigado, /api/record, /api/meetings, /api/connection-details
-  matcher: ['/', '/gravacoes/:path*', '/api/recordings/:path*'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|mp3|ico)$).*)'],
 };
