@@ -14,15 +14,21 @@ export default function LoginPage() {
     e.preventDefault();
     setBusy(true);
     setError('');
-    const supabase = createBrowserSupabase();
-    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-    setBusy(false);
-    if (error) {
-      setError('E-mail ou senha inválidos.');
-      return;
+    try {
+      const supabase = createBrowserSupabase();
+      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      if (error) {
+        setError('E-mail ou senha inválidos.');
+        return;
+      }
+      router.push('/');
+      router.refresh();
+    } catch {
+      // falha de rede/inesperada — não trava o botão e mostra mensagem amigável
+      setError('Não foi possível entrar. Verifique sua conexão e tente novamente.');
+    } finally {
+      setBusy(false);
     }
-    router.push('/');
-    router.refresh();
   };
 
   return (
