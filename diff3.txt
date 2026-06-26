@@ -1,0 +1,105 @@
+﻿diff --git a/app/rooms/[roomName]/PageClientImpl.tsx b/app/rooms/[roomName]/PageClientImpl.tsx
+index 0d7c20d..3e1b831 100644
+--- a/app/rooms/[roomName]/PageClientImpl.tsx
++++ b/app/rooms/[roomName]/PageClientImpl.tsx
+@@ -29,6 +29,7 @@ import {
+ import { useRouter } from 'next/navigation';
+ import { useSetupE2EE } from '@/lib/useSetupE2EE';
+ import { useLowCPUOptimizer } from '@/lib/usePerfomanceOptimiser';
++import { useLiveKitTranslations } from '@/lib/useLiveKitTranslations';
+ 
+ const CONN_DETAILS_ENDPOINT =
+   process.env.NEXT_PUBLIC_CONN_DETAILS_ENDPOINT ?? '/api/connection-details';
+@@ -69,15 +70,28 @@ export function PageClientImpl(props: {
+   }, []);
+   const handlePreJoinError = React.useCallback((e: any) => console.error(e), []);
+ 
++  useLiveKitTranslations();
++
+   return (
+     <main data-lk-theme="default" style={{ height: '100%' }}>
+       {connectionDetails === undefined || preJoinChoices === undefined ? (
+-        <div style={{ display: 'grid', placeItems: 'center', height: '100%' }}>
+-          <PreJoin
+-            defaults={preJoinDefaults}
+-            onSubmit={handlePreJoinSubmit}
+-            onError={handlePreJoinError}
+-          />
++        <div className="prejoin-stage" style={{ display: 'grid', placeItems: 'center', height: '100%' }}>
++          <div className="prejoin-card">
++            <div className="prejoin-header">
++              <img src="/favicon.svg" alt="Legacy Meet" width={52} height={52} />
++              <h1>Entrar na reuni├úo</h1>
++              <p>Verifique sua c├ómera e microfone antes de entrar.</p>
++            </div>
++            <PreJoin
++              defaults={preJoinDefaults}
++              onSubmit={handlePreJoinSubmit}
++              onError={handlePreJoinError}
++              joinLabel="Entrar na reuni├úo"
++              micLabel="Microfone"
++              camLabel="C├ómera"
++              userLabel="Seu nome"
++            />
++          </div>
+         </div>
+       ) : (
+         <VideoConferenceComponent
+@@ -149,7 +163,7 @@ function VideoConferenceComponent(props: {
+           room.setE2EEEnabled(true).catch((e) => {
+             if (e instanceof DeviceUnsupportedError) {
+               alert(
+-                `You're trying to join an encrypted meeting, but your browser does not support it. Please update it to the latest version and try again.`,
++                `Voc├¬ est├í tentando entrar em uma reuni├úo criptografada, mas seu navegador n├úo tem suporte. Atualize-o para a vers├úo mais recente e tente novamente.`,
+               );
+               console.error(e);
+             } else {
+@@ -169,10 +183,25 @@ function VideoConferenceComponent(props: {
+     };
+   }, []);
+ 
++  // Grava├º├úo autom├ítica ao entrar: o bucket ├® escolhido pelo prefixo do nome da
++  // sala (comercial-/executoria-) dentro do endpoint /api/record/start.
++  const recordingStartedRef = React.useRef(false);
++  const handleConnected = React.useCallback(() => {
++    const endpoint = process.env.NEXT_PUBLIC_LK_RECORD_ENDPOINT;
++    if (!endpoint || recordingStartedRef.current) {
++      return;
++    }
++    recordingStartedRef.current = true;
++    fetch(`${endpoint}/start?roomName=${encodeURIComponent(room.name)}`).catch((error) =>
++      console.error('Falha ao iniciar a grava├º├úo autom├ítica:', error),
++    );
++  }, [room]);
++
+   React.useEffect(() => {
+     room.on(RoomEvent.Disconnected, handleOnLeave);
+     room.on(RoomEvent.EncryptionError, handleEncryptionError);
+     room.on(RoomEvent.MediaDevicesError, handleError);
++    room.on(RoomEvent.Connected, handleConnected);
+ 
+     if (e2eeSetupComplete) {
+       room
+@@ -199,6 +228,7 @@ function VideoConferenceComponent(props: {
+       room.off(RoomEvent.Disconnected, handleOnLeave);
+       room.off(RoomEvent.EncryptionError, handleEncryptionError);
+       room.off(RoomEvent.MediaDevicesError, handleError);
++      room.off(RoomEvent.Connected, handleConnected);
+     };
+   }, [e2eeSetupComplete, room, props.connectionDetails, props.userChoices]);
+ 
+@@ -208,12 +238,12 @@ function VideoConferenceComponent(props: {
+   const handleOnLeave = React.useCallback(() => router.push('/'), [router]);
+   const handleError = React.useCallback((error: Error) => {
+     console.error(error);
+-    alert(`Encountered an unexpected error, check the console logs for details: ${error.message}`);
++    alert(`Ocorreu um erro inesperado, verifique o console para mais detalhes: ${error.message}`);
+   }, []);
+   const handleEncryptionError = React.useCallback((error: Error) => {
+     console.error(error);
+     alert(
+-      `Encountered an unexpected encryption error, check the console logs for details: ${error.message}`,
++      `Ocorreu um erro inesperado de criptografia, verifique o console para mais detalhes: ${error.message}`,
+     );
+   }, []);
+ 

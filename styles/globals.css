@@ -43,7 +43,7 @@
   --radius-xl: calc(var(--radius) + 4px);
   --radius-2xl: calc(var(--radius) + 8px);
 
-  --font-sans: "Urbanist", sans-serif;
+  --font-sans: var(--font-urbanist), "Urbanist", sans-serif;
 }
 
 @variant dark (&:where(.dark, .dark *));
