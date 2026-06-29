@@ -37,6 +37,8 @@ export interface RecordingManifest {
 /** Resumo para listagem (sem as utterances). */
 export type RecordingSummary = Omit<RecordingManifest, 'utterances' | 'skippedChunks'> & {
   utteranceCount: number;
+  /** Nome do host vindo do meta/<room>.json (fallback quando não há dono no banco). */
+  metaHost?: string | null;
 };
 
 const S3_BUCKET = process.env.S3_BUCKET ?? 'legacy-meet';
@@ -104,14 +106,21 @@ export async function listRecordings(): Promise<RecordingSummary[]> {
     token = res.IsTruncated ? res.NextContinuationToken : undefined;
   } while (token);
 
-  const manifests = await Promise.all(ids.map((id) => getManifest(id)));
-  return manifests
-    .filter((m): m is RecordingManifest => m !== null)
-    .map(({ utterances, skippedChunks, ...rest }) => ({
-      ...rest,
-      utteranceCount: utterances?.length ?? 0,
-    }))
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const manifests = (await Promise.all(ids.map((id) => getManifest(id)))).filter(
+    (m): m is RecordingManifest => m !== null,
+  );
+  // Lê o meta de cada sala para trazer o nome do host (usado no filtro por usuário).
+  const summaries = await Promise.all(
+    manifests.map(async ({ utterances, skippedChunks, ...rest }) => {
+      const meta = await readJson<MeetingMeta>(metaKey(rest.roomName));
+      return {
+        ...rest,
+        utteranceCount: utterances?.length ?? 0,
+        metaHost: meta?.host?.trim() || null,
+      };
+    }),
+  );
+  return summaries.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 export async function getSignedVideoUrl(key: string): Promise<string> {

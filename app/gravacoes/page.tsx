@@ -24,8 +24,6 @@ interface Rec {
   sector?: string | null;
 }
 
-const PAGE_SIZE = 12;
-
 function formatDate(iso: string): string {
   try {
     return new Date(iso).toLocaleString('pt-BR', {
@@ -55,6 +53,22 @@ export default function GravacoesPage() {
   const [host, setHost] = useState('');
   const [page, setPage] = useState(1);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [pageSize, setPageSize] = useState(16);
+
+  // Quantos cards cabem na tela (preenche a altura; o excedente pagina).
+  useEffect(() => {
+    const calc = () => {
+      const w = window.innerWidth;
+      const cols = w >= 1280 ? 4 : w >= 1024 ? 3 : w >= 640 ? 2 : 1;
+      const rowH = 150; // altura aproximada do card + gap
+      const avail = window.innerHeight - 260; // header + toolbar + paginação + margens
+      const rows = Math.max(2, Math.floor(avail / rowH));
+      setPageSize(cols * rows);
+    };
+    calc();
+    window.addEventListener('resize', calc);
+    return () => window.removeEventListener('resize', calc);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -99,9 +113,9 @@ export default function GravacoesPage() {
     setPage(1);
   }, [query, from, to, host]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, totalPages);
-  const pageItems = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const pageItems = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   const handleDelete = async (rec: Rec) => {
     if (
@@ -203,7 +217,7 @@ export default function GravacoesPage() {
         <div className="flex-1">
           {loading && (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {Array.from({ length: 8 }).map((_, i) => (
+              {Array.from({ length: pageSize }).map((_, i) => (
                 <Card key={i} className="rounded-xl">
                   <CardHeader>
                     <Skeleton className="h-4 w-3/4" />

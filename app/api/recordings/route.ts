@@ -22,7 +22,7 @@ export async function GET() {
       return {
         ...r,
         hostId: owner?.hostId ?? null,
-        hostName: owner?.hostName ?? null,
+        hostName: owner?.hostName ?? r.metaHost ?? null,
         sector: owner?.sector ?? null,
       };
     });
