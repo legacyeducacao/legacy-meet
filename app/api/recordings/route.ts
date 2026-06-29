@@ -28,13 +28,13 @@ export async function GET() {
       };
     });
 
-    const isMaster = user.role === 'MASTER';
-
-    const visible = isMaster
-      ? enriched
-      : enriched.filter((r) => r.hostId !== null && r.hostId === user.id);
-
-    return NextResponse.json(visible);
+    const isMaster = user.isAdmin;
+    let scoped = isMaster ? enriched : enriched.filter((r) => r.hostId !== null && r.hostId === user.id);
+    // comercial não vê Executoria: restringe a setor 'comercial'
+    if (!user.isAdmin && user.sector === 'comercial') {
+      scoped = scoped.filter((r) => r.sector === 'comercial');
+    }
+    return NextResponse.json(scoped);
   } catch (error) {
     return new NextResponse(error instanceof Error ? error.message : 'erro', { status: 500 });
   }

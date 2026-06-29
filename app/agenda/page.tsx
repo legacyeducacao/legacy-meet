@@ -60,6 +60,10 @@ export default function AgendaPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
+  // Setor e permissões do usuário logado
+  const [meIsAdmin, setMeIsAdmin] = useState(false);
+  const [meSector, setMeSector] = useState<string | null>(null);
+
   // lista
   const [meetings, setMeetings] = useState<Scheduled[]>([]);
   const [loadingList, setLoadingList] = useState(true);
@@ -78,6 +82,29 @@ export default function AgendaPage() {
     setTranscribe(checked);
     if (checked) setRecord(true);
   };
+
+  useEffect(() => {
+    fetch('/api/me')
+      .then((r) => r.json())
+      .then((json) => {
+        const u = json?.user;
+        if (u) {
+          setMeIsAdmin(!!u.isAdmin);
+          setMeSector(u.sector ?? null);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Derivar abas permitidas
+  const canCom = meIsAdmin || meSector === 'comercial' || meSector === 'ambos';
+  const canExe = meIsAdmin || meSector === 'executoria' || meSector === 'ambos';
+
+  // Se só uma aba é permitida, fixar o sector nela
+  useEffect(() => {
+    if (canCom && !canExe) setSector('comercial');
+    else if (canExe && !canCom) setSector('executoria');
+  }, [canCom, canExe]);
 
   useEffect(() => {
     if (sector !== 'executoria') return;
@@ -231,15 +258,17 @@ export default function AgendaPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={schedule} className="space-y-5">
-              <div className="space-y-2">
-                <Label>Setor</Label>
-                <Tabs value={sector} onValueChange={(v) => setSector(v as 'comercial' | 'executoria')}>
-                  <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="executoria">Executoria</TabsTrigger>
-                    <TabsTrigger value="comercial">Comercial</TabsTrigger>
-                  </TabsList>
-                </Tabs>
-              </div>
+              {canCom && canExe && (
+                <div className="space-y-2">
+                  <Label>Setor</Label>
+                  <Tabs value={sector} onValueChange={(v) => setSector(v as 'comercial' | 'executoria')}>
+                    <TabsList className="grid w-full grid-cols-2">
+                      <TabsTrigger value="executoria">Executoria</TabsTrigger>
+                      <TabsTrigger value="comercial">Comercial</TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                </div>
+              )}
 
               {sector === 'executoria' ? (
                 <div className="space-y-2">

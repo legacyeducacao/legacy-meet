@@ -214,10 +214,10 @@ export async function getRoomOwners(roomNames: string[]): Promise<Map<string, Ro
 
 export async function canAccessRecording(
   id: string,
-  user: { id: string; role: string } | null,
+  user: { id: string; isAdmin: boolean } | null,
 ): Promise<boolean> {
   if (!user) return false;
-  if (user.role === 'MASTER') return true;
+  if (user.isAdmin) return true;
   const roomName = id.split('__')[0];
   const owners = await getRoomOwners([roomName]);
   const o = owners.get(roomName);

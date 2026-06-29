@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     .eq('id', id)
     .maybeSingle();
   if (!meeting) return new NextResponse('Reunião não encontrada', { status: 404 });
-  if (user.role !== 'MASTER' && meeting.host_id !== user.id)
+  if (!user.isAdmin && meeting.host_id !== user.id)
     return new NextResponse('Não autorizado', { status: 403 });
 
   await admin.from('meetings').update({ status: 'live' }).eq('id', id);

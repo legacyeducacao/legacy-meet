@@ -12,7 +12,7 @@ export async function GET() {
   let query = admin.from('client_tenants').select('id, name').order('name');
 
   // MASTER vê todos; demais veem só os seus (executor_id = user.id)
-  if (user.role !== 'MASTER') {
+  if (!user.isAdmin) {
     query = query.eq('executor_id', user.id);
   }
 
