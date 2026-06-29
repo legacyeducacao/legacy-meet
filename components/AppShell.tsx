@@ -4,7 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
-import { Home, Calendar, Video, Users, LogOut, Menu, X } from 'lucide-react';
+import { Home, Calendar, Video, Users, LogOut, Menu, X, ClipboardList } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 
@@ -45,10 +45,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setOpen(false);
   }, [pathname]);
 
+  const canNps = !!me && (me.isAdmin || me.sector === 'executoria' || me.sector === 'ambos');
+
   const nav = [
     { href: '/', label: 'Início', icon: Home },
     { href: '/agenda', label: 'Agenda', icon: Calendar },
     { href: '/gravacoes', label: 'Gravações', icon: Video },
+    ...(canNps ? [{ href: '/nps', label: 'NPS', icon: ClipboardList }] : []),
     ...(me?.isAdmin
       ? [{ href: '/admin/usuarios', label: 'Usuários', icon: Users }]
       : []),
