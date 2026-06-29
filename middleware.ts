@@ -5,6 +5,7 @@ import { createServerClient } from '@supabase/ssr';
 const PUBLIC_PREFIXES = ['/login', '/rooms', '/obrigado'];
 const PUBLIC_API_PREFIXES = [
   '/api/connection-details', '/api/room/', '/api/meetings', '/api/record/', '/api/auth/',
+  '/api/nps/context', '/api/nps/submit',
 ];
 
 function isPublic(path: string) {
