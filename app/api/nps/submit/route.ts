@@ -33,6 +33,9 @@ export async function POST(req: NextRequest) {
     comment: (body.comment ?? '').trim() || null,
     respondent_name: (body.respondentName ?? '').trim() || null,
   });
-  if (error) return new NextResponse('Falha ao registrar: ' + error.message, { status: 500 });
+  if (error) {
+    console.error('[nps/submit] insert falhou:', error);
+    return new NextResponse('Não foi possível registrar a avaliação.', { status: 500 });
+  }
   return NextResponse.json({ ok: true });
 }

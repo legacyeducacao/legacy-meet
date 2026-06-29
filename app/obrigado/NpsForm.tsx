@@ -16,6 +16,7 @@ export function NpsForm({ room }: { room: string }) {
   const [comment, setComment] = React.useState('');
   const [name, setName] = React.useState('');
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState('');
 
   React.useEffect(() => {
     fetch(`/api/nps/context?room=${encodeURIComponent(room)}`)
@@ -30,13 +31,20 @@ export function NpsForm({ room }: { room: string }) {
   const enviar = async () => {
     if (score == null) return;
     setBusy(true);
+    setError('');
     try {
-      await fetch('/api/nps/submit', {
+      const res = await fetch('/api/nps/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ room, score, comment, respondentName: name }),
       });
+      if (!res.ok) {
+        setError('Não foi possível enviar sua avaliação. Tente novamente.');
+        return;
+      }
       setState('done');
+    } catch {
+      setError('Erro de conexão. Tente novamente.');
     } finally {
       setBusy(false);
     }
@@ -87,6 +95,7 @@ export function NpsForm({ room }: { room: string }) {
           <Label htmlFor="nome">Seu nome (opcional)</Label>
           <Input id="nome" value={name} onChange={(e) => setName(e.target.value)} />
         </div>
+        {error && <p className="text-sm font-medium text-destructive">{error}</p>}
         <Button className="w-full" disabled={score == null || busy} onClick={enviar}>
           {busy ? 'Enviando…' : 'Enviar avaliação'}
         </Button>
