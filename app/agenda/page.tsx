@@ -108,6 +108,7 @@ export default function AgendaPage() {
 
   useEffect(() => {
     if (sector !== 'executoria') return;
+    if (!canExe) return;
     fetch('/api/clients')
       .then((r) => r.json())
       .then((json) => {
@@ -116,7 +117,7 @@ export default function AgendaPage() {
         setTenantId((prev) => prev || list[0]?.id || '');
       })
       .catch(() => setClients([]));
-  }, [sector]);
+  }, [sector, canExe]);
 
   const loadList = useCallback(async () => {
     setLoadingList(true);
