@@ -69,13 +69,14 @@ Expected: `profiles` > 0 e `admins` ≥ 1 (os MASTER). Sem erro.
 ### Task 2: `getCurrentUser` novo + helpers + host-auth
 
 **Files:**
-- Modify: `lib/auth.ts` (reescreve `CurrentUser`, `getCurrentUser`; remove `isInternalRole`; adiciona helpers)
+- Modify: `lib/auth.ts` (adiciona campos/helpers; **mantém `role` deprecado**; remove `isInternalRole`)
 - Modify: `lib/livekitAuth.ts:50-51` (usa `isStaff`)
+- Modify: `app/api/connection-details/route.ts:48` (único outro uso de `isInternalRole` → `isStaff`)
 - Create: `lib/auth.test.ts`
 
 **Interfaces:**
 - Produces:
-  - `type CurrentUser = { id: string; email: string; name: string | null; isStaff: boolean; isAdmin: boolean; sector: 'comercial'|'executoria'|'ambos'|null }`
+  - `type CurrentUser = { id: string; email: string; name: string | null; role: string; isStaff: boolean; isAdmin: boolean; sector: 'comercial'|'executoria'|'ambos'|null }` — **`role` é mantido (deprecado)** para os consumidores ainda não migrados (`/api/clients`, `/api/recordings`, `/api/meetings/{cancel,start}`, admin, `lib/recordings`), migrados nas Tasks 4–5; removível num cleanup final. Cada task fecha o build porque `role` continua existindo.
   - `getCurrentUser(): Promise<CurrentUser | null>`
   - `canSeeExecutoria(u: CurrentUser | null): boolean`
   - `canSeeComercial(u: CurrentUser | null): boolean`
@@ -141,6 +142,7 @@ export type CurrentUser = {
   id: string;
   email: string;
   name: string | null;
+  role: string; // deprecado: consumidores migram p/ isAdmin/isStaff/sector nas Tasks 4–5
   isStaff: boolean;
   isAdmin: boolean;
   sector: Sector | null;
@@ -170,7 +172,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
 
     const { data: row } = await supabase
       .from('users')
-      .select('name, email')
+      .select('name, email, role')
       .eq('id', user.id)
       .maybeSingle();
 
@@ -186,6 +188,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
       id: user.id,
       email: row?.email ?? user.email ?? '',
       name: row?.name ?? null,
+      role: (row?.role as string) ?? 'CLIENT',
       isStaff: !!profile,
       isAdmin: profile?.is_admin ?? false,
       sector: (profile?.sector as Sector | undefined) ?? null,
@@ -215,16 +218,26 @@ por:
 ```
 Remover o import de `isInternalRole` (manter o import de `getCurrentUser`).
 
+Em `app/api/connection-details/route.ts:48` (único outro uso), trocar:
+```ts
+      isHost = !!user && isInternalRole(user.role);
+```
+por:
+```ts
+      isHost = !!user && user.isStaff;
+```
+e remover `isInternalRole` do import (manter `getCurrentUser`). Depois disso, `isInternalRole` não tem mais nenhum consumidor → removê-la de `lib/auth.ts`.
+
 - [ ] **Step 6: Build**
 
 Run: `rm -rf .next && corepack pnpm build`
-Expected: exit 0. (Se algum arquivo ainda importar `isInternalRole`/`user.role`, corrigir — serão tratados nas próximas tasks; aqui só `lib/livekitAuth.ts`.)
+Expected: exit 0. O build fecha porque `role` é mantido em `CurrentUser` (os consumidores de `user.role` seguem compilando) e os dois únicos usos de `isInternalRole` (livekitAuth + connection-details) foram migrados nesta task.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add lib/auth.ts lib/auth.test.ts lib/livekitAuth.ts
-git commit -m "feat(acesso): getCurrentUser le meet_user_profile (isStaff/isAdmin/sector) + helpers de setor"
+git add lib/auth.ts lib/auth.test.ts lib/livekitAuth.ts app/api/connection-details/route.ts
+git commit -m "feat(acesso): getCurrentUser le meet_user_profile (isStaff/isAdmin/sector) + helpers; host por isStaff"
 ```
 
 ---
@@ -508,11 +521,15 @@ git commit -m "feat(admin): gerir meet_user_profile (admin + setor) por usuario"
 
 **Files:**
 - Modify: `app/api/recordings/route.ts`
+- Modify: `app/api/clients/route.ts` (`role==='MASTER'` → `isAdmin`)
+- Modify: `lib/recordings.ts` (`canAccessRecording` usa `isAdmin`)
+- Modify: `app/api/meetings/cancel/route.ts` e `app/api/meetings/start/route.ts` (`role==='MASTER'` → `isAdmin`)
 - Modify: `app/page.tsx` (abas de setor por `sector`)
 - Modify: `app/agenda/page.tsx` (abas de setor por `sector`)
 
 **Interfaces:**
 - Consumes: `getCurrentUser`/`canSeeComercial`/`canSeeExecutoria` (server); `/api/me` `sector` (client).
+- Esta task finaliza a migração de `user.role==='MASTER'` para `user.isAdmin` em todos os consumidores restantes.
 
 - [ ] **Step 1: Gate de setor em `/api/recordings`**
 
@@ -527,6 +544,12 @@ if (!user.isAdmin && user.sector === 'comercial') {
 return NextResponse.json(scoped);
 ```
 (Trocar a referência anterior a `user.role === 'MASTER'` por `user.isAdmin`.)
+
+- [ ] **Step 1b: Migrar os demais `role==='MASTER'` → `isAdmin`**
+
+  - `app/api/clients/route.ts`: trocar `if (user.role !== 'MASTER')` por `if (!user.isAdmin)`.
+  - `lib/recordings.ts` `canAccessRecording`: mudar a assinatura do parâmetro `user` de `{ id: string; role: string }` para `{ id: string; isAdmin: boolean }` e a checagem `if (user.role === 'MASTER') return true;` para `if (user.isAdmin) return true;`. (Os callers passam o `getCurrentUser()`, que tem `isAdmin` — sem outras mudanças.)
+  - `app/api/meetings/cancel/route.ts` e `app/api/meetings/start/route.ts`: trocar `if (user.role !== 'MASTER' && meeting.host_id !== user.id)` por `if (!user.isAdmin && meeting.host_id !== user.id)`.
 
 - [ ] **Step 2: Abas de setor na Home (`app/page.tsx`)**
 
@@ -555,8 +578,8 @@ Definir um usuário como `comercial` (via /admin) e logar com ele: Home/Agenda m
 - [ ] **Step 6: Commit**
 
 ```bash
-git add app/api/recordings/route.ts app/page.tsx app/agenda/page.tsx
-git commit -m "feat(acesso): gates de setor em gravacoes/home/agenda (comercial nao ve executoria)"
+git add app/api/recordings/route.ts app/api/clients/route.ts lib/recordings.ts app/api/meetings/cancel/route.ts app/api/meetings/start/route.ts app/page.tsx app/agenda/page.tsx
+git commit -m "feat(acesso): gates de setor + migra role->isAdmin nos consumidores restantes"
 ```
 
 ---
