@@ -66,20 +66,20 @@ export function NpsForm({ room }: { room: string }) {
     );
 
   return (
-    <Card className="w-full max-w-lg">
+    <Card className="w-full max-w-2xl">
       <CardContent className="space-y-5 py-8">
         <div className="text-center">
           <h1 className="text-xl font-bold">Como foi a entrega{hostName ? ` de ${hostName}` : ''}?</h1>
           <p className="text-sm text-muted-foreground">Dê uma nota de 0 a 10.</p>
         </div>
-        <div className="flex flex-wrap justify-center gap-2">
+        <div className="grid grid-cols-11 gap-1.5">
           {Array.from({ length: 11 }).map((_, n) => (
             <button
               key={n}
               type="button"
               onClick={() => setScore(n)}
               className={cn(
-                'h-10 w-10 rounded-md border text-sm font-semibold transition-colors',
+                'h-10 w-full rounded-md border text-sm font-semibold transition-colors',
                 score === n ? 'border-primary bg-primary text-primary-foreground' : 'border-input hover:bg-muted',
               )}
             >
