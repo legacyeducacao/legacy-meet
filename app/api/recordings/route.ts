@@ -22,7 +22,8 @@ export async function GET() {
       return {
         ...r,
         hostId: owner?.hostId ?? null,
-        hostName: owner?.hostName ?? r.metaHost ?? null,
+        hostName: owner?.hostName ?? null,
+        metaHost: r.metaHost ?? null,
         sector: owner?.sector ?? null,
       };
     });

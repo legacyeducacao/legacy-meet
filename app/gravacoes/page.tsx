@@ -21,6 +21,7 @@ interface Rec {
   transcriptionStatus: string;
   utteranceCount: number;
   hostName?: string | null;
+  metaHost?: string | null;
   sector?: string | null;
 }
 
@@ -99,8 +100,14 @@ export default function GravacoesPage() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return items.filter((r) => {
-      const title = (r.title || r.roomName).toLowerCase();
-      if (q && !title.includes(q) && !r.roomName.toLowerCase().includes(q)) return false;
+      // busca casa título, sala e o nome do host (cadastrado OU o gravado na criação)
+      if (q) {
+        const haystack = [r.title, r.roomName, r.hostName, r.metaHost]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
       if (host && r.hostName !== host) return false;
       const day = (r.createdAt || '').slice(0, 10);
       if (from && day < from) return false;
@@ -155,8 +162,8 @@ export default function GravacoesPage() {
           <div className="relative min-w-[200px] flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              className="pl-9"
-              placeholder="Buscar por título…"
+              className="h-10 pl-9"
+              placeholder="Buscar por título ou usuário…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
@@ -172,6 +179,7 @@ export default function GravacoesPage() {
                 searchPlaceholder="Buscar usuário…"
                 emptyText="Nenhum usuário."
                 clearable
+                className="h-10"
               />
             </div>
           )}
@@ -181,7 +189,7 @@ export default function GravacoesPage() {
               De
               <Input
                 type="date"
-                className="w-36"
+                className="h-10 w-36"
                 value={from}
                 onChange={(e) => setFrom(e.target.value)}
               />
@@ -190,7 +198,7 @@ export default function GravacoesPage() {
               Até
               <Input
                 type="date"
-                className="w-36"
+                className="h-10 w-36"
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
               />
@@ -201,6 +209,7 @@ export default function GravacoesPage() {
             <Button
               type="button"
               variant="outline"
+              className="h-10"
               onClick={() => {
                 setQuery('');
                 setFrom('');
@@ -292,7 +301,9 @@ export default function GravacoesPage() {
                             {rec.sector === 'comercial' ? 'Comercial' : 'Executoria'}
                           </Badge>
                         )}
-                        {rec.hostName && <Badge variant="secondary">{rec.hostName}</Badge>}
+                        {(rec.hostName || rec.metaHost) && (
+                          <Badge variant="secondary">{rec.hostName || rec.metaHost}</Badge>
+                        )}
                       </div>
                     </CardContent>
                   </Link>
