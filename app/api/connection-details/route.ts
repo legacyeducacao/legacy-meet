@@ -1,4 +1,4 @@
-import { getCurrentUser, isInternalRole } from '@/lib/auth';
+import { getCurrentUser } from '@/lib/auth';
 import { randomString } from '@/lib/client-utils';
 import { getLiveKitURL } from '@/lib/getLiveKitURL';
 import { verifyHostKey } from '@/lib/hostLink';
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
     let isHost = verifyHostKey(roomName, hostKey);
     if (!isHost) {
       const user = await getCurrentUser();
-      isHost = !!user && isInternalRole(user.role);
+      isHost = !!user && user.isStaff;
     }
 
     // Generate participant token
