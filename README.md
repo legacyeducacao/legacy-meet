@@ -40,3 +40,14 @@ Steps to get a local dev setup up and running:
 3. Update the missing environment variables in the newly created `.env.local` file.
 4. Run `pnpm dev` to start the development server and visit [http://localhost:3000](http://localhost:3000) to see the result.
 5. Start development 🎉
+
+## Variáveis de ambiente — Supabase Auth
+
+| Variável | Obrigatória | Descrição |
+|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Sim | URL do projeto Supabase (ex.: `https://<id>.supabase.co`) |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Sim | Chave anon/pública do projeto |
+| `SUPABASE_SERVICE_ROLE_KEY` | Sim (server) | Chave service_role — **nunca expor no cliente** |
+| `MEET_COMMERCIAL_TENANT_ID` | Sim | UUID do tenant sentinela usado para reuniões do setor Comercial |
+
+Todas as envs estão documentadas em `.env.example`.

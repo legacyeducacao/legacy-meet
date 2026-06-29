@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { generateRoomId } from '@/lib/client-utils';
 import { metaKey, writeJson } from '@/lib/recordings';
 import { signHostKey } from '@/lib/hostLink';
+import { createAdminSupabase } from '@/lib/supabase/admin';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +32,8 @@ export async function POST(req: NextRequest) {
     record?: boolean;
     transcribe?: boolean;
     roomName?: string;
+    tenantId?: string;
+    sector?: 'comercial' | 'executoria';
   };
 
   const title = (body.title ?? '').trim();
@@ -57,6 +60,37 @@ export async function POST(req: NextRequest) {
       'Falha ao registrar a reunião: ' + (e instanceof Error ? e.message : 'erro'),
       { status: 500 },
     );
+  }
+
+  // Registra a reunião no banco (meetings + meet_meeting_sector) via service_role.
+  // Erros aqui são não-fatais: o CRM recebe o roomName de qualquer forma.
+  try {
+    const tenantId = (body.tenantId?.trim()) || process.env.MEET_COMMERCIAL_TENANT_ID;
+    const sector: 'comercial' | 'executoria' = body.sector === 'comercial' ? 'comercial' : 'executoria';
+    if (tenantId) {
+      const admin = createAdminSupabase();
+      const now = new Date();
+      const end = new Date(now.getTime() + 60 * 60 * 1000);
+      const { data: meeting } = await admin
+        .from('meetings')
+        .insert({
+          tenant_id: tenantId,
+          title: title || (sector === 'comercial' ? 'Reunião Comercial' : 'Reunião Executoria'),
+          room_name: roomName,
+          scheduled_start_at: now.toISOString(),
+          scheduled_end_at: end.toISOString(),
+          status: 'live',
+          recording_enabled: true,
+          auto_transcribe: true,
+        })
+        .select('id')
+        .single();
+      if (meeting) {
+        await admin.from('meet_meeting_sector').insert({ meeting_id: meeting.id, sector });
+      }
+    }
+  } catch {
+    // silencioso — não bloqueia a resposta do CRM
   }
 
   const base = (process.env.APP_BASE_URL || req.nextUrl.origin).replace(/\/$/, '');

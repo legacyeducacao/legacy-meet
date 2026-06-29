@@ -7,6 +7,7 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { deleteDriveFile } from './drive';
+import { createAdminSupabase } from '@/lib/supabase/admin';
 
 export interface Utterance {
   speaker: string;
@@ -36,6 +37,8 @@ export interface RecordingManifest {
 /** Resumo para listagem (sem as utterances). */
 export type RecordingSummary = Omit<RecordingManifest, 'utterances' | 'skippedChunks'> & {
   utteranceCount: number;
+  /** Nome do host vindo do meta/<room>.json (fallback quando não há dono no banco). */
+  metaHost?: string | null;
 };
 
 const S3_BUCKET = process.env.S3_BUCKET ?? 'legacy-meet';
@@ -103,14 +106,21 @@ export async function listRecordings(): Promise<RecordingSummary[]> {
     token = res.IsTruncated ? res.NextContinuationToken : undefined;
   } while (token);
 
-  const manifests = await Promise.all(ids.map((id) => getManifest(id)));
-  return manifests
-    .filter((m): m is RecordingManifest => m !== null)
-    .map(({ utterances, skippedChunks, ...rest }) => ({
-      ...rest,
-      utteranceCount: utterances?.length ?? 0,
-    }))
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const manifests = (await Promise.all(ids.map((id) => getManifest(id)))).filter(
+    (m): m is RecordingManifest => m !== null,
+  );
+  // Lê o meta de cada sala para trazer o nome do host (usado no filtro por usuário).
+  const summaries = await Promise.all(
+    manifests.map(async ({ utterances, skippedChunks, ...rest }) => {
+      const meta = await readJson<MeetingMeta>(metaKey(rest.roomName));
+      return {
+        ...rest,
+        utteranceCount: utterances?.length ?? 0,
+        metaHost: meta?.host?.trim() || null,
+      };
+    }),
+  );
+  return summaries.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 export async function getSignedVideoUrl(key: string): Promise<string> {
@@ -166,6 +176,52 @@ async function deleteObject(key: string): Promise<void> {
   } catch (e) {
     console.error('Falha ao apagar objeto', key, e);
   }
+}
+
+// ---------- Dono/setor da reunião por room_name ----------
+
+export type RoomOwner = {
+  roomName: string;
+  hostId: string | null;
+  hostName: string | null;
+  sector: string | null;
+};
+
+export async function getRoomOwners(roomNames: string[]): Promise<Map<string, RoomOwner>> {
+  const out = new Map<string, RoomOwner>();
+  if (!roomNames.length) return out;
+  const admin = createAdminSupabase();
+  const { data, error } = await admin
+    .from('meetings')
+    .select('room_name, host_id, users:host_id(name), meet_meeting_sector(sector)')
+    .in('room_name', roomNames);
+  if (error) console.error('getRoomOwners', error);
+  for (const m of (data ?? []) as Array<{
+    room_name: string;
+    host_id: string | null;
+    users?: { name?: string | null } | null;
+    meet_meeting_sector?: { sector?: string | null } | null;
+  }>) {
+    out.set(m.room_name, {
+      roomName: m.room_name,
+      hostId: m.host_id,
+      hostName: m.users?.name ?? null,
+      sector: m.meet_meeting_sector?.sector ?? null,
+    });
+  }
+  return out;
+}
+
+export async function canAccessRecording(
+  id: string,
+  user: { id: string; isAdmin: boolean } | null,
+): Promise<boolean> {
+  if (!user) return false;
+  if (user.isAdmin) return true;
+  const roomName = id.split('__')[0];
+  const owners = await getRoomOwners([roomName]);
+  const o = owners.get(roomName);
+  return !!o && o.hostId === user.id;
 }
 
 /** Apaga uma gravação: vídeo (Drive ou MinIO), transcrição, meta e manifesto. */

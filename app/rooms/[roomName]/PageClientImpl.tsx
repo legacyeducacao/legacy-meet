@@ -346,7 +346,7 @@ function VideoConferenceComponent(props: {
         keepalive: true,
       }).catch(() => {});
     }
-    router.push('/obrigado');
+    router.push(`/obrigado?room=${encodeURIComponent(room.name)}`);
   }, [router, room, collectParticipants]);
   const handleError = React.useCallback((error: Error) => {
     console.error(error);

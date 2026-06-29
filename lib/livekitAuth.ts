@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { NextRequest } from 'next/server';
 import { RoomServiceClient } from 'livekit-server-sdk';
+import { getCurrentUser } from '@/lib/auth';
 import { verifyHostKey } from './hostLink';
 
 export function roomService() {
@@ -34,10 +35,9 @@ function verifyLivekitToken(token: string | undefined, roomName: string): string
 
 /**
  * Autoriza uma ação de anfitrião na sala. Aceita:
- *  - equipe logada (cookie staff_auth), ou
+ *  - usuário interno logado (sessão Supabase), ou
  *  - link de anfitrião assinado (hostKey), ou
  *  - co-anfitrião: token do participante válido + atributo cohost='true'.
- * Sem STAFF_PASSWORD configurado, libera tudo (modo dev).
  */
 export async function authorizeHostAction(
   req: NextRequest,
@@ -46,10 +46,9 @@ export async function authorizeHostAction(
   opts: { allowCohost?: boolean } = {},
 ): Promise<boolean> {
   const { allowCohost = true } = opts;
-  const staffPass = process.env.STAFF_PASSWORD;
-  if (!staffPass) return true;
-  if (req.cookies.get('staff_auth')?.value === staffPass) return true;
   if (verifyHostKey(roomName, body.hostKey)) return true;
+  const user = await getCurrentUser();
+  if (user?.isStaff) return true;
   if (!allowCohost) return false;
   const identity = verifyLivekitToken(body.participantToken, roomName);
   if (identity) {
