@@ -12,9 +12,12 @@ export async function GET() {
   const me = await getCurrentUser();
   if (!me?.isAdmin) return new NextResponse('Não autorizado', { status: 401 });
   const admin = createAdminSupabase();
+  // Só usuários internos do Meet: e-mail do domínio @legacyeducacaocorp.com.br
+  // (evita listar clientes do Legacy Plan que compartilham a tabela `users`).
   const { data } = await admin
     .from('users')
     .select('id, name, email, role, meet_user_profile(is_admin, sector)')
+    .ilike('email', '%@legacyeducacaocorp.com.br')
     .order('name');
   const users = ((data ?? []) as any[]).map((u) => {
     const p = Array.isArray(u.meet_user_profile) ? u.meet_user_profile[0] : u.meet_user_profile;
