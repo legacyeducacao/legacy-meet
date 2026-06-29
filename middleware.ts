@@ -32,7 +32,11 @@ export async function middleware(req: NextRequest) {
   if (!isPublic(path) && !user) {
     const url = req.nextUrl.clone();
     url.pathname = '/login';
-    return NextResponse.redirect(url);
+    // Preserva os cookies de sessão que o supabase escreveu em `res` (refresh token
+    // rotacionado) ao redirecionar — senão a sessão pode ser perdida (padrão @supabase/ssr).
+    const redirect = NextResponse.redirect(url);
+    res.cookies.getAll().forEach((c) => redirect.cookies.set(c));
+    return redirect;
   }
   return res;
 }
