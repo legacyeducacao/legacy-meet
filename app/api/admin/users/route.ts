@@ -52,9 +52,11 @@ export async function POST(req: NextRequest) {
     await admin.auth.admin.deleteUser(created.user.id).catch(() => {});
     return new NextResponse('Falha ao criar o perfil do usuário: ' + e2.message, { status: 500 });
   }
-  await admin
+  const { error: e3 } = await admin
     .from('meet_user_profile')
     .upsert({ user_id: created.user.id, is_admin: false, sector: asSector(sector) });
+  if (e3)
+    return new NextResponse('Perfil criado mas falha ao salvar o setor: ' + e3.message, { status: 500 });
   return NextResponse.json({ ok: true });
 }
 

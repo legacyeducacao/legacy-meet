@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { UserPlus } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 import { AppShell } from '@/components/AppShell';
 
@@ -99,6 +100,8 @@ export default function UsuariosClient() {
         if (!res.ok) {
           const text = await res.text();
           console.error('Falha ao salvar usuário:', text);
+          toast.error('Falha ao salvar usuário: ' + (text || 'erro desconhecido'));
+          await loadUsers();
           return;
         }
         await loadUsers();
