@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 
 interface Rec {
   id: string;
@@ -23,7 +24,7 @@ interface Rec {
   sector?: string | null;
 }
 
-const PAGE_SIZE = 9;
+const PAGE_SIZE = 12;
 
 function formatDate(iso: string): string {
   try {
@@ -51,6 +52,7 @@ export default function GravacoesPage() {
   const [query, setQuery] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [host, setHost] = useState('');
   const [page, setPage] = useState(1);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -74,21 +76,28 @@ export default function GravacoesPage() {
     };
   }, []);
 
+  // usuários (hosts) distintos presentes nas gravações — base do filtro
+  const hosts = useMemo(
+    () => ([...new Set(items.map((r) => r.hostName).filter(Boolean))] as string[]).sort(),
+    [items],
+  );
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return items.filter((r) => {
       const title = (r.title || r.roomName).toLowerCase();
       if (q && !title.includes(q) && !r.roomName.toLowerCase().includes(q)) return false;
+      if (host && r.hostName !== host) return false;
       const day = (r.createdAt || '').slice(0, 10);
       if (from && day < from) return false;
       if (to && day > to) return false;
       return true;
     });
-  }, [items, query, from, to]);
+  }, [items, query, from, to, host]);
 
   useEffect(() => {
     setPage(1);
-  }, [query, from, to]);
+  }, [query, from, to, host]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -114,23 +123,23 @@ export default function GravacoesPage() {
     }
   };
 
-  const hasFilters = !!(query || from || to);
+  const hasFilters = !!(query || from || to || host);
 
   return (
     <AppShell>
-      <div className="space-y-6">
+      <div className="flex min-h-[calc(100vh-4rem)] flex-col gap-6">
         {/* Header */}
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Gravações</h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="mt-1 text-sm text-muted-foreground">
             Acesse e gerencie todas as reuniões gravadas.
           </p>
         </div>
 
         {/* Toolbar */}
         <div className="flex flex-wrap items-center gap-3">
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <div className="relative min-w-[200px] flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               className="pl-9"
               placeholder="Buscar por título…"
@@ -138,8 +147,23 @@ export default function GravacoesPage() {
               onChange={(e) => setQuery(e.target.value)}
             />
           </div>
+
+          {hosts.length > 1 && (
+            <div className="w-52">
+              <SearchableSelect
+                value={host}
+                onValueChange={setHost}
+                options={hosts.map((h) => ({ value: h, label: h }))}
+                placeholder="Todos os usuários"
+                searchPlaceholder="Buscar usuário…"
+                emptyText="Nenhum usuário."
+                clearable
+              />
+            </div>
+          )}
+
           <div className="flex items-center gap-2">
-            <label className="flex items-center gap-2 text-sm text-muted-foreground whitespace-nowrap">
+            <label className="flex items-center gap-2 whitespace-nowrap text-sm text-muted-foreground">
               De
               <Input
                 type="date"
@@ -148,7 +172,7 @@ export default function GravacoesPage() {
                 onChange={(e) => setFrom(e.target.value)}
               />
             </label>
-            <label className="flex items-center gap-2 text-sm text-muted-foreground whitespace-nowrap">
+            <label className="flex items-center gap-2 whitespace-nowrap text-sm text-muted-foreground">
               Até
               <Input
                 type="date"
@@ -158,6 +182,7 @@ export default function GravacoesPage() {
               />
             </label>
           </div>
+
           {hasFilters && (
             <Button
               type="button"
@@ -166,6 +191,7 @@ export default function GravacoesPage() {
                 setQuery('');
                 setFrom('');
                 setTo('');
+                setHost('');
               }}
             >
               Limpar
@@ -173,100 +199,96 @@ export default function GravacoesPage() {
           )}
         </div>
 
-        {/* Loading skeleton */}
-        {loading && (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <Card key={i} className="rounded-xl">
-                <CardHeader>
-                  <Skeleton className="h-4 w-3/4" />
-                  <Skeleton className="h-3 w-1/2 mt-1" />
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-wrap gap-2">
-                    <Skeleton className="h-5 w-16 rounded-full" />
-                    <Skeleton className="h-5 w-20 rounded-full" />
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-
-        {/* Error */}
-        {error && (
-          <Card className="rounded-xl">
-            <CardContent className="py-8 text-center text-sm text-muted-foreground">
-              Não foi possível carregar: {error}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Empty state */}
-        {!loading && !error && filtered.length === 0 && (
-          <Card className="rounded-xl">
-            <CardContent className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
-              <Video className="h-10 w-10 opacity-40" />
-              <p className="text-sm">Nenhuma gravação encontrada.</p>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Grid */}
-        {!loading && !error && pageItems.length > 0 && (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {pageItems.map((rec) => (
-              <Card key={rec.id} className="rounded-xl relative group">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  title="Excluir gravação"
-                  disabled={deletingId === rec.id}
-                  onClick={() => handleDelete(rec)}
-                  className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-                <Link
-                  href={`/gravacoes/${encodeURIComponent(rec.id)}`}
-                  className="block focus:outline-none"
-                >
-                  <CardHeader className="pb-2">
-                    <p className="font-semibold text-sm leading-snug pr-8 text-foreground group-hover:text-primary transition-colors">
-                      {rec.title?.trim() || `Reunião · ${rec.roomName}`}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {formatDate(rec.createdAt)} · {formatDuration(rec.durationSeconds)}
-                    </p>
+        {/* Área de conteúdo (cresce para preencher a altura) */}
+        <div className="flex-1">
+          {loading && (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <Card key={i} className="rounded-xl">
+                  <CardHeader>
+                    <Skeleton className="h-4 w-3/4" />
+                    <Skeleton className="mt-1 h-3 w-1/2" />
                   </CardHeader>
                   <CardContent>
-                    <div className="flex flex-wrap gap-1.5">
-                      {rec.storage === 'gdrive' && (
-                        <Badge variant="secondary">Google Drive</Badge>
-                      )}
-                      {rec.transcriptionStatus === 'failed' ? (
-                        <Badge variant="destructive">Transcrição falhou</Badge>
-                      ) : (
-                        <Badge variant="secondary">{rec.utteranceCount} falas</Badge>
-                      )}
-                      {rec.sector && (
-                        <Badge variant="secondary">
-                          {rec.sector === 'comercial' ? 'Comercial' : 'Executoria'}
-                        </Badge>
-                      )}
-                      {rec.hostName && (
-                        <Badge variant="secondary">{rec.hostName}</Badge>
-                      )}
+                    <div className="flex flex-wrap gap-2">
+                      <Skeleton className="h-5 w-16 rounded-full" />
+                      <Skeleton className="h-5 w-20 rounded-full" />
                     </div>
                   </CardContent>
-                </Link>
-              </Card>
-            ))}
-          </div>
-        )}
+                </Card>
+              ))}
+            </div>
+          )}
 
-        {/* Pagination */}
+          {error && (
+            <Card className="rounded-xl">
+              <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                Não foi possível carregar: {error}
+              </CardContent>
+            </Card>
+          )}
+
+          {!loading && !error && filtered.length === 0 && (
+            <Card className="rounded-xl">
+              <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-muted-foreground">
+                <Video className="h-10 w-10 opacity-40" />
+                <p className="text-sm">Nenhuma gravação encontrada.</p>
+              </CardContent>
+            </Card>
+          )}
+
+          {!loading && !error && pageItems.length > 0 && (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {pageItems.map((rec) => (
+                <Card key={rec.id} className="group relative rounded-xl">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Excluir gravação"
+                    title="Excluir gravação"
+                    disabled={deletingId === rec.id}
+                    onClick={() => handleDelete(rec)}
+                    className="absolute right-3 top-3 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                  <Link
+                    href={`/gravacoes/${encodeURIComponent(rec.id)}`}
+                    className="block focus:outline-none"
+                  >
+                    <CardHeader className="pb-2">
+                      <p className="pr-8 text-sm font-semibold leading-snug text-foreground transition-colors group-hover:text-primary">
+                        {rec.title?.trim() || `Reunião · ${rec.roomName}`}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatDate(rec.createdAt)} · {formatDuration(rec.durationSeconds)}
+                      </p>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex flex-wrap gap-1.5">
+                        {rec.storage === 'gdrive' && <Badge variant="secondary">Google Drive</Badge>}
+                        {rec.transcriptionStatus === 'failed' ? (
+                          <Badge variant="destructive">Transcrição falhou</Badge>
+                        ) : (
+                          <Badge variant="secondary">{rec.utteranceCount} falas</Badge>
+                        )}
+                        {rec.sector && (
+                          <Badge variant="secondary">
+                            {rec.sector === 'comercial' ? 'Comercial' : 'Executoria'}
+                          </Badge>
+                        )}
+                        {rec.hostName && <Badge variant="secondary">{rec.hostName}</Badge>}
+                      </div>
+                    </CardContent>
+                  </Link>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Paginação (fixa no rodapé da área) */}
         {totalPages > 1 && (
           <div className="flex items-center justify-center gap-4">
             <Button
