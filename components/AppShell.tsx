@@ -8,7 +8,7 @@ import { Home, Calendar, Video, Users, LogOut, Menu, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 
-type Me = { name: string | null; role: string } | null;
+type Me = { name: string | null; isStaff: boolean; isAdmin: boolean; sector: 'comercial' | 'executoria' | 'ambos' | null } | null;
 
 /**
  * Casca das telas internas com SIDEBAR escura (estilo Legacy Plan): navegação
@@ -26,7 +26,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     fetch('/api/me')
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
-        if (active) setMe(j?.user ?? null);
+        if (!active) return;
+        const u = j?.user ?? null;
+        if (!u || !u.isStaff) {
+          router.push(u ? '/sem-acesso' : '/login');
+          return;
+        }
+        setMe(u);
       })
       .catch(() => {});
     return () => {
@@ -43,7 +49,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     { href: '/', label: 'Início', icon: Home },
     { href: '/agenda', label: 'Agenda', icon: Calendar },
     { href: '/gravacoes', label: 'Gravações', icon: Video },
-    ...(me?.role === 'MASTER'
+    ...(me?.isAdmin
       ? [{ href: '/admin/usuarios', label: 'Usuários', icon: Users }]
       : []),
   ];
@@ -127,9 +133,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <p className="truncate text-sm font-semibold text-white">
               {me?.name ?? 'Carregando…'}
             </p>
-            {me?.role && (
+            {me && (
               <p className="text-[11px] uppercase tracking-wide text-sidebar-foreground/50">
-                {me.role}
+                {me.isAdmin ? 'ADMIN' : (me.sector ?? '').toUpperCase()}
               </p>
             )}
           </div>
