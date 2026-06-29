@@ -4,13 +4,12 @@ import { useRouter } from 'next/navigation';
 import { UserPlus } from 'lucide-react';
 
 import { AppShell } from '@/components/AppShell';
-import { cn } from '@/lib/utils';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
 import {
   Card,
   CardContent,
@@ -35,7 +34,14 @@ import {
 } from '@/components/ui/select';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 
-type UserRow = { id: string; name: string | null; email: string; role: string };
+type Sector = 'comercial' | 'executoria' | 'ambos';
+type UserRow = {
+  id: string;
+  name: string | null;
+  email: string;
+  isAdmin: boolean;
+  sector: Sector | null;
+};
 
 function getInitials(name: string | null, email: string): string {
   if (name) {
@@ -56,10 +62,13 @@ export default function UsuariosClient() {
   const [name, setName] = React.useState('');
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
-  const [role, setRole] = React.useState<'EXECUTOR' | 'MASTER'>('EXECUTOR');
+  const [sector, setSector] = React.useState<Sector>('ambos');
   const [formError, setFormError] = React.useState('');
   const [formMsg, setFormMsg] = React.useState('');
   const [busy, setBusy] = React.useState(false);
+
+  // per-row saving state: userId → 'saving' | undefined
+  const [saving, setSaving] = React.useState<Record<string, boolean>>({});
 
   const loadUsers = React.useCallback(async () => {
     setLoadError('');
@@ -78,6 +87,30 @@ export default function UsuariosClient() {
 
   React.useEffect(() => { loadUsers(); }, [loadUsers]);
 
+  const patchUser = React.useCallback(
+    async (userId: string, isAdmin: boolean, userSector: Sector | null) => {
+      setSaving((prev) => ({ ...prev, [userId]: true }));
+      try {
+        const res = await fetch('/api/admin/users', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, isAdmin, sector: userSector ?? 'ambos' }),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          console.error('Falha ao salvar usuário:', text);
+          return;
+        }
+        await loadUsers();
+      } catch (err) {
+        console.error('Erro de rede ao salvar usuário:', err);
+      } finally {
+        setSaving((prev) => ({ ...prev, [userId]: false }));
+      }
+    },
+    [loadUsers],
+  );
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -87,7 +120,7 @@ export default function UsuariosClient() {
       const res = await fetch('/api/admin/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim(), password, name: name.trim(), role }),
+        body: JSON.stringify({ email: email.trim(), password, name: name.trim(), sector }),
       });
       if (!res.ok) {
         const text = await res.text();
@@ -95,7 +128,7 @@ export default function UsuariosClient() {
         return;
       }
       setFormMsg('Usuário criado com sucesso.');
-      setName(''); setEmail(''); setPassword(''); setRole('EXECUTOR');
+      setName(''); setEmail(''); setPassword(''); setSector('ambos');
       await loadUsers();
       router.refresh();
     } catch {
@@ -163,17 +196,18 @@ export default function UsuariosClient() {
                 </div>
 
                 <div className="space-y-1">
-                  <Label htmlFor="u-role">Papel</Label>
+                  <Label htmlFor="u-sector">Setor</Label>
                   <Select
-                    value={role}
-                    onValueChange={(v) => setRole(v as 'EXECUTOR' | 'MASTER')}
+                    value={sector}
+                    onValueChange={(v) => setSector(v as Sector)}
                   >
-                    <SelectTrigger id="u-role">
-                      <SelectValue placeholder="Selecione o papel" />
+                    <SelectTrigger id="u-sector">
+                      <SelectValue placeholder="Selecione o setor" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="EXECUTOR">EXECUTOR</SelectItem>
-                      <SelectItem value="MASTER">MASTER</SelectItem>
+                      <SelectItem value="comercial">Comercial</SelectItem>
+                      <SelectItem value="executoria">Executoria</SelectItem>
+                      <SelectItem value="ambos">Ambos</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -222,7 +256,8 @@ export default function UsuariosClient() {
                     <TableRow>
                       <TableHead>Nome</TableHead>
                       <TableHead>E-mail</TableHead>
-                      <TableHead>Papel</TableHead>
+                      <TableHead>Admin</TableHead>
+                      <TableHead>Setor</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -238,9 +273,31 @@ export default function UsuariosClient() {
                         </TableCell>
                         <TableCell className="text-muted-foreground">{u.email}</TableCell>
                         <TableCell>
-                          <Badge variant={u.role === 'MASTER' ? 'default' : 'secondary'}>
-                            {u.role}
-                          </Badge>
+                          <Switch
+                            checked={u.isAdmin}
+                            disabled={saving[u.id]}
+                            onCheckedChange={(checked) =>
+                              patchUser(u.id, checked, u.sector)
+                            }
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Select
+                            value={u.sector ?? 'ambos'}
+                            disabled={saving[u.id]}
+                            onValueChange={(v) =>
+                              patchUser(u.id, u.isAdmin, v as Sector)
+                            }
+                          >
+                            <SelectTrigger className="h-8 w-32">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="comercial">Comercial</SelectItem>
+                              <SelectItem value="executoria">Executoria</SelectItem>
+                              <SelectItem value="ambos">Ambos</SelectItem>
+                            </SelectContent>
+                          </Select>
                         </TableCell>
                       </TableRow>
                     ))}

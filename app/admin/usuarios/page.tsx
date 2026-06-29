@@ -4,7 +4,7 @@ import UsuariosClient from './UsuariosClient';
 
 export default async function AdminUsuariosPage() {
   const me = await getCurrentUser();
-  if (me?.role !== 'MASTER') notFound();
+  if (!me?.isAdmin) notFound();
 
   return <UsuariosClient />;
 }
