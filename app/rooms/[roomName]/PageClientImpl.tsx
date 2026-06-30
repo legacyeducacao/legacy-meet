@@ -166,7 +166,7 @@ function VideoConferenceComponent(props: {
     }
     const videoCaptureDefaults: VideoCaptureOptions = {
       deviceId: props.userChoices.videoDeviceId ?? undefined,
-      resolution: props.options.hq ? VideoPresets.h2160 : VideoPresets.h720,
+      resolution: props.options.hq ? VideoPresets.h1080 : VideoPresets.h720,
     };
     const publishDefaults: TrackPublishDefaults = {
       dtx: false,

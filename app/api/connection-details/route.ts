@@ -85,7 +85,10 @@ export async function GET(request: NextRequest) {
 
 function createParticipantToken(userInfo: AccessTokenOptions, roomName: string, isHost: boolean) {
   const at = new AccessToken(API_KEY, API_SECRET, userInfo);
-  at.ttl = '5m';
+  // TTL longo: o token não pode expirar no meio da reunião — senão a reconexão
+  // refaz a identidade (nome__postfix) e o CarouselLayout do LiveKit quebra
+  // ("Element not part of the array"). A sala fecha sozinha pelo departureTimeout.
+  at.ttl = '12h';
   // Host: pode tudo + admin (admitir/remover). Convidado: entra na "sala de espera"
   // sem publicar nem assinar mídia até o host autorizar (server concede depois).
   const grant: VideoGrant = isHost
