@@ -92,12 +92,14 @@ export function HostParticipantsPanel({
         <div
           style={{
             ...box,
-            position: 'absolute',
-            bottom: 'calc(100% + 0.5rem)',
-            right: 0,
+            // fixed (não absolute) para não ser cortado pela barra de controles,
+            // que no mobile tem overflow (rolagem horizontal).
+            position: 'fixed',
+            right: '1rem',
+            bottom: '5rem',
             maxHeight: '50vh',
             overflowY: 'auto',
-            zIndex: 40,
+            zIndex: 50,
             padding: '0.6rem 0.9rem 0.8rem',
           }}
         >

@@ -344,20 +344,29 @@ h2 a {
 }
 
 /* ---------- Barra de controles no celular ---------- */
-/* No mobile a barra tinha botões demais numa linha só e transbordava (não dava
-   pra alcançar Microfone/Câmera/Sair). Aqui ela quebra em várias linhas, com
-   botões compactos, e respeita a área segura (notch/barra do iOS). */
+/* No mobile a barra fica em UMA linha com rolagem horizontal (estilo Netflix):
+   os botões mantêm o tamanho e o usuário arrasta pro lado pra alcançar todos.
+   Respeita a área segura (notch/barra do iOS) e esconde a barra de rolagem. */
 @media (max-width: 768px) {
   [data-lk-theme] .lk-control-bar {
-    flex-wrap: wrap;
-    justify-content: center;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
     align-items: center;
     gap: 0.4rem;
     height: auto;
-    padding: 0.5rem 0.4rem;
+    padding: 0.5rem 0.6rem;
     padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
-    max-height: 45vh;
-    overflow-y: auto;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  [data-lk-theme] .lk-control-bar::-webkit-scrollbar {
+    display: none;
+  }
+  /* cada botão/grupo mantém o tamanho → a barra rola na horizontal */
+  [data-lk-theme] .lk-control-bar > * {
+    flex-shrink: 0;
   }
 
   [data-lk-theme] .lk-control-bar .lk-button {
