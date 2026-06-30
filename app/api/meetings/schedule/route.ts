@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { createAdminSupabase } from '@/lib/supabase/admin';
+import { createCalendarEvent } from '@/lib/calendar';
 
 export const dynamic = 'force-dynamic';
 
@@ -57,6 +58,47 @@ export async function POST(req: NextRequest) {
     // não deixa reunião "fantasma" sem setor: desfaz e falha.
     await admin.from('meetings').delete().eq('id', meeting.id);
     return new NextResponse('Falha ao registrar o setor: ' + sectorError.message, { status: 500 });
+  }
+
+  // Google Agenda: cria o evento e convida executor + cliente (não-fatal —
+  // se o Calendar falhar, a reunião continua agendada).
+  try {
+    const attendees: string[] = [];
+    if (user.email) attendees.push(user.email);
+    if (sector === 'executoria') {
+      const { data: tenant } = await admin
+        .from('client_tenants')
+        .select('email')
+        .eq('id', tenantId)
+        .maybeSingle();
+      if (tenant?.email) {
+        attendees.push(tenant.email as string);
+      } else {
+        // fallback: e-mails dos usuários CLIENT do tenant
+        const { data: clientUsers } = await admin
+          .from('users')
+          .select('email')
+          .eq('tenant_id', tenantId)
+          .eq('role', 'CLIENT');
+        for (const u of (clientUsers ?? []) as { email: string | null }[]) {
+          if (u.email) attendees.push(u.email);
+        }
+      }
+    }
+    if (attendees.length > 0) {
+      const base = (process.env.APP_BASE_URL || '').replace(/\/$/, '');
+      await createCalendarEvent({
+        summary: title,
+        description: base
+          ? `Reunião Legacy Meet.\nLink: ${base}/rooms/${roomName}`
+          : 'Reunião Legacy Meet.',
+        startISO: start.toISOString(),
+        endISO: end.toISOString(),
+        attendees,
+      });
+    }
+  } catch (e) {
+    console.error('[schedule] falha ao criar evento no Google Agenda (segue mesmo assim):', e);
   }
 
   return NextResponse.json({ id: meeting.id, roomName });
