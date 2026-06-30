@@ -20,9 +20,8 @@ export async function POST(req: NextRequest) {
   };
 
   const sector = body.sector === 'comercial' ? 'comercial' : 'executoria';
-  const title =
-    (body.title ?? '').trim() ||
-    (sector === 'comercial' ? 'Reunião Comercial' : 'Reunião Executoria');
+  const title = (body.title ?? '').trim();
+  if (!title) return new NextResponse('Título da reunião é obrigatório', { status: 400 });
   const tenantId = sector === 'comercial' ? process.env.MEET_COMMERCIAL_TENANT_ID! : body.tenantId;
   if (!tenantId) return new NextResponse('Cliente (tenant) obrigatório para Executoria', { status: 400 });
 

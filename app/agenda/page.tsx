@@ -50,7 +50,6 @@ export default function AgendaPage() {
 
   // form
   const [sector, setSector] = useState<'comercial' | 'executoria'>('executoria');
-  const [prospectName, setProspectName] = useState('');
   const [clients, setClients] = useState<Client[]>([]);
   const [tenantId, setTenantId] = useState('');
   const [title, setTitle] = useState('');
@@ -146,6 +145,10 @@ export default function AgendaPage() {
       setError('Escolha a data e a hora da reunião.');
       return;
     }
+    if (!title.trim()) {
+      setError('Informe o título da reunião.');
+      return;
+    }
     const iso = new Date(startAt).toISOString();
 
     const body: Record<string, unknown> = {
@@ -153,11 +156,9 @@ export default function AgendaPage() {
       record,
       transcribe,
       startAt: iso,
+      title: title.trim(),
     };
-    if (title.trim()) body.title = title.trim();
-    if (sector === 'comercial') {
-      if (prospectName.trim()) body.title = prospectName.trim();
-    } else {
+    if (sector === 'executoria') {
       if (!tenantId) {
         setError('Selecione um cliente para a reunião de Executoria.');
         return;
@@ -178,7 +179,6 @@ export default function AgendaPage() {
       }
       toast.success('Reunião agendada!');
       setTitle('');
-      setProspectName('');
       setStartAt('');
       await loadList();
     } catch {
@@ -271,7 +271,7 @@ export default function AgendaPage() {
                 </div>
               )}
 
-              {sector === 'executoria' ? (
+              {sector === 'executoria' && (
                 <div className="space-y-2">
                   <Label>Cliente</Label>
                   <SearchableSelect
@@ -283,26 +283,20 @@ export default function AgendaPage() {
                     emptyText="Nenhum cliente encontrado."
                   />
                 </div>
-              ) : (
-                <div className="space-y-2">
-                  <Label htmlFor="prospect-name">Nome do prospect</Label>
-                  <Input
-                    id="prospect-name"
-                    value={prospectName}
-                    onChange={(e) => setProspectName(e.target.value)}
-                    placeholder="Ex: João Silva"
-                  />
-                </div>
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="title">Título (opcional)</Label>
+                <Label htmlFor="title">Título da reunião</Label>
                 <Input
                   id="title"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Ex: Alinhamento mensal"
+                  placeholder={
+                    sector === 'comercial' ? 'Ex: Reunião com João Silva' : 'Ex: Alinhamento mensal'
+                  }
+                  required
                 />
+                <p className="text-xs text-muted-foreground">Define o nome da pasta no Drive.</p>
               </div>
 
               <div className="space-y-2">

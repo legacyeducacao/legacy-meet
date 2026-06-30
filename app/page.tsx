@@ -17,7 +17,7 @@ type Client = { id: string; name: string };
 export default function Page() {
   const router = useRouter();
   const [sector, setSector] = useState<'comercial' | 'executoria'>('executoria');
-  const [prospectName, setProspectName] = useState('');
+  const [title, setTitle] = useState('');
   const [clients, setClients] = useState<Client[]>([]);
   const [tenantId, setTenantId] = useState('');
   const [record, setRecord] = useState(true);
@@ -81,14 +81,18 @@ export default function Page() {
     setError('');
     setBusy(true);
 
+    if (!title.trim()) {
+      setError('Informe o título da reunião.');
+      setBusy(false);
+      return;
+    }
     const body: Record<string, unknown> = {
       sector,
       record,
       transcribe,
+      title: title.trim(),
     };
-    if (sector === 'comercial') {
-      if (prospectName.trim()) body.title = prospectName.trim();
-    } else {
+    if (sector === 'executoria') {
       if (!tenantId) {
         setError('Selecione um cliente para a reunião de Executoria.');
         setBusy(false);
@@ -151,7 +155,7 @@ export default function Page() {
                 </div>
               )}
 
-              {sector === 'executoria' ? (
+              {sector === 'executoria' && (
                 <div className="space-y-2">
                   <Label htmlFor="tenant">Cliente</Label>
                   <SearchableSelect
@@ -162,23 +166,27 @@ export default function Page() {
                     searchPlaceholder="Buscar cliente…"
                     emptyText="Nenhum cliente encontrado."
                   />
-                  {sector === 'executoria' && clients.length === 0 && (
+                  {clients.length === 0 && (
                     <p className="text-xs text-muted-foreground">
                       Nenhum cliente disponível para a sua conta.
                     </p>
                   )}
                 </div>
-              ) : (
-                <div className="space-y-2">
-                  <Label htmlFor="prospect-name">Nome do prospect</Label>
-                  <Input
-                    id="prospect-name"
-                    value={prospectName}
-                    onChange={(e) => setProspectName(e.target.value)}
-                    placeholder="Ex: João Silva"
-                  />
-                </div>
               )}
+
+              <div className="space-y-2">
+                <Label htmlFor="title">Título da reunião</Label>
+                <Input
+                  id="title"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder={
+                    sector === 'comercial' ? 'Ex: Reunião com João Silva' : 'Ex: Planejamento mensal'
+                  }
+                  required
+                />
+                <p className="text-xs text-muted-foreground">Define o nome da pasta no Drive.</p>
+              </div>
 
               <div className="space-y-4 rounded-lg border border-border/60 bg-muted/30 p-4">
                 <div className="flex items-center justify-between gap-4">
