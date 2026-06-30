@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import toast from 'react-hot-toast';
 import { decodePassphrase } from '@/lib/client-utils';
 import { DebugMode } from '@/lib/Debug';
 import { KeyboardShortcuts } from '@/lib/KeyboardShortcuts';
@@ -165,7 +166,7 @@ function VideoConferenceComponent(props: {
     }
     const videoCaptureDefaults: VideoCaptureOptions = {
       deviceId: props.userChoices.videoDeviceId ?? undefined,
-      resolution: props.options.hq ? VideoPresets.h1080 : VideoPresets.h720,
+      resolution: props.options.hq ? VideoPresets.h1080 : VideoPresets.h540,
     };
     const publishDefaults: TrackPublishDefaults = {
       dtx: false,
@@ -318,6 +319,10 @@ function VideoConferenceComponent(props: {
     if (props.userChoices.videoEnabled) {
       room.localParticipant.setCameraEnabled(true).catch((error) => {
         console.error('Falha ao habilitar a câmera:', error);
+        toast.error(
+          'Não foi possível iniciar a câmera (pode estar em uso por outro app). Você entrou sem vídeo — ative a câmera pela barra quando estiver livre.',
+          { duration: 6000 },
+        );
       });
     }
     if (props.userChoices.audioEnabled) {
