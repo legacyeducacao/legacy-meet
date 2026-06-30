@@ -6,22 +6,18 @@ import { BackgroundBlur } from '@livekit/track-processors';
 import { HostParticipantsPanel } from './HostParticipantsPanel';
 import {
   Chat,
-  ChatIcon,
   ChatToggle,
   CarouselLayout,
   ConnectionStateToast,
   DisconnectButton,
   FocusLayout,
   FocusLayoutContainer,
-  GearIcon,
   GridLayout,
   LayoutContextProvider,
-  LeaveIcon,
   MediaDeviceMenu,
   ParticipantTile,
   RoomAudioRenderer,
   StartMediaButton,
-  TrackToggle,
   useConnectionState,
   useCreateLayoutContext,
   useLayoutContext,
@@ -31,7 +27,23 @@ import {
   usePersistentUserChoices,
   usePinnedTracks,
   useTracks,
+  useTrackToggle,
 } from '@livekit/components-react';
+import {
+  Hand,
+  Link,
+  LogOut,
+  MessageSquare,
+  Mic,
+  MicOff,
+  MonitorUp,
+  MonitorX,
+  Settings,
+  Sparkles,
+  Video,
+  VideoOff,
+  Volume2,
+} from 'lucide-react';
 import type {
   MessageDecoder,
   MessageEncoder,
@@ -61,51 +73,6 @@ function isSameTrack(a?: TrackReferenceOrPlaceholder, b?: TrackReferenceOrPlaceh
   );
 }
 
-/** Ícone de "mão levantada" (estilo Material pan_tool). */
-function HandIcon({ size = 20 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M23 5.5V20c0 2.2-1.8 4-4 4h-7.3c-1.08 0-2.1-.43-2.85-1.19L1 14.83s1.26-1.23 1.3-1.25c.22-.19.49-.29.79-.29.22 0 .42.06.6.16.04.01 4.31 2.46 4.31 2.46V4c0-.83.67-1.5 1.5-1.5S11 3.17 11 4v7h1V1.5c0-.83.67-1.5 1.5-1.5S15 .67 15 1.5V11h1V2.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5V11h1V5.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5z" />
-    </svg>
-  );
-}
-
-/** Ícone de alto-falante. */
-function SpeakerIcon({ size = 20 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M3 10v4a1 1 0 0 0 1 1h3l4 4V5L7 9H4a1 1 0 0 0-1 1z" />
-      <path
-        d="M16 8.5a4 4 0 0 1 0 7"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-      <path
-        d="M18.5 6a7 7 0 0 1 0 12"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
 
 /** Barra de controles da reunião com os rótulos em português. */
 function LegacyControlBar(props: {
@@ -128,7 +95,6 @@ function LegacyControlBar(props: {
     leave: true,
   };
 
-  const [isScreenShareEnabled, setIsScreenShareEnabled] = React.useState(false);
   const {
     saveAudioInputEnabled,
     saveVideoInputEnabled,
@@ -147,6 +113,36 @@ function LegacyControlBar(props: {
 
   const reportError = (source: Track.Source) => (error: Error) =>
     props.onDeviceError?.({ source, error });
+
+  // Hook do toggle de microfone (preserva onChange + onDeviceError)
+  const {
+    buttonProps: micButtonProps,
+    enabled: micEnabled,
+  } = useTrackToggle({
+    source: Track.Source.Microphone,
+    onChange: onMicChange,
+    onDeviceError: reportError(Track.Source.Microphone),
+  });
+
+  // Hook do toggle de câmera (preserva onChange + onDeviceError)
+  const {
+    buttonProps: camButtonProps,
+    enabled: camEnabled,
+  } = useTrackToggle({
+    source: Track.Source.Camera,
+    onChange: onCamChange,
+    onDeviceError: reportError(Track.Source.Camera),
+  });
+
+  // Hook do toggle de compartilhamento de tela (preserva captureOptions + onDeviceError)
+  const {
+    buttonProps: screenShareButtonProps,
+    enabled: screenShareEnabled,
+  } = useTrackToggle({
+    source: Track.Source.ScreenShare,
+    captureOptions: { audio: true, selfBrowserSurface: 'include' },
+    onDeviceError: reportError(Track.Source.ScreenShare),
+  });
 
   // Desfoque de fundo na câmera local
   const [blurEnabled, setBlurEnabled] = React.useState(false);
@@ -198,14 +194,10 @@ function LegacyControlBar(props: {
     <div className="lk-control-bar">
       {visible.microphone && (
         <div className="lk-button-group">
-          <TrackToggle
-            source={Track.Source.Microphone}
-            showIcon
-            onChange={onMicChange}
-            onDeviceError={reportError(Track.Source.Microphone)}
-          >
+          <button {...micButtonProps} className="lk-button">
+            {micEnabled ? <Mic size={18} /> : <MicOff size={18} />}
             Microfone
-          </TrackToggle>
+          </button>
           <div className="lk-button-group-menu">
             <MediaDeviceMenu
               kind="audioinput"
@@ -217,14 +209,10 @@ function LegacyControlBar(props: {
 
       {visible.camera && (
         <div className="lk-button-group">
-          <TrackToggle
-            source={Track.Source.Camera}
-            showIcon
-            onChange={onCamChange}
-            onDeviceError={reportError(Track.Source.Camera)}
-          >
+          <button {...camButtonProps} className="lk-button">
+            {camEnabled ? <Video size={18} /> : <VideoOff size={18} />}
             Câmera
-          </TrackToggle>
+          </button>
           <div className="lk-button-group-menu">
             <MediaDeviceMenu
               kind="videoinput"
@@ -237,7 +225,7 @@ function LegacyControlBar(props: {
       {/* Seletor de saída de áudio (alto-falante / fone) */}
       <div className="lk-button-group">
         <span className="lk-button">
-          <SpeakerIcon />
+          <Volume2 size={18} />
           Alto-falante
         </span>
         <div className="lk-button-group-menu">
@@ -246,15 +234,10 @@ function LegacyControlBar(props: {
       </div>
 
       {visible.screenShare && (
-        <TrackToggle
-          source={Track.Source.ScreenShare}
-          captureOptions={{ audio: true, selfBrowserSurface: 'include' }}
-          showIcon
-          onChange={(enabled) => setIsScreenShareEnabled(enabled)}
-          onDeviceError={reportError(Track.Source.ScreenShare)}
-        >
-          {isScreenShareEnabled ? 'Parar compartilhamento' : 'Compartilhar tela'}
-        </TrackToggle>
+        <button {...screenShareButtonProps} className="lk-button">
+          {screenShareEnabled ? <MonitorX size={18} /> : <MonitorUp size={18} />}
+          {screenShareEnabled ? 'Parar compartilhamento' : 'Compartilhar tela'}
+        </button>
       )}
 
       {visible.camera && (
@@ -265,6 +248,7 @@ function LegacyControlBar(props: {
           disabled={blurPending || !isLocalTrack(cameraTrack?.track)}
           title="Desfocar o fundo da câmera"
         >
+          <Sparkles size={18} />
           Desfoque
         </button>
       )}
@@ -275,11 +259,12 @@ function LegacyControlBar(props: {
         aria-pressed={handRaised}
         title={handRaised ? 'Baixar a mão' : 'Levantar a mão'}
       >
-        <HandIcon />
+        <Hand size={18} />
         {handRaised ? 'Baixar mão' : 'Levantar mão'}
       </button>
 
       <button className="lk-button" onClick={copyLink} title="Copiar link da reunião">
+        <Link size={18} />
         {linkCopied ? 'Link copiado!' : 'Copiar link'}
       </button>
 
@@ -292,8 +277,8 @@ function LegacyControlBar(props: {
       )}
 
       {visible.chat && (
-        <ChatToggle>
-          <ChatIcon />
+        <ChatToggle className="lk-button">
+          <MessageSquare size={18} />
           Chat
         </ChatToggle>
       )}
@@ -303,14 +288,14 @@ function LegacyControlBar(props: {
           className="lk-button"
           onClick={() => layoutContext?.widget.dispatch?.({ msg: 'toggle_settings' })}
         >
-          <GearIcon />
+          <Settings size={18} />
           Configurações
         </button>
       )}
 
       {visible.leave && (
         <DisconnectButton>
-          <LeaveIcon />
+          <LogOut size={18} />
           Sair
         </DisconnectButton>
       )}
@@ -447,7 +432,7 @@ export function LegacyVideoConference({
             maxWidth: '90%',
           }}
         >
-          <HandIcon size={16} />
+          <Hand size={16} />
           <span>
             {raisedHands.map((p) => p.name || p.identity).join(', ')}{' '}
             {raisedHands.length > 1 ? 'levantaram a mão' : 'levantou a mão'}
