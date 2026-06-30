@@ -10,7 +10,6 @@ import { ConnectionDetails } from '@/lib/types';
 import { formatChatMessageLinks, LocalUserChoices, PreJoin, RoomContext } from '@livekit/components-react';
 import { LegacyVideoConference } from '@/lib/LegacyVideoConference';
 import { HostLobbyPanel } from '@/lib/HostLobbyPanel';
-import { HostParticipantsPanel } from '@/lib/HostParticipantsPanel';
 import {
   ExternalE2EEKeyProvider,
   RoomOptions,
@@ -375,6 +374,15 @@ function VideoConferenceComponent(props: {
             <LegacyVideoConference
               chatMessageFormatter={formatChatMessageLinks}
               SettingsComponent={SHOW_SETTINGS_MENU ? SettingsMenu : undefined}
+              hostControls={
+                isHost || isCohost
+                  ? {
+                      hostKey: props.options.hostKey,
+                      participantToken: props.connectionDetails.participantToken,
+                      canPromote: isHost,
+                    }
+                  : undefined
+              }
             />
             {(isHost || isCohost) && (
               <div
@@ -392,11 +400,6 @@ function VideoConferenceComponent(props: {
                 <HostLobbyPanel
                   hostKey={props.options.hostKey}
                   participantToken={props.connectionDetails.participantToken}
-                />
-                <HostParticipantsPanel
-                  hostKey={props.options.hostKey}
-                  participantToken={props.connectionDetails.participantToken}
-                  canPromote={isHost}
                 />
               </div>
             )}
