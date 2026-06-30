@@ -29,6 +29,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SearchableSelect } from '@/components/ui/searchable-select';
+import { AppShell } from '@/components/AppShell';
 import { cn } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
@@ -246,6 +247,7 @@ export function NpsClient({ isAdmin }: { isAdmin: boolean }) {
   // ---------------------------------------------------------------------------
 
   return (
+    <AppShell>
     <div className="flex flex-col gap-6">
       {/* Header */}
       <div>
@@ -568,5 +570,6 @@ export function NpsClient({ isAdmin }: { isAdmin: boolean }) {
         </div>
       )}
     </div>
+    </AppShell>
   );
 }
