@@ -78,26 +78,34 @@ export function HostParticipantsPanel({
   );
 
   return (
-    <div style={box}>
+    <div style={{ position: 'relative' }}>
       <button
         type="button"
+        className="lk-button"
         onClick={() => setOpen((v) => !v)}
-        style={{
-          width: '100%',
-          textAlign: 'left',
-          cursor: 'pointer',
-          border: 'none',
-          background: 'transparent',
-          color: '#fff',
-          fontWeight: 700,
-          fontSize: '0.85rem',
-          padding: '0.7rem 0.9rem',
-        }}
+        aria-pressed={open}
+        title="Participantes"
       >
-        👥 Participantes ({people.length}) {open ? '▾' : '▸'}
+        👥 Participantes ({people.length})
       </button>
-      {open && people.length > 0 && (
-        <div style={{ padding: '0 0.9rem 0.8rem' }}>
+      {open && (
+        <div
+          style={{
+            ...box,
+            position: 'absolute',
+            bottom: 'calc(100% + 0.5rem)',
+            right: 0,
+            maxHeight: '50vh',
+            overflowY: 'auto',
+            zIndex: 40,
+            padding: '0.6rem 0.9rem 0.8rem',
+          }}
+        >
+          {people.length === 0 && (
+            <div style={{ fontSize: '0.82rem', color: 'rgba(255,255,255,0.7)' }}>
+              Ninguém mais na sala.
+            </div>
+          )}
           {people.map((p) => {
             const mic = p.getTrackPublication(Track.Source.Microphone);
             const muted = mic?.isMuted ?? true;

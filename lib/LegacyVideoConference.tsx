@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { Track, RoomEvent, ConnectionState, isLocalTrack } from 'livekit-client';
 import { BackgroundBlur } from '@livekit/track-processors';
+import { HostParticipantsPanel } from './HostParticipantsPanel';
 import {
   Chat,
   ChatIcon,
@@ -110,6 +111,7 @@ function SpeakerIcon({ size = 20 }: { size?: number }) {
 function LegacyControlBar(props: {
   controls?: { microphone?: boolean; camera?: boolean; screenShare?: boolean; chat?: boolean; settings?: boolean };
   onDeviceError?: (e: { source: Track.Source; error: Error }) => void;
+  hostControls?: { hostKey?: string; participantToken?: string; canPromote?: boolean };
 }) {
   const layoutContext = useLayoutContext();
   const permissions = useLocalParticipantPermissions();
@@ -281,6 +283,14 @@ function LegacyControlBar(props: {
         {linkCopied ? 'Link copiado!' : 'Copiar link'}
       </button>
 
+      {props.hostControls && (
+        <HostParticipantsPanel
+          hostKey={props.hostControls.hostKey}
+          participantToken={props.hostControls.participantToken}
+          canPromote={props.hostControls.canPromote}
+        />
+      )}
+
       {visible.chat && (
         <ChatToggle>
           <ChatIcon />
@@ -315,6 +325,7 @@ export interface LegacyVideoConferenceProps extends React.HTMLAttributes<HTMLDiv
   chatMessageEncoder?: MessageEncoder;
   chatMessageDecoder?: MessageDecoder;
   SettingsComponent?: React.ComponentType;
+  hostControls?: { hostKey?: string; participantToken?: string; canPromote?: boolean };
 }
 
 /**
@@ -327,6 +338,7 @@ export function LegacyVideoConference({
   chatMessageDecoder,
   chatMessageEncoder,
   SettingsComponent,
+  hostControls,
   ...props
 }: LegacyVideoConferenceProps) {
   const [widgetState, setWidgetState] = React.useState<WidgetState>({
@@ -461,7 +473,10 @@ export function LegacyVideoConference({
                 </FocusLayoutContainer>
               </div>
             )}
-            <LegacyControlBar controls={{ chat: true, settings: !!SettingsComponent }} />
+            <LegacyControlBar
+              controls={{ chat: true, settings: !!SettingsComponent }}
+              hostControls={hostControls}
+            />
           </div>
           <Chat
             style={{ display: widgetState.showChat ? 'grid' : 'none' }}
