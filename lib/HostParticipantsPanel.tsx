@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { Users } from 'lucide-react';
 import { useParticipants, useRoomContext } from '@livekit/components-react';
 import { RoomEvent, Track } from 'livekit-client';
 
@@ -86,7 +87,7 @@ export function HostParticipantsPanel({
         aria-pressed={open}
         title="Participantes"
       >
-        👥 Participantes ({people.length})
+        <Users size={18} /> Participantes ({people.length})
       </button>
       {open && (
         <div
