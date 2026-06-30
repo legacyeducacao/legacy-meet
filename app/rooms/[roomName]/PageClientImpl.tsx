@@ -286,7 +286,7 @@ function VideoConferenceComponent(props: {
   React.useEffect(() => {
     room.on(RoomEvent.Disconnected, handleOnLeave);
     room.on(RoomEvent.EncryptionError, handleEncryptionError);
-    room.on(RoomEvent.MediaDevicesError, handleError);
+    room.on(RoomEvent.MediaDevicesError, handleMediaError);
     room.on(RoomEvent.Connected, handleConnected);
     room.on(RoomEvent.ParticipantConnected, collectParticipants);
     room.on(RoomEvent.ParticipantPermissionsChanged, handlePermissions);
@@ -305,7 +305,7 @@ function VideoConferenceComponent(props: {
     return () => {
       room.off(RoomEvent.Disconnected, handleOnLeave);
       room.off(RoomEvent.EncryptionError, handleEncryptionError);
-      room.off(RoomEvent.MediaDevicesError, handleError);
+      room.off(RoomEvent.MediaDevicesError, handleMediaError);
       room.off(RoomEvent.Connected, handleConnected);
       room.off(RoomEvent.ParticipantConnected, collectParticipants);
       room.off(RoomEvent.ParticipantPermissionsChanged, handlePermissions);
@@ -364,8 +364,15 @@ function VideoConferenceComponent(props: {
     router.push(`/obrigado?room=${encodeURIComponent(room.name)}`);
   }, [router, room, collectParticipants]);
   const handleError = React.useCallback((error: Error) => {
+    // Usado na falha de CONEXÃO com a sala — avisa sem popup nativo bloqueante.
     console.error(error);
-    alert(`Ocorreu um erro inesperado, verifique o console para mais detalhes: ${error.message}`);
+    toast.error('Não foi possível conectar à reunião. Verifique sua conexão e tente novamente.');
+  }, []);
+  // Erros de dispositivo de mídia (ex.: "Timeout starting video source") já são
+  // tratados de forma amigável (retry + toast + ingresso sem vídeo) — aqui só
+  // registramos no console, sem alert disruptivo.
+  const handleMediaError = React.useCallback((error: Error) => {
+    console.error('Erro de dispositivo de mídia:', error);
   }, []);
   const handleEncryptionError = React.useCallback((error: Error) => {
     console.error(error);
