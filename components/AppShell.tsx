@@ -4,22 +4,133 @@ import * as React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
-import { Home, Calendar, Video, Users, LogOut, Menu, X, ClipboardList } from 'lucide-react';
+import {
+  Home,
+  Calendar,
+  Video,
+  ClipboardList,
+  Users,
+  LogOut,
+  Menu,
+  X,
+  ChevronRight,
+  PanelLeftClose,
+  PanelLeftOpen,
+  type LucideIcon,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 
-type Me = { name: string | null; isStaff: boolean; isAdmin: boolean; sector: 'comercial' | 'executoria' | 'ambos' | null } | null;
+type Me = {
+  name: string | null;
+  isStaff: boolean;
+  isAdmin: boolean;
+  sector: 'comercial' | 'executoria' | 'ambos' | null;
+} | null;
+
+type NavEntry = {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+};
+
+/** Item de navegação no estilo Legacy Plan (ativo = pílula azul + barra lateral + chevron). */
+function NavItem({
+  entry,
+  active,
+  collapsed,
+  onNavigate,
+}: {
+  entry: NavEntry;
+  active: boolean;
+  collapsed: boolean;
+  onNavigate?: () => void;
+}) {
+  const Icon = entry.icon;
+  if (collapsed) {
+    return (
+      <Link
+        href={entry.href}
+        title={entry.label}
+        onClick={onNavigate}
+        className={cn(
+          'group relative mx-auto flex h-10 w-10 items-center justify-center rounded-xl transition-all duration-200',
+          active
+            ? 'bg-sidebar-primary/15 text-sidebar-primary'
+            : 'text-sidebar-foreground/40 hover:bg-sidebar-primary/10 hover:text-sidebar-foreground',
+        )}
+      >
+        <Icon size={19} />
+        {active && (
+          <span className="absolute -left-2 top-1.5 bottom-1.5 w-[3px] rounded-r-full bg-sidebar-primary" />
+        )}
+      </Link>
+    );
+  }
+  return (
+    <Link
+      href={entry.href}
+      onClick={onNavigate}
+      className={cn(
+        'group relative flex h-11 w-full items-center gap-3 overflow-hidden rounded-xl px-4 transition-all duration-200 hover:translate-x-1',
+        active
+          ? 'bg-sidebar-primary/20 text-sidebar-foreground'
+          : 'text-sidebar-foreground/50 hover:bg-sidebar-primary/10 hover:text-sidebar-foreground',
+      )}
+    >
+      {active && (
+        <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r-full bg-sidebar-primary" />
+      )}
+      <span
+        className={cn(
+          'shrink-0 transition-all duration-200',
+          active ? 'text-sidebar-primary' : 'opacity-50 group-hover:opacity-100',
+        )}
+      >
+        <Icon size={19} />
+      </span>
+      <span
+        className={cn(
+          'whitespace-nowrap text-[11px] font-bold uppercase tracking-[0.15em]',
+          active && 'text-sidebar-foreground',
+        )}
+      >
+        {entry.label}
+      </span>
+      {active && <ChevronRight size={13} className="absolute right-4 opacity-30" />}
+    </Link>
+  );
+}
 
 /**
- * Casca das telas internas com SIDEBAR escura (estilo Legacy Plan): navegação
- * à esquerda (navy) + conteúdo claro à direita. No mobile a sidebar vira um
- * drawer. A chamada (LiveKit) não usa esta casca.
+ * Casca das telas internas com a SIDEBAR do Legacy Plan: navy escura, navegação
+ * com item ativo em pílula azul, Recolher/Sair no rodapé e perfil do usuário.
+ * No mobile vira um drawer. A chamada (LiveKit) não usa esta casca.
  */
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [me, setMe] = React.useState<Me>(null);
   const [open, setOpen] = React.useState(false); // drawer mobile
+  const [collapsed, setCollapsed] = React.useState(false);
+
+  React.useEffect(() => {
+    try {
+      setCollapsed(localStorage.getItem('meet.sidebarCollapsed') === '1');
+    } catch {
+      /* sem localStorage */
+    }
+  }, []);
+
+  const toggleCollapsed = () =>
+    setCollapsed((c) => {
+      const next = !c;
+      try {
+        localStorage.setItem('meet.sidebarCollapsed', next ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
 
   React.useEffect(() => {
     let active = true;
@@ -38,6 +149,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => {
       active = false;
     };
+    // mount-only: router é estável; não declarado para evitar re-fetch
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // fecha o drawer ao navegar
@@ -45,16 +158,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setOpen(false);
   }, [pathname]);
 
-  const canNps = !!me && (me.isAdmin || me.sector === 'executoria' || me.sector === 'ambos');
-
-  const nav = [
+  const nav: NavEntry[] = [
     { href: '/', label: 'Início', icon: Home },
     { href: '/agenda', label: 'Agenda', icon: Calendar },
     { href: '/gravacoes', label: 'Gravações', icon: Video },
-    ...(canNps ? [{ href: '/nps', label: 'NPS', icon: ClipboardList }] : []),
-    ...(me?.isAdmin
-      ? [{ href: '/admin/usuarios', label: 'Usuários', icon: Users }]
+    ...(me && (me.isAdmin || me.sector === 'executoria' || me.sector === 'ambos')
+      ? [{ href: '/nps', label: 'NPS', icon: ClipboardList }]
       : []),
+    ...(me?.isAdmin ? [{ href: '/admin/usuarios', label: 'Usuários', icon: Users }] : []),
   ];
 
   const isActive = (href: string) => (href === '/' ? pathname === '/' : pathname.startsWith(href));
@@ -77,80 +188,131 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       .map((w) => w[0]?.toUpperCase() ?? '')
       .join('') || '—';
 
-  const sidebar = (
-    <aside className="flex h-full w-64 flex-col bg-sidebar-background text-sidebar-foreground">
-      {/* Logo */}
-      <div className="flex h-20 items-center justify-between border-b border-sidebar-border px-5">
-        <Image src="/logo-legacy-meet.svg" alt="Legacy Meet" width={117} height={38} priority />
-        <button
-          type="button"
-          aria-label="Fechar menu"
-          onClick={() => setOpen(false)}
-          className="text-sidebar-foreground/70 hover:text-white md:hidden"
+  const renderSidebar = (forDrawer: boolean) => {
+    const isColl = collapsed && !forDrawer; // o drawer sempre mostra expandido
+    return (
+      <aside
+        className={cn(
+          'flex h-full flex-col bg-sidebar-background text-sidebar-foreground transition-[width] duration-300',
+          isColl ? 'w-[72px]' : 'w-60',
+        )}
+      >
+        {/* Logo */}
+        <div
+          className={cn(
+            'flex h-16 flex-shrink-0 items-center border-b border-sidebar-border',
+            isColl ? 'justify-center px-0' : 'px-5',
+          )}
         >
-          <X className="h-5 w-5" />
-        </button>
-      </div>
+          {isColl ? (
+            <Image src="/favicon.svg" alt="Legacy Meet" width={36} height={36} priority />
+          ) : (
+            <Image
+              src="/logo-legacy-meet.svg"
+              alt="Legacy Meet"
+              width={123}
+              height={40}
+              className="object-contain"
+              priority
+            />
+          )}
+          {forDrawer && (
+            <button
+              type="button"
+              aria-label="Fechar menu"
+              onClick={() => setOpen(false)}
+              className="ml-auto text-sidebar-foreground/60 hover:text-white md:hidden"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          )}
+        </div>
 
-      {/* Navegação */}
-      <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-5">
-        {nav.map(({ href, label, icon: Icon }) => {
-          const activeItem = isActive(href);
-          return (
-            <Link
-              key={href}
-              href={href}
+        {/* Navegação */}
+        <nav className={cn('flex flex-1 flex-col overflow-y-auto py-4', isColl ? 'px-2' : 'px-3')}>
+          <div className="space-y-1">
+            {nav.map((e) => (
+              <NavItem
+                key={e.href}
+                entry={e}
+                active={isActive(e.href)}
+                collapsed={isColl}
+                onNavigate={() => setOpen(false)}
+              />
+            ))}
+          </div>
+
+          {/* Recolher + Sair */}
+          <div className="mt-auto space-y-0.5 border-t border-sidebar-border/50 pt-2">
+            {!forDrawer && (
+              <button
+                type="button"
+                onClick={toggleCollapsed}
+                className={cn(
+                  'flex w-full items-center rounded-xl text-sidebar-foreground/30 transition-all duration-200 hover:bg-sidebar-primary/10 hover:text-sidebar-foreground',
+                  isColl ? 'mx-auto h-10 w-10 justify-center' : 'h-11 gap-3 px-4',
+                )}
+                title="Recolher"
+              >
+                {isColl ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+                {!isColl && (
+                  <span className="text-[11px] font-bold uppercase tracking-[0.15em]">Recolher</span>
+                )}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={logout}
               className={cn(
-                'flex items-center gap-3 rounded-lg px-3 py-2.5 text-xs font-semibold uppercase tracking-wider transition-colors',
-                activeItem
-                  ? 'bg-sidebar-accent text-white'
-                  : 'text-sidebar-foreground/55 hover:bg-sidebar-accent/50 hover:text-white',
+                'flex w-full items-center rounded-xl text-red-400/60 transition-all duration-200 hover:bg-red-500/10 hover:text-red-400',
+                isColl ? 'mx-auto h-10 w-10 justify-center' : 'h-11 gap-3 px-4',
+              )}
+              title="Sair"
+            >
+              <LogOut size={18} />
+              {!isColl && (
+                <span className="text-[11px] font-bold uppercase tracking-[0.15em]">Sair</span>
+              )}
+            </button>
+          </div>
+        </nav>
+
+        {/* Rodapé do usuário */}
+        <div className={cn('border-t border-sidebar-border', isColl ? 'p-2' : 'p-3')}>
+          <div
+            className={cn('flex items-center rounded-xl', isColl ? 'justify-center p-1.5' : 'gap-3 p-2')}
+            title={isColl ? (me?.name ?? '') : undefined}
+          >
+            <div
+              className={cn(
+                'flex shrink-0 items-center justify-center rounded-lg bg-sidebar-primary/20 font-bold text-sidebar-primary',
+                isColl ? 'h-8 w-8 text-xs' : 'h-9 w-9 text-sm',
               )}
             >
-              <Icon className={cn('h-[18px] w-[18px]', activeItem && 'text-sidebar-primary')} />
-              {label}
-            </Link>
-          );
-        })}
-      </nav>
-
-      {/* Sair + usuário */}
-      <div className="mt-auto">
-        <div className="px-3 pb-3">
-          <button
-            type="button"
-            onClick={logout}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300"
-          >
-            <LogOut className="h-[18px] w-[18px]" />
-            Sair
-          </button>
-        </div>
-        <div className="flex items-center gap-3 border-t border-sidebar-border px-5 py-4">
-          <Avatar className="h-9 w-9">
-            <AvatarFallback className="bg-sidebar-accent text-xs font-semibold text-white">
               {initials}
-            </AvatarFallback>
-          </Avatar>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-white">
-              {me?.name ?? 'Carregando…'}
-            </p>
-            {me && (
-              <p className="text-[11px] uppercase tracking-wide text-sidebar-foreground/50">
-                {me.isAdmin ? 'ADMIN' : (me.sector ?? '').toUpperCase()}
-              </p>
+            </div>
+            {!isColl && (
+              <div className="flex-1 overflow-hidden text-left">
+                <p className="truncate text-sm font-semibold text-sidebar-foreground">
+                  {me?.name ?? 'Carregando…'}
+                </p>
+                {me && (
+                  <p className="truncate text-[10px] uppercase tracking-wider text-sidebar-foreground/40">
+                    {me.isAdmin ? 'ADMIN' : (me.sector ?? '')}
+                  </p>
+                )}
+              </div>
             )}
           </div>
         </div>
-      </div>
-    </aside>
-  );
+      </aside>
+    );
+  };
 
   return (
     <div className="flex h-full">
       {/* Sidebar fixa (desktop) */}
-      <div className="hidden md:block">{sidebar}</div>
+      <div className="hidden md:block">{renderSidebar(false)}</div>
 
       {/* Drawer (mobile) */}
       {open && (
@@ -160,7 +322,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             onClick={() => setOpen(false)}
             aria-hidden="true"
           />
-          <div className="fixed inset-y-0 left-0 z-50 md:hidden">{sidebar}</div>
+          <div className="fixed inset-y-0 left-0 z-50 md:hidden">{renderSidebar(true)}</div>
         </>
       )}
 
