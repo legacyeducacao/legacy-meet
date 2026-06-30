@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import React, { useEffect, useMemo, useState } from 'react';
+import toast from 'react-hot-toast';
 import { Search, ChevronLeft, ChevronRight, Trash2, Video } from 'lucide-react';
 import { AppShell } from '@/components/AppShell';
 import { Button } from '@/components/ui/button';
@@ -10,6 +11,16 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SearchableSelect } from '@/components/ui/searchable-select';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface Rec {
   id: string;
@@ -54,6 +65,7 @@ export default function GravacoesPage() {
   const [host, setHost] = useState('');
   const [page, setPage] = useState(1);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<Rec | null>(null);
   const [pageSize, setPageSize] = useState(16);
 
   // Quantos cards cabem na tela (preenche a altura; o excedente pagina).
@@ -124,21 +136,17 @@ export default function GravacoesPage() {
   const safePage = Math.min(page, totalPages);
   const pageItems = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
 
-  const handleDelete = async (rec: Rec) => {
-    if (
-      !confirm(
-        `Excluir a gravação "${rec.title?.trim() || rec.roomName}"?\nIsso remove o vídeo e a transcrição permanentemente.`,
-      )
-    ) {
-      return;
-    }
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    const rec = pendingDelete;
+    setPendingDelete(null);
     setDeletingId(rec.id);
     try {
       const res = await fetch(`/api/recordings/${encodeURIComponent(rec.id)}`, { method: 'DELETE' });
       if (!res.ok) throw new Error(await res.text());
       setItems((prev) => prev.filter((r) => r.id !== rec.id));
     } catch (e) {
-      alert('Falha ao excluir: ' + (e instanceof Error ? e.message : e));
+      toast.error('Falha ao excluir: ' + (e instanceof Error ? e.message : e));
     } finally {
       setDeletingId(null);
     }
@@ -148,6 +156,26 @@ export default function GravacoesPage() {
 
   return (
     <AppShell>
+      {/* AlertDialog de confirmação de exclusão */}
+      <AlertDialog open={!!pendingDelete} onOpenChange={(open) => { if (!open) setPendingDelete(null); }}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir gravação?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Isso remove permanentemente o vídeo e a transcrição de{' '}
+              <strong>&quot;{pendingDelete?.title?.trim() || pendingDelete?.roomName}&quot;</strong>.
+              Essa ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={confirmDelete}>
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <div className="flex min-h-[calc(100vh-4rem)] flex-col gap-6">
         {/* Header */}
         <div>
@@ -271,7 +299,7 @@ export default function GravacoesPage() {
                     aria-label="Excluir gravação"
                     title="Excluir gravação"
                     disabled={deletingId === rec.id}
-                    onClick={() => handleDelete(rec)}
+                    onClick={() => setPendingDelete(rec)}
                     className="absolute right-3 top-3 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
                   >
                     <Trash2 className="h-4 w-4" />

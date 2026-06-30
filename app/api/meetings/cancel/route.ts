@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { createAdminSupabase } from '@/lib/supabase/admin';
+import { deleteCalendarEvent } from '@/lib/calendar';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,5 +25,18 @@ export async function POST(req: NextRequest) {
     return new NextResponse('Não autorizado', { status: 403 });
 
   await admin.from('meetings').update({ status: 'canceled' }).eq('id', id);
+
+  // remove o evento do Google Agenda (notifica os convidados) — não-fatal
+  try {
+    const { data: sec } = await admin
+      .from('meet_meeting_sector')
+      .select('calendar_event_id')
+      .eq('meeting_id', id)
+      .maybeSingle();
+    if (sec?.calendar_event_id) await deleteCalendarEvent(sec.calendar_event_id as string);
+  } catch (e) {
+    console.error('[cancel] falha ao apagar evento do Google Agenda:', e);
+  }
+
   return NextResponse.json({ ok: true });
 }
