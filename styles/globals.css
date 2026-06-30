@@ -369,8 +369,22 @@ h2 a {
     flex-shrink: 0;
   }
 
+  /* TODOS os botões e grupos com a MESMA altura (botões soltos + grupos com
+     menu de dispositivo + chevron). Altura fixa + conteúdo centralizado. */
+  [data-lk-theme] .lk-control-bar .lk-button,
+  [data-lk-theme] .lk-control-bar .lk-button-group,
+  [data-lk-theme] .lk-control-bar .lk-button-group .lk-button {
+    height: 2.5rem;
+    min-height: 2.5rem;
+    box-sizing: border-box;
+  }
   [data-lk-theme] .lk-control-bar .lk-button {
-    padding: 0.5rem 0.6rem;
+    display: inline-flex;
+    align-items: center;
+    padding-top: 0;
+    padding-bottom: 0;
+    padding-left: 0.7rem;
+    padding-right: 0.7rem;
     font-size: 0.78rem;
     white-space: nowrap;
   }

@@ -317,13 +317,24 @@ function VideoConferenceComponent(props: {
   React.useEffect(() => {
     if (!admitted) return;
     if (props.userChoices.videoEnabled) {
-      room.localParticipant.setCameraEnabled(true).catch((error) => {
-        console.error('Falha ao habilitar a câmera:', error);
-        toast.error(
-          'Não foi possível iniciar a câmera (pode estar em uso por outro app). Você entrou sem vídeo — ative a câmera pela barra quando estiver livre.',
-          { duration: 6000 },
-        );
-      });
+      // A câmera pode estar sendo liberada pelo PreJoin no instante do ingresso
+      // ("Timeout starting video source") — tenta uma segunda vez antes de desistir.
+      (async () => {
+        try {
+          await room.localParticipant.setCameraEnabled(true);
+        } catch {
+          await new Promise((r) => setTimeout(r, 1000));
+          try {
+            await room.localParticipant.setCameraEnabled(true);
+          } catch (error) {
+            console.error('Falha ao habilitar a câmera (2 tentativas):', error);
+            toast.error(
+              'Não foi possível iniciar a câmera (pode estar em uso por outro app). Você entrou sem vídeo — ative a câmera pela barra quando estiver livre.',
+              { duration: 6000 },
+            );
+          }
+        }
+      })();
     }
     if (props.userChoices.audioEnabled) {
       room.localParticipant.setMicrophoneEnabled(true).catch((error) => {
