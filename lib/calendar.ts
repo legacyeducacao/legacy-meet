@@ -48,3 +48,39 @@ export async function createCalendarEvent(input: CalendarEventInput): Promise<st
   const data = (await resp.json()) as { id?: string };
   return data.id ?? null;
 }
+
+/** Atualiza um evento existente (título/horário) e notifica os convidados. */
+export async function updateCalendarEvent(
+  eventId: string,
+  patch: { summary?: string; description?: string; startISO?: string; endISO?: string },
+): Promise<void> {
+  const token = await getDriveAccessToken();
+  const body: Record<string, unknown> = {};
+  if (patch.summary !== undefined) body.summary = patch.summary;
+  if (patch.description !== undefined) body.description = patch.description;
+  if (patch.startISO) body.start = { dateTime: patch.startISO, timeZone: 'America/Sao_Paulo' };
+  if (patch.endISO) body.end = { dateTime: patch.endISO, timeZone: 'America/Sao_Paulo' };
+  const resp = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}?sendUpdates=all`,
+    {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!resp.ok) {
+    throw new Error(`calendar_update_failed ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+  }
+}
+
+/** Apaga um evento e notifica os convidados do cancelamento. */
+export async function deleteCalendarEvent(eventId: string): Promise<void> {
+  const token = await getDriveAccessToken();
+  const resp = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}?sendUpdates=all`,
+    { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!resp.ok && resp.status !== 404 && resp.status !== 410) {
+    throw new Error(`calendar_delete_failed ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+  }
+}

@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
     }
     if (attendees.length > 0) {
       const base = (process.env.APP_BASE_URL || '').replace(/\/$/, '');
-      await createCalendarEvent({
+      const eventId = await createCalendarEvent({
         summary: title,
         description: base
           ? `Reunião Legacy Meet.\nLink: ${base}/rooms/${roomName}`
@@ -96,6 +96,12 @@ export async function POST(req: NextRequest) {
         endISO: end.toISOString(),
         attendees,
       });
+      if (eventId) {
+        await admin
+          .from('meet_meeting_sector')
+          .update({ calendar_event_id: eventId })
+          .eq('meeting_id', meeting.id);
+      }
     }
   } catch (e) {
     console.error('[schedule] falha ao criar evento no Google Agenda (segue mesmo assim):', e);
