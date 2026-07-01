@@ -150,6 +150,35 @@
   scrollbar-width: none;
 }
 
+/* ─── Scrollbars minimalistas em toda a plataforma ──────────────────────────
+   Barra fina, thumb arredondado e discreto sobre trilho transparente. Funciona
+   no claro (telas/modais/selects) e no escuro (sidebar/chamada). Os locais que
+   escondem a barra (.no-scrollbar, barra de controles no mobile) continuam
+   escondidos por terem seletor mais específico. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(120, 128, 140, 0.4) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: rgba(120, 128, 140, 0.4);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(120, 128, 140, 0.65);
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 /* ─── Existing Meet / LiveKit CSS below — do NOT modify ─────────────────── */
 
 * {
