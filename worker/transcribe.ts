@@ -42,7 +42,6 @@ import {
 import { parsePlainTextToUtterances, utterancesToPlainText, type Utterance } from './lib/text';
 import { fetchWithTimeout } from './lib/http';
 import {
-  driveCreateFolder,
   driveFindFileInFolder,
   driveFindOrCreateFolder,
   driveUploadFile,
@@ -478,6 +477,15 @@ async function deleteObject(key: string) {
   await s3.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: key }));
 }
 
+async function getObjectTextOrNull(key: string): Promise<string | null> {
+  try {
+    const res = await s3.send(new GetObjectCommand({ Bucket: S3_BUCKET, Key: key }));
+    return await (res.Body as any).transformToString();
+  } catch {
+    return null;
+  }
+}
+
 interface MeetingMeta {
   title?: string;
   host?: string;
@@ -515,6 +523,29 @@ function formatDateTimeBR(iso: string): string {
   return `${date} - ${time}`;
 }
 
+// Sobe vídeo + txt pro Drive de forma idempotente (reusa pasta/arquivo se já
+// existirem). Lança se o Drive falhar — o chamador trata com fallback s3.
+async function archiveVideoToDrive(
+  token: string,
+  videoPath: string,
+  id: string,
+  folderName: string,
+  plainText: string,
+  tmpDir: string,
+): Promise<{ folderId: string; fileId: string }> {
+  const folderId = await driveFindOrCreateFolder(token, folderName, GOOGLE_DRIVE_FOLDER_ID, DRIVE_TIMEOUT_MS);
+  let fileId = await driveFindFileInFolder(token, `${id}.mp4`, folderId, DRIVE_TIMEOUT_MS);
+  if (!fileId) {
+    fileId = await driveUploadFile(token, videoPath, `${id}.mp4`, 'video/mp4', folderId, DRIVE_TIMEOUT_MS);
+  }
+  if (!(await driveFindFileInFolder(token, `${id}.txt`, folderId, DRIVE_TIMEOUT_MS))) {
+    const txtPath = path.join(tmpDir, 'transcricao.txt');
+    await writeFile(txtPath, plainText, 'utf-8');
+    await driveUploadFile(token, txtPath, `${id}.txt`, 'text/plain', folderId, DRIVE_TIMEOUT_MS);
+  }
+  return { folderId, fileId };
+}
+
 // --------------------------- Processamento ---------------------------
 async function processRecording(rec: RecordingObject) {
   const key = rec.key;
@@ -546,75 +577,73 @@ async function processRecording(rec: RecordingObject) {
     const durationSeconds = Math.round(await getAudioDuration(audioPath));
     const chunks = await splitAudio(audioPath, chunkDir, CHUNK_SECONDS);
 
+    // Reuso de backlog: se já existe transcrição (txt) no MinIO de um run
+    // anterior, reconstrói as falas dela em vez de re-transcrever (economiza
+    // créditos). Gravação nova não tem txt → transcreve normalmente.
+    const existingTxt = await getObjectTextOrNull(transcriptKey(id, 'txt'));
     const allUtts: Utterance[] = [];
     const skipped: number[] = [];
-    for (let i = 0; i < chunks.length; i++) {
-      const { path: chunkPath, offset } = chunks[i];
-      log(`chunk ${i + 1}/${chunks.length} (offset=${offset}s)`);
-      let utts: unknown[];
-      try {
-        utts = await transcribeChunk(chunkPath, participants);
-      } catch (e) {
-        // Pula o chunk em QUALQUER falha (alucinação, parse, rede). Nunca derruba
-        // a gravação inteira — assim sempre escrevemos um manifesto ao final e o
-        // worker não reprocessa o mesmo arquivo para sempre.
-        log(`chunk ${i + 1} pulado: ${e instanceof Error ? e.message : String(e)}`);
-        skipped.push(i + 1);
-        continue;
+
+    if (existingTxt && existingTxt.trim()) {
+      const reused = parsePlainTextToUtterances(existingTxt);
+      allUtts.push(...reused);
+      log(`reaproveitando transcrição existente do MinIO — ${reused.length} utterance(s)`);
+    } else {
+      for (let i = 0; i < chunks.length; i++) {
+        const { path: chunkPath, offset } = chunks[i];
+        log(`chunk ${i + 1}/${chunks.length} (offset=${offset}s)`);
+        let utts: unknown[];
+        try {
+          utts = await transcribeChunk(chunkPath, participants);
+        } catch (e) {
+          log(`chunk ${i + 1} pulado: ${e instanceof Error ? e.message : String(e)}`);
+          skipped.push(i + 1);
+          continue;
+        }
+        let added = 0;
+        for (const raw of utts as Array<Record<string, unknown>>) {
+          const text = String(raw.text ?? '').trim();
+          if (!text) continue;
+          const start = Number(raw.start ?? 0) + offset;
+          const end = Number(raw.end ?? start) + offset;
+          const speaker = String(raw.speaker ?? 'Pessoa 1').trim();
+          allUtts.push({ speaker, text, start, end });
+          added += 1;
+        }
+        log(`chunk ${i + 1} → ${added} utterance(s)`);
       }
-      let added = 0;
-      for (const raw of utts as Array<Record<string, unknown>>) {
-        const text = String(raw.text ?? '').trim();
-        if (!text) continue;
-        const start = Number(raw.start ?? 0) + offset;
-        const end = Number(raw.end ?? start) + offset;
-        const speaker = String(raw.speaker ?? 'Pessoa 1').trim();
-        allUtts.push({ speaker, text, start, end });
-        added += 1;
-      }
-      log(`chunk ${i + 1} → ${added} utterance(s)`);
     }
 
-    // Se TODOS os chunks falharam (alucinação/length), NÃO relança erro — senão o
-    // worker reprocessaria a mesma gravação pra sempre, queimando créditos. Em vez
-    // disso, finaliza marcando como "failed" e mantém o vídeo no MinIO p/ reprocesso.
     const transcriptionFailed = allUtts.length === 0 && skipped.length > 0;
     if (transcriptionFailed) {
-      log(
-        `transcrição falhou (chunks pulados: ${skipped.join(', ')}) — finalizando sem novas tentativas, vídeo mantido no MinIO`,
-      );
+      log(`transcrição falhou (chunks pulados: ${skipped.join(', ')}) — arquivando vídeo mesmo assim`);
     }
 
-    // Texto corrido para download (mantido no MinIO como referência do manifesto)
+    // txt de referência no MinIO (regravado a partir das falas atuais).
     const plainText = utterancesToPlainText(allUtts);
     await uploadText(transcriptKey(id, 'txt'), plainText, 'text/plain; charset=utf-8');
 
-    // Arquivamento: só move pro Drive se a transcrição deu certo (senão mantém no
-    // MinIO para permitir reprocessar). Cria uma pasta por reunião no Drive.
+    // Arquivamento no Drive à prova de falha: se falhar, cai em s3 (vídeo fica
+    // no MinIO) e MESMO ASSIM grava o manifesto — nunca entra em loop.
     let storage: 's3' | 'gdrive' = 's3';
     let gdriveFileId: string | null = null;
     let gdriveFolderId: string | null = null;
     let videoKey: string | null = key;
-    if (DRIVE_ENABLED && !transcriptionFailed) {
-      const token = await getDriveAccessToken(DRIVE_CFG, DRIVE_TIMEOUT_MS);
+
+    if (DRIVE_ENABLED) {
       const folderName = `${formatDateTimeBR(createdAt)} - ${title || roomName}`;
-      log(`arquivando no Google Drive em "${folderName}"`);
-      gdriveFolderId = await driveCreateFolder(token, folderName, GOOGLE_DRIVE_FOLDER_ID, DRIVE_TIMEOUT_MS);
-      gdriveFileId = await driveUploadFile(
-        token,
-        videoPath,
-        `${id}.mp4`,
-        'video/mp4',
-        gdriveFolderId,
-        DRIVE_TIMEOUT_MS,
-      );
-      const txtPath = path.join(tmp, 'transcricao.txt');
-      await writeFile(txtPath, plainText, 'utf-8');
-      await driveUploadFile(token, txtPath, `${id}.txt`, 'text/plain', gdriveFolderId, DRIVE_TIMEOUT_MS);
-      await deleteObject(key);
-      storage = 'gdrive';
-      videoKey = null;
-      log(`arquivado no Drive (pasta=${gdriveFolderId}, vídeo=${gdriveFileId}) e removido do MinIO`);
+      try {
+        log(`arquivando no Google Drive em "${folderName}"`);
+        const token = await getDriveAccessToken(DRIVE_CFG, DRIVE_TIMEOUT_MS);
+        const res = await archiveVideoToDrive(token, videoPath, id, folderName, plainText, tmp);
+        gdriveFolderId = res.folderId;
+        gdriveFileId = res.fileId;
+        storage = 'gdrive';
+        videoKey = null;
+        log(`arquivado no Drive (pasta=${gdriveFolderId}, vídeo=${gdriveFileId})`);
+      } catch (e) {
+        log(`falha ao arquivar no Drive: ${e instanceof Error ? e.message : String(e)} — mantendo no MinIO (storage=s3)`);
+      }
     }
 
     const manifest = {
@@ -635,6 +664,11 @@ async function processRecording(rec: RecordingObject) {
       utterances: allUtts,
     };
     await uploadText(manifestKey(id), JSON.stringify(manifest, null, 2), 'application/json');
+
+    // Só remove o .mp4 do MinIO DEPOIS do manifesto e SÓ se foi pro Drive.
+    if (storage === 'gdrive') {
+      await deleteObject(key);
+    }
 
     log(
       `concluído ${id} — ${allUtts.length} utterances, storage=${storage}${
