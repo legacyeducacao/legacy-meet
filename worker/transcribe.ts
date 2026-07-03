@@ -39,6 +39,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
+import { parsePlainTextToUtterances, utterancesToPlainText, type Utterance } from './lib/text';
 
 // ----------------------------- Config -----------------------------
 const env = process.env;
@@ -97,13 +98,6 @@ for (const sig of ['SIGTERM', 'SIGINT'] as const) {
 const log = (...args: unknown[]) =>
   console.log(new Date().toLocaleString('sv-SE', { timeZone: 'America/Sao_Paulo' }), ...args);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-interface Utterance {
-  speaker: string;
-  text: string;
-  start: number;
-  end: number;
-}
 
 class NonRetryableChunkError extends Error {}
 
@@ -582,10 +576,6 @@ function formatDateTimeBR(iso: string): string {
 }
 
 // --------------------------- Processamento ---------------------------
-function utterancesToPlainText(utts: Utterance[]): string {
-  return utts.map((u) => `[${u.start.toFixed(1)}s] ${u.speaker}: ${u.text}`).join('\n');
-}
-
 async function processRecording(rec: RecordingObject) {
   const key = rec.key;
   const id = recordingIdFromKey(key);
