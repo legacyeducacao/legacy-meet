@@ -39,6 +39,15 @@ import {
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
+import { parsePlainTextToUtterances, utterancesToPlainText, type Utterance } from './lib/text';
+import { fetchWithTimeout } from './lib/http';
+import {
+  driveFindFileInFolder,
+  driveFindOrCreateFolder,
+  driveUploadFile,
+  getDriveAccessToken,
+  type DriveConfig,
+} from './lib/drive';
 
 // ----------------------------- Config -----------------------------
 const env = process.env;
@@ -50,6 +59,7 @@ const S3_BUCKET = env.S3_BUCKET ?? 'legacy-meet';
 const OPENROUTER_API_KEY = env.OPENROUTER_API_KEY;
 const OPENROUTER_MODEL = env.OPENROUTER_MODEL ?? 'google/gemini-2.5-flash';
 const POLL_INTERVAL_SECONDS = Number(env.POLL_INTERVAL_SECONDS ?? '30');
+const OPENROUTER_TIMEOUT_MS = Number(env.OPENROUTER_TIMEOUT_MS ?? '180000');
 const CHUNK_SECONDS = Number(env.CHUNK_SECONDS ?? '300');
 const SOURCE_PREFIX = env.SOURCE_PREFIX ?? 'com-transcricao/';
 const OUTPUT_PREFIX = env.OUTPUT_PREFIX ?? 'transcricoes/';
@@ -60,6 +70,12 @@ const GOOGLE_OAUTH_CLIENT_ID = env.GOOGLE_OAUTH_CLIENT_ID;
 const GOOGLE_OAUTH_CLIENT_SECRET = env.GOOGLE_OAUTH_CLIENT_SECRET;
 const GOOGLE_OAUTH_REFRESH_TOKEN = env.GOOGLE_OAUTH_REFRESH_TOKEN;
 const GOOGLE_DRIVE_FOLDER_ID = env.GOOGLE_DRIVE_FOLDER_ID;
+const DRIVE_TIMEOUT_MS = Number(env.DRIVE_TIMEOUT_MS ?? '120000');
+const DRIVE_CFG: DriveConfig = {
+  clientId: GOOGLE_OAUTH_CLIENT_ID ?? '',
+  clientSecret: GOOGLE_OAUTH_CLIENT_SECRET ?? '',
+  refreshToken: GOOGLE_OAUTH_REFRESH_TOKEN ?? '',
+};
 const DRIVE_ENABLED = !!(
   GOOGLE_OAUTH_CLIENT_ID &&
   GOOGLE_OAUTH_CLIENT_SECRET &&
@@ -97,13 +113,6 @@ for (const sig of ['SIGTERM', 'SIGINT'] as const) {
 const log = (...args: unknown[]) =>
   console.log(new Date().toLocaleString('sv-SE', { timeZone: 'America/Sao_Paulo' }), ...args);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-interface Utterance {
-  speaker: string;
-  text: string;
-  start: number;
-  end: number;
-}
 
 class NonRetryableChunkError extends Error {}
 
@@ -309,16 +318,20 @@ async function transcribeChunkOnce(audioB64: string, participants: string[]): Pr
     max_tokens: 16384,
     reasoning: { exclude: true },
   };
-  const resp = await fetch(OPENROUTER_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': 'https://meet.legacyexecutoria.com.br',
-      'X-Title': 'Legacy Meet - Transcription Worker',
+  const resp = await fetchWithTimeout(
+    OPENROUTER_URL,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://meet.legacyexecutoria.com.br',
+        'X-Title': 'Legacy Meet - Transcription Worker',
+      },
+      body: JSON.stringify(body),
     },
-    body: JSON.stringify(body),
-  });
+    OPENROUTER_TIMEOUT_MS,
+  );
   if (!resp.ok) {
     throw new Error(`openrouter ${resp.status}: ${(await resp.text()).slice(0, 500)}`);
   }
@@ -464,84 +477,40 @@ async function deleteObject(key: string) {
   await s3.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: key }));
 }
 
-// --------------------------- Google Drive ---------------------------
-async function getDriveAccessToken(): Promise<string> {
-  const resp = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: GOOGLE_OAUTH_CLIENT_ID!,
-      client_secret: GOOGLE_OAUTH_CLIENT_SECRET!,
-      refresh_token: GOOGLE_OAUTH_REFRESH_TOKEN!,
-      grant_type: 'refresh_token',
-    }),
-  });
-  const data: any = await resp.json();
-  if (!data.access_token) throw new Error(`drive_auth_failed: ${JSON.stringify(data).slice(0, 300)}`);
-  return data.access_token;
+async function getObjectTextOrNull(key: string): Promise<string | null> {
+  try {
+    const res = await s3.send(new GetObjectCommand({ Bucket: S3_BUCKET, Key: key }));
+    return await (res.Body as any).transformToString();
+  } catch {
+    return null;
+  }
 }
 
-/** Cria uma pasta no Drive e devolve o folderId. */
-async function driveCreateFolder(token: string, name: string, parentId?: string): Promise<string> {
-  const metadata: Record<string, unknown> = {
-    name,
-    mimeType: 'application/vnd.google-apps.folder',
-  };
-  if (parentId) metadata.parents = [parentId];
-  const resp = await fetch('https://www.googleapis.com/drive/v3/files?supportsAllDrives=true', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(metadata),
-  });
-  if (!resp.ok) {
-    throw new Error(`drive_folder_failed ${resp.status}: ${(await resp.text()).slice(0, 300)}`);
-  }
-  const data: any = await resp.json();
-  if (!data.id) throw new Error('drive_folder_no_id');
-  return data.id;
+async function listManifestIds(): Promise<string[]> {
+  const ids: string[] = [];
+  let token: string | undefined;
+  do {
+    const res = await s3.send(
+      new ListObjectsV2Command({ Bucket: S3_BUCKET, Prefix: MANIFEST_PREFIX, ContinuationToken: token }),
+    );
+    for (const obj of res.Contents ?? []) {
+      if (obj.Key && obj.Key.endsWith('.json')) {
+        ids.push(obj.Key.slice(MANIFEST_PREFIX.length).replace(/\.json$/, ''));
+      }
+    }
+    token = res.IsTruncated ? res.NextContinuationToken : undefined;
+  } while (token);
+  return ids;
 }
 
-/** Faz upload resumível de um arquivo para o Drive e devolve o fileId. */
-async function driveUploadFile(
-  token: string,
-  filePath: string,
-  name: string,
-  mimeType: string,
-  parentId?: string,
-): Promise<string> {
-  const metadata: Record<string, unknown> = { name };
-  if (parentId) metadata.parents = [parentId];
-
-  const initResp = await fetch(
-    'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true',
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json; charset=UTF-8',
-        'X-Upload-Content-Type': mimeType,
-      },
-      body: JSON.stringify(metadata),
-    },
-  );
-  if (!initResp.ok) {
-    throw new Error(`drive_init_failed ${initResp.status}: ${(await initResp.text()).slice(0, 300)}`);
+async function readManifest(id: string): Promise<any | null> {
+  const txt = await getObjectTextOrNull(manifestKey(id));
+  if (txt == null) return null;
+  try {
+    return JSON.parse(txt);
+  } catch {
+    return null;
   }
-  const sessionUri = initResp.headers.get('location');
-  if (!sessionUri) throw new Error('drive_init_no_session_uri');
-
-  const fileBuffer = await readFile(filePath);
-  const putResp = await fetch(sessionUri, {
-    method: 'PUT',
-    headers: { 'Content-Type': mimeType, 'Content-Length': String(fileBuffer.length) },
-    body: fileBuffer,
-  });
-  if (!putResp.ok) {
-    throw new Error(`drive_upload_failed ${putResp.status}: ${(await putResp.text()).slice(0, 300)}`);
-  }
-  const result: any = await putResp.json();
-  if (!result.id) throw new Error(`drive_upload_no_id: ${JSON.stringify(result).slice(0, 300)}`);
-  return result.id;
 }
 
 interface MeetingMeta {
@@ -581,11 +550,63 @@ function formatDateTimeBR(iso: string): string {
   return `${date} - ${time}`;
 }
 
-// --------------------------- Processamento ---------------------------
-function utterancesToPlainText(utts: Utterance[]): string {
-  return utts.map((u) => `[${u.start.toFixed(1)}s] ${u.speaker}: ${u.text}`).join('\n');
+// Sobe vídeo + txt pro Drive de forma idempotente (reusa pasta/arquivo se já
+// existirem). Lança se o Drive falhar — o chamador trata com fallback s3.
+async function archiveVideoToDrive(
+  token: string,
+  videoPath: string,
+  id: string,
+  folderName: string,
+  plainText: string,
+  tmpDir: string,
+): Promise<{ folderId: string; fileId: string }> {
+  const folderId = await driveFindOrCreateFolder(token, folderName, GOOGLE_DRIVE_FOLDER_ID, DRIVE_TIMEOUT_MS);
+  let fileId = await driveFindFileInFolder(token, `${id}.mp4`, folderId, DRIVE_TIMEOUT_MS);
+  if (!fileId) {
+    fileId = await driveUploadFile(token, videoPath, `${id}.mp4`, 'video/mp4', folderId, DRIVE_TIMEOUT_MS);
+  }
+  if (!(await driveFindFileInFolder(token, `${id}.txt`, folderId, DRIVE_TIMEOUT_MS))) {
+    const txtPath = path.join(tmpDir, 'transcricao.txt');
+    await writeFile(txtPath, plainText, 'utf-8');
+    await driveUploadFile(token, txtPath, `${id}.txt`, 'text/plain', folderId, DRIVE_TIMEOUT_MS);
+  }
+  return { folderId, fileId };
 }
 
+// Migra pro Drive as gravações que ficaram como storage=s3 (Drive estava fora
+// quando processaram). Reusa as falas do manifesto — NÃO re-transcreve. Quando
+// o Drive volta, tudo que acumulou migra sozinho.
+async function reconcileS3Recordings(): Promise<void> {
+  if (!DRIVE_ENABLED) return;
+  let token: string | null = null;
+  for (const id of await listManifestIds()) {
+    if (shuttingDown) break;
+    const m = await readManifest(id);
+    if (!m || m.storage !== 's3' || !m.videoKey) continue;
+
+    const tmp = await mkdtemp(path.join(tmpdir(), 'reconcile-'));
+    try {
+      const videoPath = path.join(tmp, 'recording.mp4');
+      await downloadToFile(m.videoKey, videoPath);
+      const plainText = utterancesToPlainText((m.utterances ?? []) as Utterance[]);
+      const folderName = `${formatDateTimeBR(m.createdAt)} - ${m.title || m.roomName}`;
+      if (!token) token = await getDriveAccessToken(DRIVE_CFG, DRIVE_TIMEOUT_MS);
+      log(`migrando pro Drive: ${id} → "${folderName}"`);
+      const res = await archiveVideoToDrive(token, videoPath, id, folderName, plainText, tmp);
+      const updated = { ...m, storage: 'gdrive', videoKey: null, gdriveFolderId: res.folderId, gdriveFileId: res.fileId };
+      await uploadText(manifestKey(id), JSON.stringify(updated, null, 2), 'application/json');
+      await deleteObject(m.videoKey);
+      log(`migrado pro Drive: ${id}`);
+    } catch (e) {
+      log(`migração adiada para ${id}: ${e instanceof Error ? e.message : String(e)}`);
+      token = null; // força novo token na próxima (caso auth tenha expirado)
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
+    }
+  }
+}
+
+// --------------------------- Processamento ---------------------------
 async function processRecording(rec: RecordingObject) {
   const key = rec.key;
   const id = recordingIdFromKey(key);
@@ -616,68 +637,73 @@ async function processRecording(rec: RecordingObject) {
     const durationSeconds = Math.round(await getAudioDuration(audioPath));
     const chunks = await splitAudio(audioPath, chunkDir, CHUNK_SECONDS);
 
+    // Reuso de backlog: se já existe transcrição (txt) no MinIO de um run
+    // anterior, reconstrói as falas dela em vez de re-transcrever (economiza
+    // créditos). Gravação nova não tem txt → transcreve normalmente.
+    const existingTxt = await getObjectTextOrNull(transcriptKey(id, 'txt'));
     const allUtts: Utterance[] = [];
     const skipped: number[] = [];
-    for (let i = 0; i < chunks.length; i++) {
-      const { path: chunkPath, offset } = chunks[i];
-      log(`chunk ${i + 1}/${chunks.length} (offset=${offset}s)`);
-      let utts: unknown[];
-      try {
-        utts = await transcribeChunk(chunkPath, participants);
-      } catch (e) {
-        // Pula o chunk em QUALQUER falha (alucinação, parse, rede). Nunca derruba
-        // a gravação inteira — assim sempre escrevemos um manifesto ao final e o
-        // worker não reprocessa o mesmo arquivo para sempre.
-        log(`chunk ${i + 1} pulado: ${e instanceof Error ? e.message : String(e)}`);
-        skipped.push(i + 1);
-        continue;
+
+    if (existingTxt && existingTxt.trim()) {
+      const reused = parsePlainTextToUtterances(existingTxt);
+      allUtts.push(...reused);
+      log(`reaproveitando transcrição existente do MinIO — ${reused.length} utterance(s)`);
+    } else {
+      for (let i = 0; i < chunks.length; i++) {
+        const { path: chunkPath, offset } = chunks[i];
+        log(`chunk ${i + 1}/${chunks.length} (offset=${offset}s)`);
+        let utts: unknown[];
+        try {
+          utts = await transcribeChunk(chunkPath, participants);
+        } catch (e) {
+          log(`chunk ${i + 1} pulado: ${e instanceof Error ? e.message : String(e)}`);
+          skipped.push(i + 1);
+          continue;
+        }
+        let added = 0;
+        for (const raw of utts as Array<Record<string, unknown>>) {
+          const text = String(raw.text ?? '').trim();
+          if (!text) continue;
+          const start = Number(raw.start ?? 0) + offset;
+          const end = Number(raw.end ?? start) + offset;
+          const speaker = String(raw.speaker ?? 'Pessoa 1').trim();
+          allUtts.push({ speaker, text, start, end });
+          added += 1;
+        }
+        log(`chunk ${i + 1} → ${added} utterance(s)`);
       }
-      let added = 0;
-      for (const raw of utts as Array<Record<string, unknown>>) {
-        const text = String(raw.text ?? '').trim();
-        if (!text) continue;
-        const start = Number(raw.start ?? 0) + offset;
-        const end = Number(raw.end ?? start) + offset;
-        const speaker = String(raw.speaker ?? 'Pessoa 1').trim();
-        allUtts.push({ speaker, text, start, end });
-        added += 1;
-      }
-      log(`chunk ${i + 1} → ${added} utterance(s)`);
     }
 
-    // Se TODOS os chunks falharam (alucinação/length), NÃO relança erro — senão o
-    // worker reprocessaria a mesma gravação pra sempre, queimando créditos. Em vez
-    // disso, finaliza marcando como "failed" e mantém o vídeo no MinIO p/ reprocesso.
     const transcriptionFailed = allUtts.length === 0 && skipped.length > 0;
     if (transcriptionFailed) {
-      log(
-        `transcrição falhou (chunks pulados: ${skipped.join(', ')}) — finalizando sem novas tentativas, vídeo mantido no MinIO`,
-      );
+      log(`transcrição falhou (chunks pulados: ${skipped.join(', ')}) — arquivando vídeo mesmo assim`);
     }
 
-    // Texto corrido para download (mantido no MinIO como referência do manifesto)
+    // txt de referência no MinIO (regravado a partir das falas atuais).
     const plainText = utterancesToPlainText(allUtts);
     await uploadText(transcriptKey(id, 'txt'), plainText, 'text/plain; charset=utf-8');
 
-    // Arquivamento: só move pro Drive se a transcrição deu certo (senão mantém no
-    // MinIO para permitir reprocessar). Cria uma pasta por reunião no Drive.
+    // Arquivamento no Drive à prova de falha: se falhar, cai em s3 (vídeo fica
+    // no MinIO) e MESMO ASSIM grava o manifesto — nunca entra em loop.
     let storage: 's3' | 'gdrive' = 's3';
     let gdriveFileId: string | null = null;
     let gdriveFolderId: string | null = null;
     let videoKey: string | null = key;
-    if (DRIVE_ENABLED && !transcriptionFailed) {
-      const token = await getDriveAccessToken();
+
+    if (DRIVE_ENABLED) {
       const folderName = `${formatDateTimeBR(createdAt)} - ${title || roomName}`;
-      log(`arquivando no Google Drive em "${folderName}"`);
-      gdriveFolderId = await driveCreateFolder(token, folderName, GOOGLE_DRIVE_FOLDER_ID);
-      gdriveFileId = await driveUploadFile(token, videoPath, `${id}.mp4`, 'video/mp4', gdriveFolderId);
-      const txtPath = path.join(tmp, 'transcricao.txt');
-      await writeFile(txtPath, plainText, 'utf-8');
-      await driveUploadFile(token, txtPath, `${id}.txt`, 'text/plain', gdriveFolderId);
-      await deleteObject(key);
-      storage = 'gdrive';
-      videoKey = null;
-      log(`arquivado no Drive (pasta=${gdriveFolderId}, vídeo=${gdriveFileId}) e removido do MinIO`);
+      try {
+        log(`arquivando no Google Drive em "${folderName}"`);
+        const token = await getDriveAccessToken(DRIVE_CFG, DRIVE_TIMEOUT_MS);
+        const res = await archiveVideoToDrive(token, videoPath, id, folderName, plainText, tmp);
+        gdriveFolderId = res.folderId;
+        gdriveFileId = res.fileId;
+        storage = 'gdrive';
+        videoKey = null;
+        log(`arquivado no Drive (pasta=${gdriveFolderId}, vídeo=${gdriveFileId})`);
+      } catch (e) {
+        log(`falha ao arquivar no Drive: ${e instanceof Error ? e.message : String(e)} — mantendo no MinIO (storage=s3)`);
+      }
     }
 
     const manifest = {
@@ -698,6 +724,11 @@ async function processRecording(rec: RecordingObject) {
       utterances: allUtts,
     };
     await uploadText(manifestKey(id), JSON.stringify(manifest, null, 2), 'application/json');
+
+    // Só remove o .mp4 do MinIO DEPOIS do manifesto e SÓ se foi pro Drive.
+    if (storage === 'gdrive') {
+      await deleteObject(key);
+    }
 
     log(
       `concluído ${id} — ${allUtts.length} utterances, storage=${storage}${
@@ -729,6 +760,7 @@ async function main() {
           log(`falha ao processar ${rec.key}: ${e}`);
         }
       }
+      if (!shuttingDown) await reconcileS3Recordings();
       if (!processedAny) await sleep(POLL_INTERVAL_SECONDS * 1000);
     } catch (e) {
       log(`erro no loop: ${e} - aguardando e tentando de novo`);
