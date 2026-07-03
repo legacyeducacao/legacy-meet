@@ -486,6 +486,33 @@ async function getObjectTextOrNull(key: string): Promise<string | null> {
   }
 }
 
+async function listManifestIds(): Promise<string[]> {
+  const ids: string[] = [];
+  let token: string | undefined;
+  do {
+    const res = await s3.send(
+      new ListObjectsV2Command({ Bucket: S3_BUCKET, Prefix: MANIFEST_PREFIX, ContinuationToken: token }),
+    );
+    for (const obj of res.Contents ?? []) {
+      if (obj.Key && obj.Key.endsWith('.json')) {
+        ids.push(obj.Key.slice(MANIFEST_PREFIX.length).replace(/\.json$/, ''));
+      }
+    }
+    token = res.IsTruncated ? res.NextContinuationToken : undefined;
+  } while (token);
+  return ids;
+}
+
+async function readManifest(id: string): Promise<any | null> {
+  const txt = await getObjectTextOrNull(manifestKey(id));
+  if (txt == null) return null;
+  try {
+    return JSON.parse(txt);
+  } catch {
+    return null;
+  }
+}
+
 interface MeetingMeta {
   title?: string;
   host?: string;
@@ -544,6 +571,39 @@ async function archiveVideoToDrive(
     await driveUploadFile(token, txtPath, `${id}.txt`, 'text/plain', folderId, DRIVE_TIMEOUT_MS);
   }
   return { folderId, fileId };
+}
+
+// Migra pro Drive as gravações que ficaram como storage=s3 (Drive estava fora
+// quando processaram). Reusa as falas do manifesto — NÃO re-transcreve. Quando
+// o Drive volta, tudo que acumulou migra sozinho.
+async function reconcileS3Recordings(): Promise<void> {
+  if (!DRIVE_ENABLED) return;
+  let token: string | null = null;
+  for (const id of await listManifestIds()) {
+    if (shuttingDown) break;
+    const m = await readManifest(id);
+    if (!m || m.storage !== 's3' || !m.videoKey) continue;
+
+    const tmp = await mkdtemp(path.join(tmpdir(), 'reconcile-'));
+    try {
+      const videoPath = path.join(tmp, 'recording.mp4');
+      await downloadToFile(m.videoKey, videoPath);
+      const plainText = utterancesToPlainText((m.utterances ?? []) as Utterance[]);
+      const folderName = `${formatDateTimeBR(m.createdAt)} - ${m.title || m.roomName}`;
+      if (!token) token = await getDriveAccessToken(DRIVE_CFG, DRIVE_TIMEOUT_MS);
+      log(`migrando pro Drive: ${id} → "${folderName}"`);
+      const res = await archiveVideoToDrive(token, videoPath, id, folderName, plainText, tmp);
+      const updated = { ...m, storage: 'gdrive', videoKey: null, gdriveFolderId: res.folderId, gdriveFileId: res.fileId };
+      await uploadText(manifestKey(id), JSON.stringify(updated, null, 2), 'application/json');
+      await deleteObject(m.videoKey);
+      log(`migrado pro Drive: ${id}`);
+    } catch (e) {
+      log(`migração adiada para ${id}: ${e instanceof Error ? e.message : String(e)}`);
+      token = null; // força novo token na próxima (caso auth tenha expirado)
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
+    }
+  }
 }
 
 // --------------------------- Processamento ---------------------------
@@ -700,6 +760,7 @@ async function main() {
           log(`falha ao processar ${rec.key}: ${e}`);
         }
       }
+      if (!shuttingDown) await reconcileS3Recordings();
       if (!processedAny) await sleep(POLL_INTERVAL_SECONDS * 1000);
     } catch (e) {
       log(`erro no loop: ${e} - aguardando e tentando de novo`);
