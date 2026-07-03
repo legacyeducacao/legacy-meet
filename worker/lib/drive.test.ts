@@ -37,6 +37,15 @@ describe('driveFindOrCreateFolder', () => {
     const calledUrl = String(fetchMock.mock.calls[0][0]);
     expect(decodeURIComponent(calledUrl)).toContain("name='O\\'Brien'");
   });
+
+  it('lança erro em resposta não-OK da busca, sem criar pasta duplicada', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response('rate limited', { status: 429 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(driveFindOrCreateFolder('tok', 'Pasta X', 'PARENT', 5000)).rejects.toThrow(
+      /drive_find_folder_failed 429/,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1); // não chamou create
+  });
 });
 
 describe('driveFindFileInFolder', () => {
@@ -48,5 +57,15 @@ describe('driveFindFileInFolder', () => {
   it('retorna null quando não existe', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(jsonResponse({ files: [] })));
     expect(await driveFindFileInFolder('tok', 'a.mp4', 'F1', 5000)).toBeNull();
+  });
+
+  it('lança erro em resposta não-OK da busca (401), em vez de re-upload silencioso', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response('unauthorized', { status: 401 })));
+    await expect(driveFindFileInFolder('tok', 'a.mp4', 'F1', 5000)).rejects.toThrow(/drive_find_file_failed 401/);
+  });
+
+  it('lança erro em resposta não-OK da busca (429)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response('rate limited', { status: 429 })));
+    await expect(driveFindFileInFolder('tok', 'a.mp4', 'F1', 5000)).rejects.toThrow(/drive_find_file_failed 429/);
   });
 });

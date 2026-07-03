@@ -72,10 +72,11 @@ export async function driveFindOrCreateFolder(
       `${DRIVE_FILES_URL}?q=${encodeURIComponent(q)}&fields=files(id)` +
       `&supportsAllDrives=true&includeItemsFromAllDrives=true`;
     const resp = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${token}` } }, timeoutMs);
-    if (resp.ok) {
-      const data: any = await resp.json();
-      if (data.files?.length) return data.files[0].id;
+    if (!resp.ok) {
+      throw new Error(`drive_find_folder_failed ${resp.status}: ${(await resp.text()).slice(0, 300)}`);
     }
+    const data: any = await resp.json();
+    if (data.files?.length) return data.files[0].id;
   }
   return driveCreateFolder(token, name, parentId, timeoutMs);
 }
@@ -93,10 +94,11 @@ export async function driveFindFileInFolder(
     `${DRIVE_FILES_URL}?q=${encodeURIComponent(q)}&fields=files(id)` +
     `&supportsAllDrives=true&includeItemsFromAllDrives=true`;
   const resp = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${token}` } }, timeoutMs);
-  if (resp.ok) {
-    const data: any = await resp.json();
-    if (data.files?.length) return data.files[0].id;
+  if (!resp.ok) {
+    throw new Error(`drive_find_file_failed ${resp.status}: ${(await resp.text()).slice(0, 300)}`);
   }
+  const data: any = await resp.json();
+  if (data.files?.length) return data.files[0].id;
   return null;
 }
 
