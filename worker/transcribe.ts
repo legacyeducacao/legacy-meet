@@ -41,6 +41,14 @@ import {
 } from '@aws-sdk/client-s3';
 import { parsePlainTextToUtterances, utterancesToPlainText, type Utterance } from './lib/text';
 import { fetchWithTimeout } from './lib/http';
+import {
+  driveCreateFolder,
+  driveFindFileInFolder,
+  driveFindOrCreateFolder,
+  driveUploadFile,
+  getDriveAccessToken,
+  type DriveConfig,
+} from './lib/drive';
 
 // ----------------------------- Config -----------------------------
 const env = process.env;
@@ -63,6 +71,12 @@ const GOOGLE_OAUTH_CLIENT_ID = env.GOOGLE_OAUTH_CLIENT_ID;
 const GOOGLE_OAUTH_CLIENT_SECRET = env.GOOGLE_OAUTH_CLIENT_SECRET;
 const GOOGLE_OAUTH_REFRESH_TOKEN = env.GOOGLE_OAUTH_REFRESH_TOKEN;
 const GOOGLE_DRIVE_FOLDER_ID = env.GOOGLE_DRIVE_FOLDER_ID;
+const DRIVE_TIMEOUT_MS = Number(env.DRIVE_TIMEOUT_MS ?? '120000');
+const DRIVE_CFG: DriveConfig = {
+  clientId: GOOGLE_OAUTH_CLIENT_ID ?? '',
+  clientSecret: GOOGLE_OAUTH_CLIENT_SECRET ?? '',
+  refreshToken: GOOGLE_OAUTH_REFRESH_TOKEN ?? '',
+};
 const DRIVE_ENABLED = !!(
   GOOGLE_OAUTH_CLIENT_ID &&
   GOOGLE_OAUTH_CLIENT_SECRET &&
@@ -464,86 +478,6 @@ async function deleteObject(key: string) {
   await s3.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: key }));
 }
 
-// --------------------------- Google Drive ---------------------------
-async function getDriveAccessToken(): Promise<string> {
-  const resp = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: GOOGLE_OAUTH_CLIENT_ID!,
-      client_secret: GOOGLE_OAUTH_CLIENT_SECRET!,
-      refresh_token: GOOGLE_OAUTH_REFRESH_TOKEN!,
-      grant_type: 'refresh_token',
-    }),
-  });
-  const data: any = await resp.json();
-  if (!data.access_token) throw new Error(`drive_auth_failed: ${JSON.stringify(data).slice(0, 300)}`);
-  return data.access_token;
-}
-
-/** Cria uma pasta no Drive e devolve o folderId. */
-async function driveCreateFolder(token: string, name: string, parentId?: string): Promise<string> {
-  const metadata: Record<string, unknown> = {
-    name,
-    mimeType: 'application/vnd.google-apps.folder',
-  };
-  if (parentId) metadata.parents = [parentId];
-  const resp = await fetch('https://www.googleapis.com/drive/v3/files?supportsAllDrives=true', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(metadata),
-  });
-  if (!resp.ok) {
-    throw new Error(`drive_folder_failed ${resp.status}: ${(await resp.text()).slice(0, 300)}`);
-  }
-  const data: any = await resp.json();
-  if (!data.id) throw new Error('drive_folder_no_id');
-  return data.id;
-}
-
-/** Faz upload resumível de um arquivo para o Drive e devolve o fileId. */
-async function driveUploadFile(
-  token: string,
-  filePath: string,
-  name: string,
-  mimeType: string,
-  parentId?: string,
-): Promise<string> {
-  const metadata: Record<string, unknown> = { name };
-  if (parentId) metadata.parents = [parentId];
-
-  const initResp = await fetch(
-    'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true',
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json; charset=UTF-8',
-        'X-Upload-Content-Type': mimeType,
-      },
-      body: JSON.stringify(metadata),
-    },
-  );
-  if (!initResp.ok) {
-    throw new Error(`drive_init_failed ${initResp.status}: ${(await initResp.text()).slice(0, 300)}`);
-  }
-  const sessionUri = initResp.headers.get('location');
-  if (!sessionUri) throw new Error('drive_init_no_session_uri');
-
-  const fileBuffer = await readFile(filePath);
-  const putResp = await fetch(sessionUri, {
-    method: 'PUT',
-    headers: { 'Content-Type': mimeType, 'Content-Length': String(fileBuffer.length) },
-    body: fileBuffer,
-  });
-  if (!putResp.ok) {
-    throw new Error(`drive_upload_failed ${putResp.status}: ${(await putResp.text()).slice(0, 300)}`);
-  }
-  const result: any = await putResp.json();
-  if (!result.id) throw new Error(`drive_upload_no_id: ${JSON.stringify(result).slice(0, 300)}`);
-  return result.id;
-}
-
 interface MeetingMeta {
   title?: string;
   host?: string;
@@ -662,14 +596,21 @@ async function processRecording(rec: RecordingObject) {
     let gdriveFolderId: string | null = null;
     let videoKey: string | null = key;
     if (DRIVE_ENABLED && !transcriptionFailed) {
-      const token = await getDriveAccessToken();
+      const token = await getDriveAccessToken(DRIVE_CFG, DRIVE_TIMEOUT_MS);
       const folderName = `${formatDateTimeBR(createdAt)} - ${title || roomName}`;
       log(`arquivando no Google Drive em "${folderName}"`);
-      gdriveFolderId = await driveCreateFolder(token, folderName, GOOGLE_DRIVE_FOLDER_ID);
-      gdriveFileId = await driveUploadFile(token, videoPath, `${id}.mp4`, 'video/mp4', gdriveFolderId);
+      gdriveFolderId = await driveCreateFolder(token, folderName, GOOGLE_DRIVE_FOLDER_ID, DRIVE_TIMEOUT_MS);
+      gdriveFileId = await driveUploadFile(
+        token,
+        videoPath,
+        `${id}.mp4`,
+        'video/mp4',
+        gdriveFolderId,
+        DRIVE_TIMEOUT_MS,
+      );
       const txtPath = path.join(tmp, 'transcricao.txt');
       await writeFile(txtPath, plainText, 'utf-8');
-      await driveUploadFile(token, txtPath, `${id}.txt`, 'text/plain', gdriveFolderId);
+      await driveUploadFile(token, txtPath, `${id}.txt`, 'text/plain', gdriveFolderId, DRIVE_TIMEOUT_MS);
       await deleteObject(key);
       storage = 'gdrive';
       videoKey = null;
