@@ -40,6 +40,7 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { parsePlainTextToUtterances, utterancesToPlainText, type Utterance } from './lib/text';
+import { fetchWithTimeout } from './lib/http';
 
 // ----------------------------- Config -----------------------------
 const env = process.env;
@@ -51,6 +52,7 @@ const S3_BUCKET = env.S3_BUCKET ?? 'legacy-meet';
 const OPENROUTER_API_KEY = env.OPENROUTER_API_KEY;
 const OPENROUTER_MODEL = env.OPENROUTER_MODEL ?? 'google/gemini-2.5-flash';
 const POLL_INTERVAL_SECONDS = Number(env.POLL_INTERVAL_SECONDS ?? '30');
+const OPENROUTER_TIMEOUT_MS = Number(env.OPENROUTER_TIMEOUT_MS ?? '180000');
 const CHUNK_SECONDS = Number(env.CHUNK_SECONDS ?? '300');
 const SOURCE_PREFIX = env.SOURCE_PREFIX ?? 'com-transcricao/';
 const OUTPUT_PREFIX = env.OUTPUT_PREFIX ?? 'transcricoes/';
@@ -303,16 +305,20 @@ async function transcribeChunkOnce(audioB64: string, participants: string[]): Pr
     max_tokens: 16384,
     reasoning: { exclude: true },
   };
-  const resp = await fetch(OPENROUTER_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': 'https://meet.legacyexecutoria.com.br',
-      'X-Title': 'Legacy Meet - Transcription Worker',
+  const resp = await fetchWithTimeout(
+    OPENROUTER_URL,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://meet.legacyexecutoria.com.br',
+        'X-Title': 'Legacy Meet - Transcription Worker',
+      },
+      body: JSON.stringify(body),
     },
-    body: JSON.stringify(body),
-  });
+    OPENROUTER_TIMEOUT_MS,
+  );
   if (!resp.ok) {
     throw new Error(`openrouter ${resp.status}: ${(await resp.text()).slice(0, 500)}`);
   }
