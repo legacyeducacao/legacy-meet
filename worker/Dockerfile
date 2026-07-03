@@ -11,6 +11,7 @@ COPY package.json ./
 RUN npm install
 
 COPY transcribe.ts tsconfig.json ./
+COPY lib ./lib
 
 # -u/unbuffered não se aplica ao node; logs já saem na hora
 CMD ["npx", "tsx", "transcribe.ts"]
