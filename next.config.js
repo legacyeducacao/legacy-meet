@@ -1,7 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: false,
-  productionBrowserSourceMaps: true,
+  // Desligado: gerar source maps do navegador em produção ~dobra o uso de memória
+  // e o tempo do `next build`, o que estourava OOM no container de build (EasyPanel).
+  // Não são necessários em produção; religar só se precisar depurar com mapas.
+  productionBrowserSourceMaps: false,
   images: {
     formats: ['image/webp'],
   },
