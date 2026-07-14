@@ -185,6 +185,8 @@ export type RoomOwner = {
   hostId: string | null;
   hostName: string | null;
   sector: string | null;
+  /** Título cadastrado da reunião (agenda ou ao iniciar). Fonte da verdade do nome. */
+  title: string | null;
 };
 
 export async function getRoomOwners(roomNames: string[]): Promise<Map<string, RoomOwner>> {
@@ -193,11 +195,12 @@ export async function getRoomOwners(roomNames: string[]): Promise<Map<string, Ro
   const admin = createAdminSupabase();
   const { data, error } = await admin
     .from('meetings')
-    .select('room_name, host_id, users:host_id(name), meet_meeting_sector(sector)')
+    .select('room_name, title, host_id, users:host_id(name), meet_meeting_sector(sector)')
     .in('room_name', roomNames);
   if (error) console.error('getRoomOwners', error);
   for (const m of (data ?? []) as Array<{
     room_name: string;
+    title?: string | null;
     host_id: string | null;
     users?: { name?: string | null } | null;
     meet_meeting_sector?: { sector?: string | null } | null;
@@ -207,6 +210,7 @@ export async function getRoomOwners(roomNames: string[]): Promise<Map<string, Ro
       hostId: m.host_id,
       hostName: m.users?.name ?? null,
       sector: m.meet_meeting_sector?.sector ?? null,
+      title: m.title?.trim() || null,
     });
   }
   return out;

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { canAccessRecording, deleteRecording, getManifest } from '@/lib/recordings';
+import { canAccessRecording, deleteRecording, getManifest, getRoomOwners } from '@/lib/recordings';
 import { getCurrentUser } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -14,7 +14,10 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   if (!manifest) {
     return new NextResponse('Gravação não encontrada', { status: 404 });
   }
-  return NextResponse.json(manifest);
+  // Título cadastrado da reunião (agenda/ao iniciar) tem prioridade sobre o do manifesto.
+  const roomName = id.split('__')[0];
+  const owner = (await getRoomOwners([roomName])).get(roomName);
+  return NextResponse.json({ ...manifest, title: owner?.title ?? manifest.title });
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {

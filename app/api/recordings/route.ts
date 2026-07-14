@@ -21,6 +21,10 @@ export async function GET() {
       const owner = owners.get(roomName) ?? null;
       return {
         ...r,
+        // Nome exibido: título cadastrado na reunião (agenda/ao iniciar) tem prioridade
+        // sobre o título do manifesto (que pode vir vazio). O card cai no nome da sala só
+        // quando nenhum dos dois existe.
+        title: owner?.title ?? r.title,
         hostId: owner?.hostId ?? null,
         hostName: owner?.hostName ?? null,
         metaHost: r.metaHost ?? null,
