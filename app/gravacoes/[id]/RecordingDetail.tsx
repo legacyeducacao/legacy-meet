@@ -2,7 +2,8 @@
 
 import React, { useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Download, Search } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { ArrowLeft, Download, RotateCcw, Search } from 'lucide-react';
 import type { RecordingManifest } from '@/lib/recordings';
 import { AppShell } from '@/components/AppShell';
 import { Button } from '@/components/ui/button';
@@ -39,7 +40,28 @@ function highlight(text: string, query: string): React.ReactNode {
 export function RecordingDetail({ manifest }: { manifest: RecordingManifest }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [query, setQuery] = useState('');
+  const [retrying, setRetrying] = useState(false);
+  const [requeued, setRequeued] = useState(false);
   const utterances = manifest.utterances ?? [];
+  const failed = manifest.transcriptionStatus === 'failed';
+
+  const retryTranscription = async () => {
+    setRetrying(true);
+    try {
+      const res = await fetch(`/api/recordings/${encodeURIComponent(manifest.id)}/retry`, {
+        method: 'POST',
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setRequeued(true);
+      toast.success(
+        'Reenviada para transcrição. Vai reprocessar em alguns minutos e reaparecer na lista já transcrita.',
+      );
+    } catch (e) {
+      toast.error('Falha ao reenviar: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -100,6 +122,32 @@ export function RecordingDetail({ manifest }: { manifest: RecordingManifest }) {
             </div>
           </div>
         </div>
+
+        {failed && (
+          <Card className="rounded-xl border-destructive/40 bg-destructive/5">
+            <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-destructive">
+                  A transcrição desta reunião falhou.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {requeued
+                    ? 'Reenviada. Ela some da lista por alguns minutos e reaparece transcrita quando o worker concluir.'
+                    : 'O vídeo continua salvo. Você pode reenviar para transcrever novamente.'}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={retryTranscription}
+                disabled={retrying || requeued}
+              >
+                <RotateCcw className={`h-4 w-4 ${retrying ? 'animate-spin' : ''}`} />
+                {requeued ? 'Reenviada ✓' : retrying ? 'Reenviando…' : 'Transcrever novamente'}
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="grid gap-6 lg:grid-cols-[1fr_420px]">
           {/* Video card */}

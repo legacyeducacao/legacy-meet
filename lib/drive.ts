@@ -25,6 +25,19 @@ export async function getDriveAccessToken(): Promise<string> {
   return data.access_token;
 }
 
+/** Baixa o conteúdo de um arquivo do Drive (bytes) pelo fileId. */
+export async function downloadDriveFile(fileId: string): Promise<Buffer> {
+  const token = await getDriveAccessToken();
+  const resp = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&supportsAllDrives=true`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!resp.ok) {
+    throw new Error(`drive_download_failed ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+  }
+  return Buffer.from(await resp.arrayBuffer());
+}
+
 /** Apaga um arquivo ou pasta do Drive (apagar a pasta remove o conteúdo). */
 export async function deleteDriveFile(fileId: string): Promise<void> {
   const token = await getDriveAccessToken();

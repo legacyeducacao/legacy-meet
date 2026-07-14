@@ -1,12 +1,14 @@
 import {
+  CopyObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { deleteDriveFile } from './drive';
+import { deleteDriveFile, downloadDriveFile } from './drive';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 
 export interface Utterance {
@@ -226,6 +228,54 @@ export async function canAccessRecording(
   const owners = await getRoomOwners([roomName]);
   const o = owners.get(roomName);
   return !!o && o.hostId === user.id;
+}
+
+const SOURCE_PREFIX = 'com-transcricao/';
+
+/**
+ * Reenfileira uma gravação para transcrição (usado no "Transcrever novamente").
+ * Garante o .mp4 em `com-transcricao/<id>.mp4` (baixando do Drive se preciso) e
+ * remove o manifesto + txt — assim o worker reprocessa no próximo ciclo. O
+ * arquivamento no Drive é idempotente (não duplica o vídeo).
+ */
+export async function requeueTranscription(id: string): Promise<void> {
+  const manifest = await getManifest(id);
+  if (!manifest) throw new Error('Gravação não encontrada');
+  const sourceKey = `${SOURCE_PREFIX}${id}.mp4`;
+
+  // O .mp4 já está na pasta de origem?
+  let hasSource = false;
+  try {
+    await s3().send(new HeadObjectCommand({ Bucket: S3_BUCKET, Key: sourceKey }));
+    hasSource = true;
+  } catch {
+    hasSource = false;
+  }
+
+  if (!hasSource) {
+    if (manifest.storage === 'gdrive' && manifest.gdriveFileId) {
+      // Arquivada no Drive: baixa e devolve para a pasta de origem.
+      const buf = await downloadDriveFile(manifest.gdriveFileId);
+      await s3().send(
+        new PutObjectCommand({ Bucket: S3_BUCKET, Key: sourceKey, Body: buf, ContentType: 'video/mp4' }),
+      );
+    } else if (manifest.videoKey && manifest.videoKey !== sourceKey) {
+      // Ainda no MinIO, mas em outra chave: copia para a pasta de origem.
+      await s3().send(
+        new CopyObjectCommand({
+          Bucket: S3_BUCKET,
+          CopySource: `/${S3_BUCKET}/${encodeURIComponent(manifest.videoKey)}`,
+          Key: sourceKey,
+        }),
+      );
+    } else if (!manifest.videoKey) {
+      throw new Error('Vídeo não disponível para reprocessar (sem cópia no Drive nem no MinIO).');
+    }
+  }
+
+  // Remove manifesto + txt: o worker só reprocessa quem não tem manifesto.
+  await deleteObject(`${MANIFEST_PREFIX}${id}.json`);
+  if (manifest.transcriptTxtKey) await deleteObject(manifest.transcriptTxtKey);
 }
 
 /** Apaga uma gravação: vídeo (Drive ou MinIO), transcrição, meta e manifesto. */
