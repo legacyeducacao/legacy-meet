@@ -1,6 +1,6 @@
 import { EgressClient, EncodedFileOutput, EncodingOptions, S3Upload } from 'livekit-server-sdk';
 import { NextRequest, NextResponse } from 'next/server';
-import { metaKey, readJson, writeJson, type MeetingMeta } from '@/lib/recordings';
+import { getRoomOwners, metaKey, readJson, writeJson, type MeetingMeta } from '@/lib/recordings';
 
 export async function GET(req: NextRequest) {
   try {
@@ -93,14 +93,25 @@ export async function GET(req: NextRequest) {
     try {
       const title = req.nextUrl.searchParams.get('title') ?? '';
       const host = req.nextUrl.searchParams.get('host') ?? '';
+      // Título/host CADASTRADOS na reunião (agenda/instant) — fonte da verdade.
+      // Sem isso, o worker nomeia a pasta do Drive com o nome da sala (meet_<uuid>).
+      const owner = (await getRoomOwners([roomName])).get(roomName);
+      const dbTitle = (owner?.title ?? '').trim();
+      const dbHost = (owner?.hostName ?? '').trim();
       // Mescla com o que já existe (ex.: título/host definidos pelo CRM ao agendar),
       // sem sobrescrever com valores vazios quando o convidado entra primeiro.
       const existing = (await readJson<MeetingMeta>(metaKey(roomName))) ?? {};
       await writeJson(metaKey(roomName), {
-        title: title || existing.title || '',
-        host: host || existing.host || '',
+        title: title || dbTitle || existing.title || '',
+        host: host || dbHost || existing.host || '',
         createdAt: existing.createdAt || new Date().toISOString(),
-        participants: existing.participants?.length ? existing.participants : host ? [host] : [],
+        participants: existing.participants?.length
+          ? existing.participants
+          : host
+            ? [host]
+            : dbHost
+              ? [dbHost]
+              : [],
       });
     } catch (e) {
       console.error('Falha ao gravar metadados da reunião:', e);

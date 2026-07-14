@@ -241,6 +241,20 @@ const SOURCE_PREFIX = 'com-transcricao/';
 export async function requeueTranscription(id: string): Promise<void> {
   const manifest = await getManifest(id);
   if (!manifest) throw new Error('Gravação não encontrada');
+
+  // Atualiza título/host no meta a partir do banco — assim, ao reprocessar, o
+  // worker nomeia a pasta do Drive com o título cadastrado (não com o nome da sala).
+  const roomName = id.split('__')[0];
+  const owner = (await getRoomOwners([roomName])).get(roomName);
+  if (owner?.title) {
+    const meta = (await readJson<MeetingMeta>(metaKey(roomName))) ?? {};
+    await writeJson(metaKey(roomName), {
+      ...meta,
+      title: owner.title,
+      host: meta.host || owner.hostName || '',
+    });
+  }
+
   const sourceKey = `${SOURCE_PREFIX}${id}.mp4`;
 
   // O .mp4 já está na pasta de origem?
