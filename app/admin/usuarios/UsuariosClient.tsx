@@ -143,14 +143,14 @@ export default function UsuariosClient() {
 
   return (
     <AppShell>
-      <div className="space-y-6">
+      <div className="flex flex-col gap-6 lg:h-[calc(100vh-4rem)]">
         {/* Page header */}
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Usuários</h1>
           <p className="text-sm text-muted-foreground">Gerencie quem acessa o Legacy Meet.</p>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-3">
+        <div className="grid gap-6 lg:grid-cols-3 lg:min-h-0 lg:flex-1">
           {/* Create-user form */}
           <Card className="lg:col-span-1">
             <CardHeader>
@@ -231,12 +231,12 @@ export default function UsuariosClient() {
           </Card>
 
           {/* User list */}
-          <Card className="lg:col-span-2">
+          <Card className="lg:col-span-2 lg:flex lg:min-h-0 lg:flex-col">
             <CardHeader>
               <CardTitle>Usuários cadastrados</CardTitle>
               <CardDescription>Todos os usuários com acesso à plataforma.</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
               {loadError && (
                 <p className="text-sm font-medium text-destructive">{loadError}</p>
               )}
@@ -255,7 +255,7 @@ export default function UsuariosClient() {
 
               {!loading && !loadError && users.length > 0 && (
                 <Table>
-                  <TableHeader>
+                  <TableHeader className="sticky top-0 z-10 bg-card">
                     <TableRow>
                       <TableHead>Nome</TableHead>
                       <TableHead>E-mail</TableHead>
