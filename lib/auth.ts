@@ -49,12 +49,17 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
       .eq('user_id', user.id)
       .maybeSingle();
 
+    const email = row?.email ?? user.email ?? '';
+    // Todo usuário do domínio Legacy tem acesso ao Meet (entrar + criar reuniões),
+    // mesmo sem meet_user_profile. Cobre legacyeducacaocorp / legacyeducacao e o
+    // typo "leagacy". Sector e is_admin continuam vindo do profile quando existir.
+    const isLegacyStaff = /@lea?gacyeducaca/i.test(email);
     return {
       id: user.id,
-      email: row?.email ?? user.email ?? '',
+      email,
       name: row?.name ?? null,
       role: (row?.role as string) ?? 'CLIENT',
-      isStaff: !!profile,
+      isStaff: !!profile || isLegacyStaff,
       isAdmin: profile?.is_admin ?? false,
       sector: (profile?.sector as Sector | undefined) ?? null,
     };
