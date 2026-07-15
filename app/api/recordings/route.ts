@@ -29,14 +29,21 @@ export async function GET() {
         hostName: owner?.hostName ?? null,
         metaHost: r.metaHost ?? null,
         sector: owner?.sector ?? null,
+        // Excluir é do dono ou admin (comercial vê tudo mas não apaga de colega).
+        canDelete: user.isAdmin || (!!owner?.hostId && owner.hostId === user.id),
       };
     });
 
-    const isMaster = user.isAdmin;
-    let scoped = isMaster ? enriched : enriched.filter((r) => r.hostId !== null && r.hostId === user.id);
-    // comercial não vê Executoria: restringe a setor 'comercial'
-    if (!user.isAdmin && user.sector === 'comercial') {
-      scoped = scoped.filter((r) => r.sector === 'comercial');
+    let scoped;
+    if (user.isAdmin) {
+      // Admin/MASTER vê tudo.
+      scoped = enriched;
+    } else if (user.sector === 'comercial') {
+      // Comercial vê TODAS as reuniões do comercial (qualquer host), menos executoria.
+      scoped = enriched.filter((r) => r.sector === 'comercial');
+    } else {
+      // Demais (executoria / ambos / sem setor): apenas as próprias.
+      scoped = enriched.filter((r) => r.hostId !== null && r.hostId === user.id);
     }
     return NextResponse.json(scoped);
   } catch (error) {

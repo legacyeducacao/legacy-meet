@@ -23,9 +23,13 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const user = await getCurrentUser();
-  if (!(await canAccessRecording(id, user))) {
-    return new NextResponse('Não encontrado', { status: 404 });
-  }
+  if (!user) return new NextResponse('Não encontrado', { status: 404 });
+  // Excluir é restrito ao DONO ou admin — comercial vê todas as reuniões do
+  // comercial, mas não pode apagar a de um colega.
+  const roomName = id.split('__')[0];
+  const owner = (await getRoomOwners([roomName])).get(roomName);
+  const canDelete = user.isAdmin || (!!owner && owner.hostId === user.id);
+  if (!canDelete) return new NextResponse('Não autorizado', { status: 403 });
   try {
     await deleteRecording(id);
     return NextResponse.json({ ok: true });

@@ -34,6 +34,7 @@ interface Rec {
   hostName?: string | null;
   metaHost?: string | null;
   sector?: string | null;
+  canDelete?: boolean;
 }
 
 function formatDate(iso: string): string {
@@ -292,18 +293,20 @@ export default function GravacoesPage() {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {pageItems.map((rec) => (
                 <Card key={rec.id} className="group relative rounded-xl">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    aria-label="Excluir gravação"
-                    title="Excluir gravação"
-                    disabled={deletingId === rec.id}
-                    onClick={() => setPendingDelete(rec)}
-                    className="absolute right-3 top-3 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  {rec.canDelete !== false && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Excluir gravação"
+                      title="Excluir gravação"
+                      disabled={deletingId === rec.id}
+                      onClick={() => setPendingDelete(rec)}
+                      className="absolute right-3 top-3 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
                   <Link
                     href={`/gravacoes/${encodeURIComponent(rec.id)}`}
                     className="block focus:outline-none"

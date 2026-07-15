@@ -220,14 +220,18 @@ export async function getRoomOwners(roomNames: string[]): Promise<Map<string, Ro
 
 export async function canAccessRecording(
   id: string,
-  user: { id: string; isAdmin: boolean } | null,
+  user: { id: string; isAdmin: boolean; sector?: string | null } | null,
 ): Promise<boolean> {
   if (!user) return false;
   if (user.isAdmin) return true;
   const roomName = id.split('__')[0];
   const owners = await getRoomOwners([roomName]);
   const o = owners.get(roomName);
-  return !!o && o.hostId === user.id;
+  if (!o) return false;
+  if (o.hostId === user.id) return true;
+  // Comercial vê (abre) todas as reuniões do comercial.
+  if (user.sector === 'comercial' && o.sector === 'comercial') return true;
+  return false;
 }
 
 const SOURCE_PREFIX = 'com-transcricao/';
