@@ -87,7 +87,8 @@ export function HostParticipantsPanel({
         aria-pressed={open}
         title="Participantes"
       >
-        <Users size={18} /> Participantes ({people.length})
+        <Users size={18} />{' '}
+        <span className="lk-btn-label">Participantes ({people.length})</span>
       </button>
       {open && (
         <div

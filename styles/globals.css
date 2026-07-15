@@ -425,6 +425,29 @@ h2 a {
   }
 }
 
+/* ---------- Barra de controles em notebooks: cabe tudo em uma linha ---------- */
+/* Com ~10 botões, os rótulos estouram a largura em telas de notebook e a barra
+   fica centralizada e CORTADA nas pontas. Abaixo de 1400px mostramos só os
+   ícones (rótulo escondido) e compactamos, então tudo cabe em UMA linha. Em
+   telas grandes (>=1400px) os rótulos voltam. Cada botão mantém o title/tooltip. */
+@media (max-width: 1400px) {
+  [data-lk-theme] .lk-control-bar {
+    flex-wrap: nowrap;
+    gap: 0.4rem;
+  }
+  [data-lk-theme] .lk-control-bar > * {
+    flex-shrink: 0;
+  }
+  [data-lk-theme] .lk-control-bar .lk-btn-label {
+    display: none;
+  }
+  [data-lk-theme] .lk-control-bar .lk-button {
+    padding-left: 0.7rem;
+    padding-right: 0.7rem;
+    gap: 0;
+  }
+}
+
 /* ---------- Chat dentro da tela ---------- */
 /* Bug: ao abrir o chat, o vídeo (item flex/grid) não encolhia (min-width:auto
    padrão), então o chat empurrava o layout pra fora da tela no notebook. Aqui

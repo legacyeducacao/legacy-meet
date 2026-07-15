@@ -196,7 +196,7 @@ function LegacyControlBar(props: {
         <div className="lk-button-group">
           <button {...micButtonProps} className="lk-button">
             {micEnabled ? <Mic size={18} /> : <MicOff size={18} />}
-            Microfone
+            <span className="lk-btn-label">Microfone</span>
           </button>
           <div className="lk-button-group-menu">
             <MediaDeviceMenu
@@ -211,7 +211,7 @@ function LegacyControlBar(props: {
         <div className="lk-button-group">
           <button {...camButtonProps} className="lk-button">
             {camEnabled ? <Video size={18} /> : <VideoOff size={18} />}
-            Câmera
+            <span className="lk-btn-label">Câmera</span>
           </button>
           <div className="lk-button-group-menu">
             <MediaDeviceMenu
@@ -226,7 +226,7 @@ function LegacyControlBar(props: {
       <div className="lk-button-group">
         <span className="lk-button">
           <Volume2 size={18} />
-          Alto-falante
+          <span className="lk-btn-label">Alto-falante</span>
         </span>
         <div className="lk-button-group-menu">
           <MediaDeviceMenu kind="audiooutput" />
@@ -236,7 +236,9 @@ function LegacyControlBar(props: {
       {visible.screenShare && (
         <button {...screenShareButtonProps} className="lk-button">
           {screenShareEnabled ? <MonitorX size={18} /> : <MonitorUp size={18} />}
-          {screenShareEnabled ? 'Parar compartilhamento' : 'Compartilhar tela'}
+          <span className="lk-btn-label">
+            {screenShareEnabled ? 'Parar compartilhamento' : 'Compartilhar tela'}
+          </span>
         </button>
       )}
 
@@ -249,7 +251,7 @@ function LegacyControlBar(props: {
           title="Desfocar o fundo da câmera"
         >
           <Sparkles size={18} />
-          Desfoque
+          <span className="lk-btn-label">Desfoque</span>
         </button>
       )}
 
@@ -260,12 +262,12 @@ function LegacyControlBar(props: {
         title={handRaised ? 'Baixar a mão' : 'Levantar a mão'}
       >
         <Hand size={18} />
-        {handRaised ? 'Baixar mão' : 'Levantar mão'}
+        <span className="lk-btn-label">{handRaised ? 'Baixar mão' : 'Levantar mão'}</span>
       </button>
 
       <button className="lk-button" onClick={copyLink} title="Copiar link da reunião">
         <Link size={18} />
-        {linkCopied ? 'Link copiado!' : 'Copiar link'}
+        <span className="lk-btn-label">{linkCopied ? 'Link copiado!' : 'Copiar link'}</span>
       </button>
 
       {props.hostControls && (
@@ -279,7 +281,7 @@ function LegacyControlBar(props: {
       {visible.chat && (
         <ChatToggle className="lk-button">
           <MessageSquare size={18} />
-          Chat
+          <span className="lk-btn-label">Chat</span>
         </ChatToggle>
       )}
 
@@ -289,14 +291,14 @@ function LegacyControlBar(props: {
           onClick={() => layoutContext?.widget.dispatch?.({ msg: 'toggle_settings' })}
         >
           <Settings size={18} />
-          Configurações
+          <span className="lk-btn-label">Configurações</span>
         </button>
       )}
 
       {visible.leave && (
         <DisconnectButton>
           <LogOut size={18} />
-          Sair
+          <span className="lk-btn-label">Sair</span>
         </DisconnectButton>
       )}
 
