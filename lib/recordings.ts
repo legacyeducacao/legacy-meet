@@ -8,7 +8,8 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { deleteDriveFile, downloadDriveFile } from './drive';
+import { Readable } from 'node:stream';
+import { deleteDriveFile, getDriveAccessToken } from './drive';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 
 export interface Utterance {
@@ -273,22 +274,51 @@ export async function requeueTranscription(id: string): Promise<void> {
 
   if (!hasSource) {
     if (manifest.storage === 'gdrive' && manifest.gdriveFileId) {
-      // Arquivada no Drive: baixa e devolve para a pasta de origem.
-      const buf = await downloadDriveFile(manifest.gdriveFileId);
+      // Arquivada no Drive: baixa em STREAM (sem carregar o vídeo inteiro na
+      // memória do app) e devolve para a pasta de origem.
+      const token = await getDriveAccessToken();
+      const resp = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${manifest.gdriveFileId}?alt=media&supportsAllDrives=true`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!resp.ok || !resp.body) {
+        throw new Error(`drive_download_failed ${resp.status}`);
+      }
+      const contentLength = Number(resp.headers.get('content-length'));
       await s3().send(
-        new PutObjectCommand({ Bucket: S3_BUCKET, Key: sourceKey, Body: buf, ContentType: 'video/mp4' }),
+        new PutObjectCommand({
+          Bucket: S3_BUCKET,
+          Key: sourceKey,
+          Body:
+            contentLength > 0
+              ? (Readable.fromWeb(resp.body as never) as Readable)
+              : Buffer.from(await resp.arrayBuffer()),
+          ...(contentLength > 0 ? { ContentLength: contentLength } : {}),
+          ContentType: 'video/mp4',
+        }),
       );
     } else if (manifest.videoKey && manifest.videoKey !== sourceKey) {
       // Ainda no MinIO, mas em outra chave: copia para a pasta de origem.
       await s3().send(
         new CopyObjectCommand({
           Bucket: S3_BUCKET,
-          CopySource: `/${S3_BUCKET}/${encodeURIComponent(manifest.videoKey)}`,
+          CopySource: `${S3_BUCKET}/${manifest.videoKey}`,
           Key: sourceKey,
         }),
       );
     } else if (!manifest.videoKey) {
       throw new Error('Vídeo não disponível para reprocessar (sem cópia no Drive nem no MinIO).');
+    }
+  }
+
+  // Vídeo já seguro em com-transcricao/. Se estava no Drive, remove a pasta
+  // antiga — o worker vai re-arquivar com o nome/título correto, evitando pasta
+  // duplicada e órfã quando o título muda.
+  if (manifest.storage === 'gdrive' && manifest.gdriveFolderId) {
+    try {
+      await deleteDriveFile(manifest.gdriveFolderId);
+    } catch (e) {
+      console.error('requeue: falha ao remover pasta antiga do Drive', e);
     }
   }
 

@@ -4,7 +4,10 @@ import { getCurrentUser } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
-// Reenvia uma gravação para transcrição (após falha). Só o dono ou admin.
+// Reenvia uma gravação para transcrição (após falha/incompleta). Acesso via
+// canAccessRecording: dono, admin, ou comercial (para reuniões do comercial).
+// Reprocessar é recuperável (não apaga o vídeo) — por isso não é tão restrito
+// quanto o DELETE, que segue só para dono/admin.
 export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const user = await getCurrentUser();

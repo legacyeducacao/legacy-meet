@@ -44,14 +44,11 @@ export function RecordingDetail({ manifest }: { manifest: RecordingManifest }) {
   const [requeued, setRequeued] = useState(false);
   const utterances = manifest.utterances ?? [];
   const failed = manifest.transcriptionStatus === 'failed';
-  // Transcrição INCOMPLETA: chunks descartados (buracos) ou grande silêncio no
-  // fim (última fala muito antes do fim do vídeo). Habilita o retranscrever.
+  // Transcrição INCOMPLETA = houve chunks descartados (buracos reais). Não usamos
+  // "silêncio no fim" como sinal: uma reunião que só termina em silêncio daria
+  // falso-positivo e sugeriria re-transcrever à toa (gasta créditos).
   const skippedCount = manifest.skippedChunks?.length ?? 0;
-  const lastEnd = utterances.length
-    ? Math.max(...utterances.map((u) => u.end || u.start || 0))
-    : 0;
-  const endGap = (manifest.durationSeconds || 0) - lastEnd;
-  const incomplete = !failed && (skippedCount > 0 || endGap > 120);
+  const incomplete = !failed && skippedCount > 0;
   const needsRetry = failed || incomplete;
 
   const retryTranscription = async () => {
