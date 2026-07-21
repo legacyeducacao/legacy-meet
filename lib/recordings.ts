@@ -33,6 +33,7 @@ export interface RecordingManifest {
   model?: string;
   participants?: string[];
   skippedChunks?: number[];
+  skippedChunkDetails?: Array<{ chunk: number; offsetSeconds: number; reason: string }>;
   utterances: Utterance[];
 }
 

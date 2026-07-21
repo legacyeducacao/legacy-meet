@@ -643,6 +643,9 @@ async function processRecording(rec: RecordingObject) {
     const existingTxt = await getObjectTextOrNull(transcriptKey(id, 'txt'));
     const allUtts: Utterance[] = [];
     const skipped: number[] = [];
+    // Motivo de cada chunk pulado — fica no manifesto para debug ("por que a
+    // transcrição ficou incompleta"), já que os logs somem com o tempo.
+    const skippedDetails: Array<{ chunk: number; offsetSeconds: number; reason: string }> = [];
 
     if (existingTxt && existingTxt.trim()) {
       const reused = parsePlainTextToUtterances(existingTxt);
@@ -656,8 +659,10 @@ async function processRecording(rec: RecordingObject) {
         try {
           utts = await transcribeChunk(chunkPath, participants);
         } catch (e) {
-          log(`chunk ${i + 1} pulado: ${e instanceof Error ? e.message : String(e)}`);
+          const reason = e instanceof Error ? e.message : String(e);
+          log(`chunk ${i + 1} pulado: ${reason}`);
           skipped.push(i + 1);
+          skippedDetails.push({ chunk: i + 1, offsetSeconds: offset, reason });
           continue;
         }
         let added = 0;
@@ -721,6 +726,7 @@ async function processRecording(rec: RecordingObject) {
       model: OPENROUTER_MODEL,
       participants,
       skippedChunks: skipped,
+      skippedChunkDetails: skippedDetails,
       utterances: allUtts,
     };
     await uploadText(manifestKey(id), JSON.stringify(manifest, null, 2), 'application/json');

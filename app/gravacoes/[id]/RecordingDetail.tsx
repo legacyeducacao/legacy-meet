@@ -44,6 +44,15 @@ export function RecordingDetail({ manifest }: { manifest: RecordingManifest }) {
   const [requeued, setRequeued] = useState(false);
   const utterances = manifest.utterances ?? [];
   const failed = manifest.transcriptionStatus === 'failed';
+  // Transcrição INCOMPLETA: chunks descartados (buracos) ou grande silêncio no
+  // fim (última fala muito antes do fim do vídeo). Habilita o retranscrever.
+  const skippedCount = manifest.skippedChunks?.length ?? 0;
+  const lastEnd = utterances.length
+    ? Math.max(...utterances.map((u) => u.end || u.start || 0))
+    : 0;
+  const endGap = (manifest.durationSeconds || 0) - lastEnd;
+  const incomplete = !failed && (skippedCount > 0 || endGap > 120);
+  const needsRetry = failed || incomplete;
 
   const retryTranscription = async () => {
     setRetrying(true);
@@ -123,12 +132,16 @@ export function RecordingDetail({ manifest }: { manifest: RecordingManifest }) {
           </div>
         </div>
 
-        {failed && (
+        {needsRetry && (
           <Card className="rounded-xl border-destructive/40 bg-destructive/5">
             <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-sm font-semibold text-destructive">
-                  A transcrição desta reunião falhou.
+                  {failed
+                    ? 'A transcrição desta reunião falhou.'
+                    : `Transcrição possivelmente incompleta${
+                        skippedCount > 0 ? ` (${skippedCount} trecho${skippedCount > 1 ? 's' : ''} não transcrito${skippedCount > 1 ? 's' : ''})` : ''
+                      }.`}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {requeued
