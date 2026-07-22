@@ -56,12 +56,14 @@ export async function authorizeHostAction(
 ): Promise<boolean> {
   const { allowCohost = true } = opts;
   if (verifyHostKey(roomName, body.hostKey)) return true;
+
+  // Token de host (roomAdmin) prova a permissão sem precisar do cookie — checado
+  // antes do getCurrentUser (rede) porque é local e é o caso comum no CRM embutido.
+  const payload = verifyLivekitPayload(body.participantToken, roomName);
+  if (payload?.video?.roomAdmin === true) return true;
+
   const user = await getCurrentUser();
   if (user?.isStaff) return true;
-
-  const payload = verifyLivekitPayload(body.participantToken, roomName);
-  // Token de host (roomAdmin) prova a permissão sem precisar do cookie.
-  if (payload?.video?.roomAdmin === true) return true;
 
   if (!allowCohost) return false;
   const identity = typeof payload?.sub === 'string' ? payload.sub : null;

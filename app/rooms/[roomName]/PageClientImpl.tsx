@@ -361,9 +361,11 @@ function VideoConferenceComponent(props: {
         keepalive: true,
       }).catch(() => {});
     }
-    // host=1 quando é anfitrião → o /obrigado NÃO mostra o NPS (NPS é só do cliente).
-    router.push(`/obrigado?room=${encodeURIComponent(room.name)}${isHost ? '&host=1' : ''}`);
-  }, [router, room, collectParticipants, isHost]);
+    // host=1 quando é anfitrião OU co-anfitrião → o /obrigado NÃO mostra o NPS
+    // (NPS é só do cliente/convidado, não da equipe).
+    const isTeam = isHost || isCohost;
+    router.push(`/obrigado?room=${encodeURIComponent(room.name)}${isTeam ? '&host=1' : ''}`);
+  }, [router, room, collectParticipants, isHost, isCohost]);
   const handleError = React.useCallback((error: Error) => {
     // Usado na falha de CONEXÃO com a sala — avisa sem popup nativo bloqueante.
     console.error(error);
