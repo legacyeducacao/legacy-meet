@@ -361,8 +361,9 @@ function VideoConferenceComponent(props: {
         keepalive: true,
       }).catch(() => {});
     }
-    router.push(`/obrigado?room=${encodeURIComponent(room.name)}`);
-  }, [router, room, collectParticipants]);
+    // host=1 quando é anfitrião → o /obrigado NÃO mostra o NPS (NPS é só do cliente).
+    router.push(`/obrigado?room=${encodeURIComponent(room.name)}${isHost ? '&host=1' : ''}`);
+  }, [router, room, collectParticipants, isHost]);
   const handleError = React.useCallback((error: Error) => {
     // Usado na falha de CONEXÃO com a sala — avisa sem popup nativo bloqueante.
     console.error(error);

@@ -12,9 +12,15 @@ export function roomService() {
 }
 
 // Verifica um token (JWT HS256) do LiveKit assinado com LIVEKIT_API_SECRET e
-// devolve o identity (sub) se for válido e para a sala certa. Usado para
-// autorizar ações de um co-anfitrião (que não tem cookie nem hostKey).
-function verifyLivekitToken(token: string | undefined, roomName: string): string | null {
+// devolve o PAYLOAD se for válido e para a sala certa. O grant `video.roomAdmin`
+// prova que é host (o connection-details só emite roomAdmin p/ staff/hostKey);
+// `sub` é o identity (usado no caminho de co-anfitrião).
+type LivekitPayload = {
+  sub?: string;
+  exp?: number;
+  video?: { room?: string; roomAdmin?: boolean };
+};
+function verifyLivekitPayload(token: string | undefined, roomName: string): LivekitPayload | null {
   const secret = process.env.LIVEKIT_API_SECRET;
   if (!token || !secret) return null;
   const parts = token.split('.');
@@ -24,10 +30,10 @@ function verifyLivekitToken(token: string | undefined, roomName: string): string
   if (sig.length !== expected.length) return null;
   if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
   try {
-    const payload = JSON.parse(Buffer.from(p, 'base64url').toString('utf8'));
+    const payload = JSON.parse(Buffer.from(p, 'base64url').toString('utf8')) as LivekitPayload;
     if (payload.exp && Date.now() / 1000 > payload.exp) return null;
     if (payload.video?.room !== roomName) return null;
-    return typeof payload.sub === 'string' ? payload.sub : null;
+    return payload;
   } catch {
     return null;
   }
@@ -35,9 +41,12 @@ function verifyLivekitToken(token: string | undefined, roomName: string): string
 
 /**
  * Autoriza uma ação de anfitrião na sala. Aceita:
- *  - usuário interno logado (sessão Supabase), ou
  *  - link de anfitrião assinado (hostKey), ou
- *  - co-anfitrião: token do participante válido + atributo cohost='true'.
+ *  - usuário interno logado (sessão Supabase), ou
+ *  - token do participante com grant de ADMIN da sala (host que entrou como
+ *    staff/hostKey) — funciona mesmo sem o cookie de sessão (Meet embutido no
+ *    CRM), ou
+ *  - co-anfitrião: token válido + atributo cohost='true'.
  */
 export async function authorizeHostAction(
   req: NextRequest,
@@ -49,8 +58,13 @@ export async function authorizeHostAction(
   if (verifyHostKey(roomName, body.hostKey)) return true;
   const user = await getCurrentUser();
   if (user?.isStaff) return true;
+
+  const payload = verifyLivekitPayload(body.participantToken, roomName);
+  // Token de host (roomAdmin) prova a permissão sem precisar do cookie.
+  if (payload?.video?.roomAdmin === true) return true;
+
   if (!allowCohost) return false;
-  const identity = verifyLivekitToken(body.participantToken, roomName);
+  const identity = typeof payload?.sub === 'string' ? payload.sub : null;
   if (identity) {
     try {
       const p = await roomService().getParticipant(roomName, identity);
