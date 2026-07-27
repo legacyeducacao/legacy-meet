@@ -69,6 +69,24 @@ export function RecordingDetail({ manifest }: { manifest: RecordingManifest }) {
     }
   };
 
+  // Botão de retranscrever reutilizado no banner e no rodapé (evita duplicar o JSX).
+  const renderRetry = (size?: React.ComponentProps<typeof Button>['size']) => (
+    <Button
+      type="button"
+      variant="outline"
+      size={size}
+      onClick={retryTranscription}
+      disabled={retrying || requeued}
+      title="Reprocessa a transcrição desta reunião"
+    >
+      <RotateCcw className={`h-4 w-4 ${retrying ? 'animate-spin' : ''}`} />
+      {requeued ? 'Reenviada ✓' : retrying ? 'Reenviando…' : 'Transcrever novamente'}
+    </Button>
+  );
+  // Rodapé mostra o botão só quando a transcrição parece COMPLETA (não falha,
+  // não incompleta, e não ainda processando) — o banner acima cobre os demais.
+  const showFooterRetry = !needsRetry && manifest.transcriptionStatus === 'complete';
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return utterances;
@@ -146,15 +164,7 @@ export function RecordingDetail({ manifest }: { manifest: RecordingManifest }) {
                     : 'O vídeo continua salvo. Você pode reenviar para transcrever novamente.'}
                 </p>
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={retryTranscription}
-                disabled={retrying || requeued}
-              >
-                <RotateCcw className={`h-4 w-4 ${retrying ? 'animate-spin' : ''}`} />
-                {requeued ? 'Reenviada ✓' : retrying ? 'Reenviando…' : 'Transcrever novamente'}
-              </Button>
+              {renderRetry()}
             </CardContent>
           </Card>
         )}
@@ -177,21 +187,9 @@ export function RecordingDetail({ manifest }: { manifest: RecordingManifest }) {
                   : 'Armazenada no MinIO'}
               </span>
               <div className="flex items-center gap-2">
-                {/* Retranscrever fica SEMPRE disponível (o banner acima já cobre
-                    falha/incompleta; aqui é o caso "parece ok mas quero refazer"). */}
-                {!needsRetry && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={retryTranscription}
-                    disabled={retrying || requeued}
-                    type="button"
-                    title="Reprocessa a transcrição desta reunião"
-                  >
-                    <RotateCcw className={`h-4 w-4 ${retrying ? 'animate-spin' : ''}`} />
-                    {requeued ? 'Reenviada ✓' : retrying ? 'Reenviando…' : 'Transcrever novamente'}
-                  </Button>
-                )}
+                {/* Retranscrever no rodapé só quando parece completa (o banner
+                    acima já mostra o botão nos casos de falha/incompleta). */}
+                {showFooterRetry && renderRetry('sm')}
                 <Button variant="outline" size="sm" onClick={downloadTxt} type="button">
                   <Download className="h-4 w-4" />
                   Transcrição (.txt)
