@@ -170,16 +170,33 @@ export function RecordingDetail({ manifest }: { manifest: RecordingManifest }) {
               preload="metadata"
               src={`/api/recordings/${encodeURIComponent(manifest.id)}/video`}
             />
-            <div className="flex items-center justify-between px-4 py-3 border-t bg-muted/30">
+            <div className="flex items-center justify-between gap-2 px-4 py-3 border-t bg-muted/30">
               <span className="text-xs text-muted-foreground">
                 {manifest.storage === 'gdrive'
                   ? 'Arquivada no Google Drive'
                   : 'Armazenada no MinIO'}
               </span>
-              <Button variant="outline" size="sm" onClick={downloadTxt} type="button">
-                <Download className="h-4 w-4" />
-                Transcrição (.txt)
-              </Button>
+              <div className="flex items-center gap-2">
+                {/* Retranscrever fica SEMPRE disponível (o banner acima já cobre
+                    falha/incompleta; aqui é o caso "parece ok mas quero refazer"). */}
+                {!needsRetry && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={retryTranscription}
+                    disabled={retrying || requeued}
+                    type="button"
+                    title="Reprocessa a transcrição desta reunião"
+                  >
+                    <RotateCcw className={`h-4 w-4 ${retrying ? 'animate-spin' : ''}`} />
+                    {requeued ? 'Reenviada ✓' : retrying ? 'Reenviando…' : 'Transcrever novamente'}
+                  </Button>
+                )}
+                <Button variant="outline" size="sm" onClick={downloadTxt} type="button">
+                  <Download className="h-4 w-4" />
+                  Transcrição (.txt)
+                </Button>
+              </div>
             </div>
           </Card>
 
