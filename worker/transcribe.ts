@@ -525,6 +525,68 @@ async function manifestExists(id: string): Promise<boolean> {
   }
 }
 
+// Um MP4 recém-modificado pode ainda estar sendo enviado pelo egress — processar
+// um arquivo parcial gera áudio corrompido e alucinação. Processa quando existe
+// o marker `ready/<id>.json` (webhook egress_ended ou requeue) OU quando o
+// arquivo está "frio" há EGRESS_MIN_AGE_SECONDS.
+const EGRESS_MIN_AGE_SECONDS = Number(env.EGRESS_MIN_AGE_SECONDS ?? '120');
+
+async function isEgressReady(id: string, lastModified?: Date): Promise<boolean> {
+  try {
+    await s3.send(new HeadObjectCommand({ Bucket: S3_BUCKET, Key: `ready/${id}.json` }));
+    return true;
+  } catch {
+    // sem marker — decide pela idade do arquivo
+  }
+  const ageSeconds = lastModified ? (Date.now() - lastModified.getTime()) / 1000 : Infinity;
+  return ageSeconds >= EGRESS_MIN_AGE_SECONDS;
+}
+
+// Cap de tentativas por gravação: sem isso, uma gravação quebrada era retentada
+// a cada poll para sempre (queimando créditos do OpenRouter em loop).
+const MAX_RECORDING_ATTEMPTS = Number(env.MAX_RECORDING_ATTEMPTS ?? '3');
+
+async function bumpAttempts(id: string): Promise<number> {
+  const key = `attempts/${id}.json`;
+  let count = 0;
+  try {
+    count = Number(JSON.parse((await getObjectTextOrNull(key)) ?? '{"count":0}').count ?? 0);
+  } catch {
+    count = 0;
+  }
+  count += 1;
+  await uploadText(key, JSON.stringify({ count }), 'application/json');
+  return count;
+}
+
+// Manifesto mínimo de falha: a gravação aparece na listagem como "failed" (com o
+// botão "Transcrever novamente") em vez de sumir e ser retentada eternamente.
+async function writeFailedManifest(rec: RecordingObject, reason: string): Promise<void> {
+  const id = recordingIdFromKey(rec.key);
+  const roomName = id.split('__')[0];
+  const createdAt = (startTimeFromId(id) ?? rec.lastModified ?? new Date()).toISOString();
+  const meta = await getMeta(roomName);
+  const manifest = {
+    id,
+    title: (meta?.title || '').trim(),
+    roomName,
+    createdAt,
+    durationSeconds: 0,
+    storage: 's3' as const,
+    videoKey: rec.key,
+    gdriveFileId: null,
+    gdriveFolderId: null,
+    transcriptTxtKey: transcriptKey(id, 'txt'),
+    transcriptionStatus: 'failed' as const,
+    model: OPENROUTER_MODEL,
+    participants: meta?.participants ?? [],
+    skippedChunks: [],
+    skippedChunkDetails: [{ chunk: 0, offsetSeconds: 0, reason }],
+    utterances: [],
+  };
+  await uploadText(manifestKey(id), JSON.stringify(manifest, null, 2), 'application/json');
+}
+
 async function downloadToFile(key: string, dst: string) {
   const res = await s3.send(new GetObjectCommand({ Bucket: S3_BUCKET, Key: key }));
   await pipeline(res.Body as Readable, createWriteStream(dst));
@@ -804,6 +866,10 @@ async function processRecording(rec: RecordingObject) {
     };
     await uploadText(manifestKey(id), JSON.stringify(manifest, null, 2), 'application/json');
 
+    // Limpa os markers de controle (contagem de tentativas e "egress pronto").
+    await deleteObject(`attempts/${id}.json`).catch(() => {});
+    await deleteObject(`ready/${id}.json`).catch(() => {});
+
     // Só remove o .mp4 do MinIO DEPOIS do manifesto e SÓ se foi pro Drive.
     if (storage === 'gdrive') {
       await deleteObject(key);
@@ -831,12 +897,26 @@ async function main() {
       let processedAny = false;
       for (const rec of recordings) {
         if (shuttingDown) break;
-        if (await manifestExists(recordingIdFromKey(rec.key))) continue;
+        const id = recordingIdFromKey(rec.key);
+        if (await manifestExists(id)) continue;
+        if (!(await isEgressReady(id, rec.lastModified))) {
+          log(`aguardando egress finalizar ${rec.key} (arquivo modificado há pouco)`);
+          continue;
+        }
         processedAny = true;
         try {
           await processRecording(rec);
         } catch (e) {
           log(`falha ao processar ${rec.key}: ${e}`);
+          try {
+            const attempts = await bumpAttempts(id);
+            if (attempts >= MAX_RECORDING_ATTEMPTS) {
+              log(`${id} falhou ${attempts}x — marcando como failed para parar o loop de retries`);
+              await writeFailedManifest(rec, e instanceof Error ? e.message : String(e));
+            }
+          } catch (e2) {
+            log(`falha ao registrar tentativa de ${id}: ${e2}`);
+          }
         }
       }
       if (!shuttingDown) await reconcileS3Recordings();

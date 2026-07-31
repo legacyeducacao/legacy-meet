@@ -325,6 +325,12 @@ export async function requeueTranscription(id: string): Promise<void> {
   // Remove manifesto + txt: o worker só reprocessa quem não tem manifesto.
   await deleteObject(`${MANIFEST_PREFIX}${id}.json`);
   if (manifest.transcriptTxtKey) await deleteObject(manifest.transcriptTxtKey);
+
+  // O vídeo acabou de ser garantido em com-transcricao/ — o marker libera o
+  // worker imediatamente (sem ele, esperaria o arquivo "esfriar"). Zera também
+  // a contagem de tentativas para o retry manual ter fôlego novo.
+  await writeJson(`ready/${id}.json`, { at: new Date().toISOString(), source: 'requeue' });
+  await deleteObject(`attempts/${id}.json`);
 }
 
 /** Apaga uma gravação: vídeo (Drive ou MinIO), transcrição, meta e manifesto. */
