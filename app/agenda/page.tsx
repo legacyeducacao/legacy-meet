@@ -1,9 +1,21 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { CalendarPlus, ChevronLeft, ChevronRight, Clock, Copy, Pencil, Play, X } from 'lucide-react';
+import {
+  CalendarPlus,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Copy,
+  Pencil,
+  Play,
+  Repeat,
+  UserX,
+  X,
+} from 'lucide-react';
+import { computeOccurrences, MAX_OCCURRENCES, type Frequency } from '@/lib/recurrence';
 import { AppShell } from '@/components/AppShell';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -45,6 +57,15 @@ type Scheduled = {
   hostName: string | null;
   clientName: string | null;
   sector: string | null;
+  recurrenceParentId: string | null;
+};
+
+const REPEAT_LABELS: Record<'none' | Frequency, string> = {
+  none: 'Não se repete',
+  daily: 'Todo dia',
+  weekly: 'Toda semana',
+  biweekly: 'A cada 2 semanas',
+  monthly: 'Todo mês',
 };
 
 function formatDateTime(iso: string): string {
@@ -76,6 +97,12 @@ export default function AgendaPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
+  // recorrência
+  const [repeat, setRepeat] = useState<'none' | Frequency>('none');
+  const [endMode, setEndMode] = useState<'count' | 'until'>('count');
+  const [countTimes, setCountTimes] = useState(4);
+  const [untilDate, setUntilDate] = useState('');
+
   // Setor e permissões do usuário logado
   const [meIsAdmin, setMeIsAdmin] = useState(false);
   const [meSector, setMeSector] = useState<string | null>(null);
@@ -86,8 +113,9 @@ export default function AgendaPage() {
   const [actingId, setActingId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
 
-  // confirmação de cancelamento
+  // confirmação de cancelamento / no-show
   const [pendingCancel, setPendingCancel] = useState<Scheduled | null>(null);
+  const [pendingNoShow, setPendingNoShow] = useState<Scheduled | null>(null);
 
   // edição de reunião
   const [editMeeting, setEditMeeting] = useState<Scheduled | null>(null);
@@ -96,6 +124,24 @@ export default function AgendaPage() {
   const [editRecord, setEditRecord] = useState(true);
   const [editTranscribe, setEditTranscribe] = useState(true);
   const [editBusy, setEditBusy] = useState(false);
+
+  // Prévia da série: quantas reuniões a regra atual criaria (ou o erro da regra).
+  const recurrencePreview = useMemo(() => {
+    if (repeat === 'none' || !startAt) return null;
+    try {
+      if (endMode === 'until' && !untilDate) {
+        return { n: 0, error: 'Escolha a data limite da repetição.' };
+      }
+      const n = computeOccurrences(new Date(startAt), {
+        frequency: repeat,
+        count: endMode === 'count' ? countTimes : undefined,
+        until: endMode === 'until' ? new Date(`${untilDate}T23:59:59.999-03:00`) : undefined,
+      }).length;
+      return { n, error: '' };
+    } catch (e) {
+      return { n: 0, error: e instanceof Error ? e.message : 'Recorrência inválida.' };
+    }
+  }, [repeat, endMode, countTimes, untilDate, startAt]);
 
   const totalPages = Math.max(1, Math.ceil(meetings.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -238,6 +284,11 @@ export default function AgendaPage() {
     }
     const iso = new Date(startAt).toISOString();
 
+    if (repeat !== 'none' && recurrencePreview?.error) {
+      setError(recurrencePreview.error);
+      return;
+    }
+
     const body: Record<string, unknown> = {
       sector,
       record,
@@ -245,6 +296,13 @@ export default function AgendaPage() {
       startAt: iso,
       title: title.trim(),
     };
+    if (repeat !== 'none') {
+      body.recurrence = {
+        frequency: repeat,
+        count: endMode === 'count' ? countTimes : undefined,
+        until: endMode === 'until' ? untilDate : undefined,
+      };
+    }
     if (sector === 'executoria') {
       if (!tenantId) {
         setError('Selecione um cliente para a reunião de Executoria.');
@@ -264,9 +322,18 @@ export default function AgendaPage() {
         setError((await res.text()) || 'Erro ao agendar.');
         return;
       }
-      toast.success('Reunião agendada!');
+      const json = (await res.json().catch(() => ({}))) as { occurrences?: number };
+      toast.success(
+        json.occurrences && json.occurrences > 1
+          ? `${json.occurrences} reuniões agendadas!`
+          : 'Reunião agendada!',
+      );
       setTitle('');
       setStartAt('');
+      setRepeat('none');
+      setEndMode('count');
+      setCountTimes(4);
+      setUntilDate('');
       await loadList();
     } catch {
       setError('Erro de rede ao agendar.');
@@ -308,7 +375,7 @@ export default function AgendaPage() {
     }
   };
 
-  const confirmCancel = async () => {
+  const confirmCancel = async (scope: 'single' | 'future') => {
     if (!pendingCancel) return;
     const m = pendingCancel;
     setPendingCancel(null);
@@ -317,14 +384,20 @@ export default function AgendaPage() {
       const res = await fetch('/api/meetings/cancel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: m.id }),
+        body: JSON.stringify({ id: m.id, scope }),
       });
       if (!res.ok) {
         toast.error((await res.text()) || 'Falha ao cancelar.');
         return;
       }
-      setMeetings((prev) => prev.filter((x) => x.id !== m.id));
-      toast.success('Reunião cancelada.');
+      const json = (await res.json().catch(() => ({}))) as { canceled?: number };
+      if (scope === 'future') {
+        toast.success(`${json.canceled ?? 1} reunião(ões) cancelada(s).`);
+        await loadList();
+      } else {
+        setMeetings((prev) => prev.filter((x) => x.id !== m.id));
+        toast.success('Reunião cancelada.');
+      }
     } catch {
       toast.error('Erro de rede ao cancelar.');
     } finally {
@@ -332,22 +405,86 @@ export default function AgendaPage() {
     }
   };
 
+  const confirmNoShow = async () => {
+    if (!pendingNoShow) return;
+    const m = pendingNoShow;
+    setPendingNoShow(null);
+    setActingId(m.id);
+    try {
+      const res = await fetch('/api/meetings/no-show', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: m.id }),
+      });
+      if (!res.ok) {
+        toast.error((await res.text()) || 'Falha ao marcar no-show.');
+        return;
+      }
+      setMeetings((prev) => prev.filter((x) => x.id !== m.id));
+      toast.success('Reunião marcada como no-show.');
+    } catch {
+      toast.error('Erro de rede ao marcar no-show.');
+    } finally {
+      setActingId(null);
+    }
+  };
+
   return (
     <AppShell>
-      {/* AlertDialog de confirmação de cancelamento */}
+      {/* AlertDialog de confirmação de cancelamento (avulsa ou série) */}
       <AlertDialog open={!!pendingCancel} onOpenChange={(open) => { if (!open) setPendingCancel(null); }}>
         <AlertDialogContent size="sm">
           <AlertDialogHeader>
             <AlertDialogTitle>Cancelar reunião?</AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza que deseja cancelar{' '}
-              <strong>&quot;{pendingCancel?.title}&quot;</strong>?
-              Essa ação não pode ser desfeita.
+              {pendingCancel?.recurrenceParentId ? (
+                <>
+                  <strong>&quot;{pendingCancel?.title}&quot;</strong> faz parte de uma série
+                  recorrente. Você pode cancelar só esta ocorrência ou esta e todas as futuras.
+                  Essa ação não pode ser desfeita.
+                </>
+              ) : (
+                <>
+                  Tem certeza que deseja cancelar{' '}
+                  <strong>&quot;{pendingCancel?.title}&quot;</strong>? Essa ação não pode ser
+                  desfeita.
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmCancel}>Confirmar</AlertDialogAction>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            {pendingCancel?.recurrenceParentId ? (
+              <>
+                <AlertDialogAction onClick={() => confirmCancel('single')}>
+                  Só esta
+                </AlertDialogAction>
+                <AlertDialogAction onClick={() => confirmCancel('future')}>
+                  Esta e as futuras
+                </AlertDialogAction>
+              </>
+            ) : (
+              <AlertDialogAction onClick={() => confirmCancel('single')}>
+                Confirmar
+              </AlertDialogAction>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* AlertDialog de confirmação de no-show */}
+      <AlertDialog open={!!pendingNoShow} onOpenChange={(open) => { if (!open) setPendingNoShow(null); }}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Marcar como no-show?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <strong>&quot;{pendingNoShow?.title}&quot;</strong> será registrada como não
+              comparecida pelo cliente e sairá da lista de próximas reuniões.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmNoShow}>Confirmar no-show</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -468,6 +605,81 @@ export default function AgendaPage() {
                 />
               </div>
 
+              <div className="space-y-2">
+                <Label htmlFor="repeat">Repetir</Label>
+                <select
+                  id="repeat"
+                  value={repeat}
+                  onChange={(e) => setRepeat(e.target.value as 'none' | Frequency)}
+                  className="border-input focus-visible:border-ring focus-visible:ring-ring/50 flex h-9 w-full rounded-md border bg-transparent px-3 py-1 text-sm shadow-xs transition-colors outline-none focus-visible:ring-[3px]"
+                >
+                  {(Object.keys(REPEAT_LABELS) as Array<'none' | Frequency>).map((k) => (
+                    <option key={k} value={k}>
+                      {REPEAT_LABELS[k]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {repeat !== 'none' && (
+                <div className="space-y-3 rounded-lg border border-border/60 bg-muted/30 p-4">
+                  <div className="flex items-center gap-4 text-sm">
+                    <label className="flex cursor-pointer items-center gap-1.5">
+                      <input
+                        type="radio"
+                        name="endMode"
+                        checked={endMode === 'count'}
+                        onChange={() => setEndMode('count')}
+                      />
+                      Número de vezes
+                    </label>
+                    <label className="flex cursor-pointer items-center gap-1.5">
+                      <input
+                        type="radio"
+                        name="endMode"
+                        checked={endMode === 'until'}
+                        onChange={() => setEndMode('until')}
+                      />
+                      Até uma data
+                    </label>
+                  </div>
+                  {endMode === 'count' ? (
+                    <Input
+                      type="number"
+                      min={2}
+                      max={MAX_OCCURRENCES}
+                      value={countTimes}
+                      onChange={(e) => setCountTimes(Number(e.target.value))}
+                      aria-label="Número de ocorrências"
+                    />
+                  ) : (
+                    <Input
+                      type="date"
+                      value={untilDate}
+                      onChange={(e) => setUntilDate(e.target.value)}
+                      aria-label="Repetir até a data"
+                    />
+                  )}
+                  {recurrencePreview && (
+                    <p
+                      className={
+                        recurrencePreview.error
+                          ? 'text-sm font-medium text-destructive'
+                          : 'text-xs text-muted-foreground'
+                      }
+                    >
+                      {recurrencePreview.error ||
+                        `Serão criadas ${recurrencePreview.n} reuniões (uma sala/link por data).`}
+                    </p>
+                  )}
+                  {!startAt && (
+                    <p className="text-xs text-muted-foreground">
+                      Escolha a data e a hora da primeira reunião acima.
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="space-y-4 rounded-lg border border-border/60 bg-muted/30 p-4">
                 <div className="flex items-center justify-between gap-4">
                   <Label htmlFor="record" className="cursor-pointer font-normal">
@@ -521,6 +733,12 @@ export default function AgendaPage() {
                             {m.sector === 'comercial' ? 'Comercial' : 'Executoria'}
                           </Badge>
                         )}
+                        {m.recurrenceParentId && (
+                          <Badge variant="outline" className="gap-1">
+                            <Repeat className="h-3 w-3" />
+                            Recorrente
+                          </Badge>
+                        )}
                         {overdue && <Badge variant="destructive">Atrasada</Badge>}
                       </div>
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
@@ -561,6 +779,19 @@ export default function AgendaPage() {
                         <Pencil className="h-3.5 w-3.5" />
                         Editar
                       </Button>
+                      {overdue && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          aria-label="Marcar como no-show"
+                          className="gap-1.5 text-muted-foreground hover:text-destructive"
+                          disabled={actingId === m.id}
+                          onClick={() => setPendingNoShow(m)}
+                        >
+                          <UserX className="h-3.5 w-3.5" />
+                          No-show
+                        </Button>
+                      )}
                       <Button
                         size="icon"
                         variant="ghost"

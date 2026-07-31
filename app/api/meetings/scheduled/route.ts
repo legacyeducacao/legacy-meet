@@ -22,7 +22,7 @@ export async function GET() {
   const { data, error } = await admin
     .from('meetings')
     .select(
-      'id, title, room_name, scheduled_start_at, recording_enabled, auto_transcribe, host_id, users:host_id(name), client_tenants:tenant_id(name), meet_meeting_sector!inner(sector)',
+      'id, title, room_name, scheduled_start_at, recording_enabled, auto_transcribe, host_id, recurrence_parent_id, users:host_id(name), client_tenants:tenant_id(name), meet_meeting_sector!inner(sector)',
     )
     .eq('status', 'scheduled')
     .eq('host_id', user.id)
@@ -36,6 +36,7 @@ export async function GET() {
     startAt: m.scheduled_start_at as string,
     record: m.recording_enabled !== false,
     transcribe: m.auto_transcribe !== false,
+    recurrenceParentId: (m.recurrence_parent_id ?? null) as string | null,
     hostName: (one<{ name: string | null }>(m.users)?.name ?? null) as string | null,
     clientName: (one<{ name: string | null }>(m.client_tenants)?.name ?? null) as string | null,
     sector: (one<{ sector: string | null }>(m.meet_meeting_sector)?.sector ?? null) as string | null,
