@@ -48,6 +48,19 @@ export async function GET(req: NextRequest) {
 
     const existingEgresses = await egressClient.listEgress({ roomName });
     if (existingEgresses.length > 0 && existingEgresses.some((e) => e.status < 2)) {
+      // Já gravando: registra quem entrou agora na lista de participantes desta
+      // sessão (antes o segundo participante saía do meta nesse caminho).
+      try {
+        const caller = (req.nextUrl.searchParams.get('host') ?? '').trim();
+        if (caller) {
+          const key = metaKey(roomName);
+          const meta = (await readJson<MeetingMeta>(key)) ?? {};
+          meta.participants = [...new Set([...(meta.participants ?? []), caller])];
+          await writeJson(key, meta);
+        }
+      } catch (e) {
+        console.error('Falha ao registrar participante no meta:', e);
+      }
       return new NextResponse('Meeting is already being recorded', { status: 409 });
     }
 
@@ -98,20 +111,17 @@ export async function GET(req: NextRequest) {
       const owner = (await getRoomOwners([roomName])).get(roomName);
       const dbTitle = (owner?.title ?? '').trim();
       const dbHost = (owner?.hostName ?? '').trim();
-      // Mescla com o que já existe (ex.: título/host definidos pelo CRM ao agendar),
-      // sem sobrescrever com valores vazios quando o convidado entra primeiro.
+      // Mescla título/host com o que já existe (ex.: definidos pelo CRM ao
+      // agendar), sem sobrescrever com valores vazios quando o convidado entra
+      // primeiro. Já a lista de participantes é RESETADA a cada novo egress:
+      // nomes de reuniões antigas na mesma sala contaminavam o prompt do worker
+      // e o modelo "encontrava" na gravação gente que não estava presente.
       const existing = (await readJson<MeetingMeta>(metaKey(roomName))) ?? {};
       await writeJson(metaKey(roomName), {
         title: title || dbTitle || existing.title || '',
         host: host || dbHost || existing.host || '',
-        createdAt: existing.createdAt || new Date().toISOString(),
-        participants: existing.participants?.length
-          ? existing.participants
-          : host
-            ? [host]
-            : dbHost
-              ? [dbHost]
-              : [],
+        createdAt: new Date().toISOString(),
+        participants: [...new Set([host, dbHost].filter(Boolean))] as string[],
       });
     } catch (e) {
       console.error('Falha ao gravar metadados da reunião:', e);

@@ -263,6 +263,17 @@ function VideoConferenceComponent(props: {
   const recordingStartedRef = React.useRef(false);
   const handleConnected = React.useCallback(() => {
     collectParticipants();
+    // Registra o próprio nome no meta já no JOIN (antes só acontecia ao sair —
+    // fechar a aba perdia o nome e a transcrição ficava sem os participantes).
+    const myName = (props.userChoices.username ?? '').trim();
+    if (myName) {
+      fetch(`/api/record/participants?roomName=${encodeURIComponent(room.name)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ names: [myName] }),
+        keepalive: true,
+      }).catch(() => {});
+    }
     // Convidado: sinaliza que está na sala de espera para o host autorizar.
     if (!isHost) {
       room.localParticipant.setAttributes({ lobby: 'true' }).catch(() => {});
