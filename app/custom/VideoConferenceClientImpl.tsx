@@ -24,7 +24,9 @@ export function VideoConferenceClientImpl(props: {
   codec: VideoCodec | undefined;
   singlePeerConnection: boolean | undefined;
 }) {
-  const keyProvider = new ExternalE2EEKeyProvider();
+  // Memoizado: um provider novo a cada render mudava a identidade de roomOptions
+  // e recriava o Room em loop.
+  const keyProvider = useMemo(() => new ExternalE2EEKeyProvider(), []);
   const { worker, e2eePassphrase } = useSetupE2EE();
   const e2eeEnabled = !!(e2eePassphrase && worker);
 
@@ -33,15 +35,18 @@ export function VideoConferenceClientImpl(props: {
   const roomOptions = useMemo((): RoomOptions => {
     return {
       publishDefaults: {
+        // Alinhado ao caminho principal (/rooms): DTX economiza banda no silêncio.
+        dtx: true,
         videoSimulcastLayers: [VideoPresets.h540, VideoPresets.h216],
         red: !e2eeEnabled,
         videoCodec: props.codec,
       },
       audioCaptureDefaults: {
-        // Cancelamento de ruído nativo do navegador sempre ligado
+        // Cancelamento de ruído + eco ligados; auto-ganho desligado (alinhado ao
+        // caminho principal — evita o volume variar sozinho/"pumping").
         noiseSuppression: true,
         echoCancellation: true,
-        autoGainControl: true,
+        autoGainControl: false,
       },
       adaptiveStream: { pixelDensity: 'screen' },
       dynacast: true,

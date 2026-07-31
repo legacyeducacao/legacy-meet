@@ -2,7 +2,7 @@
 
 import React from 'react';
 import toast from 'react-hot-toast';
-import { decodePassphrase } from '@/lib/client-utils';
+import { decodePassphrase, isLowPowerDevice } from '@/lib/client-utils';
 import { DebugMode } from '@/lib/Debug';
 import { KeyboardShortcuts } from '@/lib/KeyboardShortcuts';
 import { RecordingIndicator } from '@/lib/RecordingIndicator';
@@ -16,6 +16,7 @@ import {
   DisconnectReason,
   ExternalE2EEKeyProvider,
   RoomOptions,
+  ScreenSharePresets,
   VideoCodec,
   VideoPresets,
   Room,
@@ -163,6 +164,12 @@ function VideoConferenceComponent(props: {
 
   const roomOptions = React.useMemo((): RoomOptions => {
     let videoCodec: VideoCodec | undefined = props.options.codec ? props.options.codec : 'vp9';
+    // VP9 comprime melhor (menos banda), mas CODIFICAR custa bem mais CPU. Em
+    // máquina fraca, H.264 (aceleração por hardware quase universal) mantém a
+    // chamada fluida — prioridade para quem tem computador ruim.
+    if (videoCodec === 'vp9' && typeof navigator !== 'undefined' && isLowPowerDevice()) {
+      videoCodec = 'h264';
+    }
     if (e2eeEnabled && (videoCodec === 'av1' || videoCodec === 'vp9')) {
       videoCodec = undefined;
     }
@@ -171,12 +178,19 @@ function VideoConferenceComponent(props: {
       resolution: props.options.hq ? VideoPresets.h1080 : VideoPresets.h540,
     };
     const publishDefaults: TrackPublishDefaults = {
-      dtx: false,
+      // DTX: para de mandar pacotes de áudio durante o silêncio — economia real
+      // de banda sem perda perceptível (o bug antigo do SDK que motivou desligar
+      // já foi corrigido nas versões atuais).
+      dtx: true,
       videoSimulcastLayers: props.options.hq
         ? [VideoPresets.h1080, VideoPresets.h720]
         : [VideoPresets.h540, VideoPresets.h216],
       red: !e2eeEnabled,
       videoCodec,
+      // Tela compartilhada: 1080p15 + camada baixa de simulcast — texto legível
+      // para quem tem banda e algo utilizável para quem não tem.
+      screenShareEncoding: ScreenSharePresets.h1080fps15.encoding,
+      screenShareSimulcastLayers: [ScreenSharePresets.h360fps3],
     };
     return {
       videoCaptureDefaults: videoCaptureDefaults,
@@ -190,7 +204,9 @@ function VideoConferenceComponent(props: {
         echoCancellation: true,
         autoGainControl: false,
       },
-      adaptiveStream: true,
+      // pixelDensity 'screen': em telas de alta densidade pede a resolução que o
+      // monitor realmente mostra; nos demais casos economiza banda de descida.
+      adaptiveStream: { pixelDensity: 'screen' },
       dynacast: true,
       e2ee: keyProvider && worker && e2eeEnabled ? { keyProvider, worker } : undefined,
       singlePeerConnection: props.options.singlePeerConnection,
@@ -224,6 +240,10 @@ function VideoConferenceComponent(props: {
   const connectOptions = React.useMemo((): RoomConnectOptions => {
     return {
       autoSubscribe: true,
+      // Rede ruim: mais tentativas de sinalização e mais tempo para o ICE fechar
+      // antes de desistir da conexão.
+      maxRetries: 3,
+      peerConnectionTimeout: 20_000,
     };
   }, []);
 

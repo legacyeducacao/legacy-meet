@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Track, RoomEvent, ConnectionState, isLocalTrack } from 'livekit-client';
+import { Track, RoomEvent, ConnectionState, ScreenSharePresets, isLocalTrack } from 'livekit-client';
 import { BackgroundBlur } from '@livekit/track-processors';
 import { HostParticipantsPanel } from './HostParticipantsPanel';
 import {
@@ -140,7 +140,14 @@ function LegacyControlBar(props: {
     enabled: screenShareEnabled,
   } = useTrackToggle({
     source: Track.Source.ScreenShare,
-    captureOptions: { audio: true, selfBrowserSurface: 'include' },
+    captureOptions: {
+      audio: true,
+      selfBrowserSurface: 'include',
+      // 'detail' prioriza nitidez sobre fluidez — texto de tela compartilhada
+      // fica legível mesmo com pouca banda (o codec sacrifica fps, não definição).
+      contentHint: 'detail',
+      resolution: ScreenSharePresets.h1080fps15.resolution,
+    },
     onDeviceError: reportError(Track.Source.ScreenShare),
   });
 
