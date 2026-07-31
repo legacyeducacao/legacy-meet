@@ -40,6 +40,7 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { parsePlainTextToUtterances, utterancesToPlainText, type Utterance } from './lib/text';
+import { computeChunkBoundaries, parseSilences, type Silence } from './lib/audioChunks';
 import { fetchWithTimeout } from './lib/http';
 import {
   driveFindFileInFolder,
@@ -133,6 +134,23 @@ function runProcess(cmd: string, args: string[]): Promise<string> {
   });
 }
 
+// Como runProcess, mas resolve stdout+stderr (o ffmpeg loga o silencedetect no stderr).
+function runProcessAll(cmd: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args);
+    let stdout = '';
+    let stderr = '';
+    child.stdout?.on('data', (d) => (stdout += d.toString()));
+    child.stderr?.on('data', (d) => (stderr += d.toString()));
+    child.on('error', reject);
+    child.on('close', (code) =>
+      code === 0
+        ? resolve(`${stdout}\n${stderr}`)
+        : reject(new Error(`${cmd} saiu com código ${code}: ${stderr.slice(0, 500)}`)),
+    );
+  });
+}
+
 async function extractAudio(videoPath: string, audioPath: string) {
   await runProcess('ffmpeg', [
     '-y', '-loglevel', 'error',
@@ -153,16 +171,35 @@ async function getAudioDuration(audioPath: string): Promise<number> {
   return parseFloat(out.trim());
 }
 
+async function detectSilences(audioPath: string): Promise<Silence[]> {
+  try {
+    const out = await runProcessAll('ffmpeg', [
+      '-i', audioPath,
+      '-af', 'silencedetect=noise=-35dB:d=0.5',
+      '-f', 'null', '-',
+    ]);
+    return parseSilences(out);
+  } catch (e) {
+    log(`silencedetect falhou (${e}) — usando cortes fixos`);
+    return [];
+  }
+}
+
 async function splitAudio(
   audioPath: string,
   chunkDir: string,
   chunkSeconds: number,
 ): Promise<Array<{ path: string; offset: number }>> {
   const duration = await getAudioDuration(audioPath);
+  // Cortes alinhados a pausas de silêncio: cortar no meio de uma frase confundia
+  // o speaker na fronteira entre chunks.
+  const silences = await detectSilences(audioPath);
+  const cuts = computeChunkBoundaries(duration, silences, chunkSeconds, 60);
+  const starts = [0, ...cuts];
   const chunks: Array<{ path: string; offset: number }> = [];
-  let offset = 0;
-  let idx = 0;
-  while (offset < duration) {
+  for (let idx = 0; idx < starts.length; idx++) {
+    const offset = starts[idx];
+    const len = (idx + 1 < starts.length ? starts[idx + 1] : duration) - offset;
     const outPath = path.join(chunkDir, `chunk_${String(idx).padStart(3, '0')}.mp3`);
     // RE-ENCODE (não -c copy): cortar o MP3 no meio do stream com copy gera chunks
     // desalinhados/sem header que o decoder do modelo lê como ruído → ele alucina
@@ -173,16 +210,14 @@ async function splitAudio(
       '-y', '-loglevel', 'error',
       '-ss', String(offset),
       '-i', audioPath,
-      '-t', String(chunkSeconds),
+      '-t', String(len),
       '-ac', '1', '-ar', '16000',
       '-c:a', 'libmp3lame', '-b:a', '64k',
       outPath,
     ]);
     const { size } = await stat(outPath);
-    log(`  chunk ${idx} offset=${offset}s tamanho=${(size / 1024).toFixed(0)}KB`);
+    log(`  chunk ${idx} offset=${offset.toFixed(1)}s dur=${len.toFixed(1)}s tamanho=${(size / 1024).toFixed(0)}KB`);
     chunks.push({ path: outPath, offset });
-    offset += chunkSeconds;
-    idx += 1;
   }
   log(`dividido em ${chunks.length} chunk(s)`);
   return chunks;
