@@ -41,6 +41,7 @@ import {
 } from '@aws-sdk/client-s3';
 import { parsePlainTextToUtterances, utterancesToPlainText, type Utterance } from './lib/text';
 import { computeChunkBoundaries, parseSilences, type Silence } from './lib/audioChunks';
+import { normalizeUtterances } from './lib/speakers';
 import { fetchWithTimeout } from './lib/http';
 import {
   driveFindFileInFolder,
@@ -747,13 +748,17 @@ async function processRecording(rec: RecordingObject) {
       }
     }
 
-    const transcriptionFailed = allUtts.length === 0 && skipped.length > 0;
+    // Normalização final: casa rótulos com nomes reais, ordena e funde falas
+    // consecutivas do mesmo speaker (vale para transcrição nova e txt reusado).
+    const finalUtts = normalizeUtterances(allUtts, participants);
+
+    const transcriptionFailed = finalUtts.length === 0 && skipped.length > 0;
     if (transcriptionFailed) {
       log(`transcrição falhou (chunks pulados: ${skipped.join(', ')}) — arquivando vídeo mesmo assim`);
     }
 
     // txt de referência no MinIO (regravado a partir das falas atuais).
-    const plainText = utterancesToPlainText(allUtts);
+    const plainText = utterancesToPlainText(finalUtts);
     await uploadText(transcriptKey(id, 'txt'), plainText, 'text/plain; charset=utf-8');
 
     // Arquivamento no Drive à prova de falha: se falhar, cai em s3 (vídeo fica
@@ -795,7 +800,7 @@ async function processRecording(rec: RecordingObject) {
       participants,
       skippedChunks: skipped,
       skippedChunkDetails: skippedDetails,
-      utterances: allUtts,
+      utterances: finalUtts,
     };
     await uploadText(manifestKey(id), JSON.stringify(manifest, null, 2), 'application/json');
 
@@ -805,7 +810,7 @@ async function processRecording(rec: RecordingObject) {
     }
 
     log(
-      `concluído ${id} — ${allUtts.length} utterances, storage=${storage}${
+      `concluído ${id} — ${finalUtts.length} utterances, storage=${storage}${
         skipped.length ? ` (chunks pulados: ${skipped.join(', ')})` : ''
       }`,
     );
