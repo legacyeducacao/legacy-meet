@@ -12,6 +12,7 @@ import { formatChatMessageLinks, LocalUserChoices, PreJoin, RoomContext } from '
 import { LegacyVideoConference } from '@/lib/LegacyVideoConference';
 import { HostLobbyPanel } from '@/lib/HostLobbyPanel';
 import {
+  DisconnectReason,
   ExternalE2EEKeyProvider,
   RoomOptions,
   VideoCodec,
@@ -296,6 +297,8 @@ function VideoConferenceComponent(props: {
 
   React.useEffect(() => {
     room.on(RoomEvent.Disconnected, handleOnLeave);
+    room.on(RoomEvent.Reconnecting, handleReconnecting);
+    room.on(RoomEvent.Reconnected, handleReconnected);
     room.on(RoomEvent.EncryptionError, handleEncryptionError);
     room.on(RoomEvent.MediaDevicesError, handleMediaError);
     room.on(RoomEvent.Connected, handleConnected);
@@ -303,18 +306,15 @@ function VideoConferenceComponent(props: {
     room.on(RoomEvent.ParticipantPermissionsChanged, handlePermissions);
 
     if (e2eeSetupComplete) {
-      room
-        .connect(
-          props.connectionDetails.serverUrl,
-          props.connectionDetails.participantToken,
-          connectOptions,
-        )
-        .catch((error) => {
-          handleError(error);
-        });
+      connectRoom().catch((error) => {
+        handleError(error);
+        setConnectionLost('failed');
+      });
     }
     return () => {
       room.off(RoomEvent.Disconnected, handleOnLeave);
+      room.off(RoomEvent.Reconnecting, handleReconnecting);
+      room.off(RoomEvent.Reconnected, handleReconnected);
       room.off(RoomEvent.EncryptionError, handleEncryptionError);
       room.off(RoomEvent.MediaDevicesError, handleMediaError);
       room.off(RoomEvent.Connected, handleConnected);
@@ -360,8 +360,9 @@ function VideoConferenceComponent(props: {
   const lowPowerMode = useLowCPUOptimizer(room);
 
   const router = useRouter();
-  const handleOnLeave = React.useCallback(() => {
-    // envia os nomes dos participantes para o meta sidecar (identificação de speakers)
+
+  // Envia os nomes dos participantes para o meta sidecar (identificação de speakers)
+  const sendParticipants = React.useCallback(() => {
     collectParticipants();
     const names = [...participantNamesRef.current];
     if (names.length) {
@@ -372,11 +373,89 @@ function VideoConferenceComponent(props: {
         keepalive: true,
       }).catch(() => {});
     }
+  }, [room, collectParticipants]);
+
+  const goToThanks = React.useCallback(() => {
     // host=1 quando é anfitrião OU co-anfitrião → o /obrigado NÃO mostra o NPS
     // (NPS é só do cliente/convidado, não da equipe).
     const isTeam = isHost || isCohost;
     router.push(`/obrigado?room=${encodeURIComponent(room.name)}${isTeam ? '&host=1' : ''}`);
-  }, [router, room, collectParticipants, isHost, isCohost]);
+  }, [router, room, isHost, isCohost]);
+
+  // null = conectado; 'failed' = queda sem reconexão automática; 'reconnecting'
+  // = tentativa manual em andamento.
+  const [connectionLost, setConnectionLost] = React.useState<null | 'reconnecting' | 'failed'>(
+    null,
+  );
+
+  const handleOnLeave = React.useCallback(
+    (reason?: DisconnectReason) => {
+      sendParticipants();
+      // Saída pelo botão, remoção pelo host ou sala encerrada → fluxo normal de
+      // pós-reunião. Queda de rede/servidor → oferece reconectar (o token vale
+      // 12h) em vez de ejetar o usuário para o /obrigado.
+      const voluntary =
+        reason === undefined ||
+        reason === DisconnectReason.CLIENT_INITIATED ||
+        reason === DisconnectReason.PARTICIPANT_REMOVED ||
+        reason === DisconnectReason.ROOM_DELETED ||
+        reason === DisconnectReason.DUPLICATE_IDENTITY;
+      if (voluntary) {
+        goToThanks();
+      } else {
+        setConnectionLost('failed');
+      }
+    },
+    [sendParticipants, goToThanks],
+  );
+
+  // Feedback visual da reconexão automática do SDK.
+  const reconnectingToastId = React.useRef<string | null>(null);
+  const handleReconnecting = React.useCallback(() => {
+    if (!reconnectingToastId.current) {
+      reconnectingToastId.current = toast.loading('Conexão instável — reconectando…');
+    }
+  }, []);
+  const handleReconnected = React.useCallback(() => {
+    if (reconnectingToastId.current) {
+      toast.dismiss(reconnectingToastId.current);
+      reconnectingToastId.current = null;
+    }
+    toast.success('Conexão restabelecida');
+  }, []);
+
+  // Conexão com retry: em rede ruim, a primeira tentativa falhar é comum —
+  // tenta 3x com espera progressiva antes de desistir.
+  const connectRoom = React.useCallback(async () => {
+    const attempts = 3;
+    for (let i = 1; i <= attempts; i++) {
+      try {
+        await room.connect(
+          props.connectionDetails.serverUrl,
+          props.connectionDetails.participantToken,
+          connectOptions,
+        );
+        return;
+      } catch (e) {
+        if (i === attempts) throw e;
+        await new Promise((r) => setTimeout(r, 1000 * i));
+      }
+    }
+  }, [room, props.connectionDetails, connectOptions]);
+
+  const handleManualReconnect = React.useCallback(async () => {
+    setConnectionLost('reconnecting');
+    try {
+      await connectRoom();
+      setConnectionLost(null);
+      toast.success('Conexão restabelecida');
+    } catch (e) {
+      console.error(e);
+      setConnectionLost('failed');
+      toast.error('Ainda sem conexão. Verifique sua internet e tente de novo.');
+    }
+  }, [connectRoom]);
+
   const handleError = React.useCallback((error: Error) => {
     // Usado na falha de CONEXÃO com a sala — avisa sem popup nativo bloqueante.
     console.error(error);
@@ -445,7 +524,88 @@ function VideoConferenceComponent(props: {
         ) : (
           <WaitingRoom name={props.userChoices.username} onLeave={() => room.disconnect()} />
         )}
+        {connectionLost !== null && (
+          <ConnectionLostOverlay
+            reconnecting={connectionLost === 'reconnecting'}
+            onReconnect={handleManualReconnect}
+            onLeave={goToThanks}
+          />
+        )}
       </RoomContext.Provider>
+    </div>
+  );
+}
+
+function ConnectionLostOverlay(props: {
+  reconnecting: boolean;
+  onReconnect: () => void;
+  onLeave: () => void;
+}) {
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 100,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '1.25rem',
+        padding: '2rem',
+        textAlign: 'center',
+        background:
+          'radial-gradient(circle at 50% 18%, rgba(39, 82, 134, 0.3) 0%, transparent 55%), linear-gradient(160deg, #061222 0%, #0a1c33 100%)',
+      }}
+    >
+      <img
+        src="/logo-legacy-meet.svg"
+        alt="Legacy Meet"
+        style={{ width: 64, height: 64, filter: 'drop-shadow(0 6px 16px rgba(0,0,0,0.45))' }}
+      />
+      <h1 style={{ margin: 0, fontSize: '1.35rem', fontWeight: 700, color: '#fff' }}>
+        Conexão perdida
+      </h1>
+      <p style={{ margin: 0, maxWidth: 420, fontSize: '0.95rem', color: 'rgba(255,255,255,0.65)' }}>
+        Sua conexão com a reunião caiu. Verifique sua internet e tente reconectar — a reunião
+        continua acontecendo.
+      </p>
+      <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+        <button
+          type="button"
+          onClick={props.onReconnect}
+          disabled={props.reconnecting}
+          style={{
+            cursor: props.reconnecting ? 'wait' : 'pointer',
+            border: 'none',
+            background: '#2f6fb2',
+            color: '#fff',
+            borderRadius: '0.625rem',
+            padding: '0.7rem 1.4rem',
+            fontSize: '0.9rem',
+            fontWeight: 600,
+            opacity: props.reconnecting ? 0.7 : 1,
+          }}
+        >
+          {props.reconnecting ? 'Reconectando…' : 'Reconectar'}
+        </button>
+        <button
+          type="button"
+          onClick={props.onLeave}
+          style={{
+            cursor: 'pointer',
+            border: '1px solid rgba(255,255,255,0.25)',
+            background: 'transparent',
+            color: '#fff',
+            borderRadius: '0.625rem',
+            padding: '0.7rem 1.4rem',
+            fontSize: '0.9rem',
+            fontWeight: 600,
+          }}
+        >
+          Sair da reunião
+        </button>
+      </div>
     </div>
   );
 }
