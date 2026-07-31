@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { after } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 import { createCalendarEvent } from '@/lib/calendar';
+import { computeOccurrences, type Frequency } from '@/lib/recurrence';
 
 export const dynamic = 'force-dynamic';
 
-// Agenda uma reunião futura (status=scheduled). Mesmo padrão do /api/meetings/local,
-// mas com data/hora vinda do corpo. Gera o room_name já (link estável).
+const FREQUENCIES: Frequency[] = ['daily', 'weekly', 'biweekly', 'monthly'];
+
+// Agenda uma reunião futura (status=scheduled) — ou uma SÉRIE recorrente, com
+// todas as ocorrências criadas em massa (cada uma com sala/link próprios,
+// ligadas por recurrence_parent_id = id da primeira). Os eventos do Google
+// Agenda são criados em segundo plano (after) para a tela responder na hora.
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return new NextResponse('Não autorizado', { status: 401 });
@@ -18,6 +24,11 @@ export async function POST(req: NextRequest) {
     startAt?: string; // ISO (UTC)
     record?: boolean;
     transcribe?: boolean;
+    recurrence?: {
+      frequency?: string;
+      until?: string; // 'yyyy-mm-dd' (inclusive) — exclusivo com count
+      count?: number;
+    };
   };
 
   const sector = body.sector === 'comercial' ? 'comercial' : 'executoria';
@@ -29,41 +40,72 @@ export async function POST(req: NextRequest) {
   const start = body.startAt ? new Date(body.startAt) : null;
   if (!start || isNaN(start.getTime()))
     return new NextResponse('Data e hora inválidas', { status: 400 });
-  const end = new Date(start.getTime() + 60 * 60 * 1000);
 
-  const roomName = `meet_${crypto.randomUUID()}`;
+  // Datas da série (reunião avulsa = série de 1).
+  let occurrences: Date[] = [start];
+  let recurrenceRule: string | null = null;
+  if (body.recurrence) {
+    const frequency = body.recurrence.frequency as Frequency;
+    if (!FREQUENCIES.includes(frequency)) {
+      return new NextResponse('Frequência de repetição inválida', { status: 400 });
+    }
+    // Data limite chega como 'yyyy-mm-dd' — inclusiva até o fim do dia em São Paulo.
+    const until = body.recurrence.until
+      ? new Date(
+          /^\d{4}-\d{2}-\d{2}$/.test(body.recurrence.until)
+            ? `${body.recurrence.until}T23:59:59.999-03:00`
+            : body.recurrence.until,
+        )
+      : undefined;
+    try {
+      occurrences = computeOccurrences(start, { frequency, until, count: body.recurrence.count });
+    } catch (e) {
+      return new NextResponse(e instanceof Error ? e.message : 'Recorrência inválida', {
+        status: 400,
+      });
+    }
+    recurrenceRule = until
+      ? `${frequency};until=${until.toISOString().slice(0, 10)}`
+      : `${frequency};count=${occurrences.length}`;
+  }
+
+  const ids = occurrences.map(() => crypto.randomUUID());
+  const roomNames = occurrences.map(() => `meet_${crypto.randomUUID()}`);
+  const isSeries = occurrences.length > 1;
+
+  const rows = occurrences.map((occ, i) => ({
+    id: ids[i],
+    tenant_id: tenantId,
+    host_id: user.id,
+    title,
+    room_name: roomNames[i],
+    scheduled_start_at: occ.toISOString(),
+    scheduled_end_at: new Date(occ.getTime() + 60 * 60 * 1000).toISOString(),
+    status: 'scheduled',
+    recording_enabled: body.record !== false,
+    auto_transcribe: body.transcribe !== false,
+    recurrence_parent_id: isSeries ? ids[0] : null,
+    recurrence_rule: isSeries ? recurrenceRule : null,
+  }));
+
   const admin = createAdminSupabase();
-  const { data: meeting, error } = await admin
-    .from('meetings')
-    .insert({
-      tenant_id: tenantId,
-      host_id: user.id,
-      title,
-      room_name: roomName,
-      scheduled_start_at: start.toISOString(),
-      scheduled_end_at: end.toISOString(),
-      status: 'scheduled',
-      recording_enabled: body.record !== false,
-      auto_transcribe: body.transcribe !== false,
-    })
-    .select('id')
-    .single();
-  if (error || !meeting)
-    return new NextResponse('Falha ao agendar: ' + (error?.message ?? ''), { status: 500 });
+  const { error } = await admin.from('meetings').insert(rows);
+  if (error) return new NextResponse('Falha ao agendar: ' + error.message, { status: 500 });
 
   const { error: sectorError } = await admin
     .from('meet_meeting_sector')
-    .insert({ meeting_id: meeting.id, sector });
+    .insert(ids.map((meetingId) => ({ meeting_id: meetingId, sector })));
   if (sectorError) {
-    // não deixa reunião "fantasma" sem setor: desfaz e falha.
-    await admin.from('meetings').delete().eq('id', meeting.id);
+    // não deixa reuniões "fantasma" sem setor: desfaz tudo e falha.
+    await admin.from('meetings').delete().in('id', ids);
     return new NextResponse('Falha ao registrar o setor: ' + sectorError.message, { status: 500 });
   }
 
-  // Google Agenda: cria o evento e convida executor + cliente (não-fatal —
-  // se o Calendar falhar, a reunião continua agendada).
+  // Google Agenda: um evento por ocorrência (com o link daquela sala), criados
+  // em SEGUNDO PLANO — uma série de 52 não pode travar a resposta. Erros são
+  // por ocorrência e não-fatais (a reunião continua agendada sem o evento).
+  const attendees: string[] = [];
   try {
-    const attendees: string[] = [];
     if (user.email) attendees.push(user.email);
     if (sector === 'executoria') {
       const { data: tenant } = await admin
@@ -85,27 +127,36 @@ export async function POST(req: NextRequest) {
         }
       }
     }
-    if (attendees.length > 0) {
-      const base = (process.env.APP_BASE_URL || '').replace(/\/$/, '');
-      const eventId = await createCalendarEvent({
-        summary: title,
-        description: base
-          ? `Reunião Legacy Meet.\nLink: ${base}/rooms/${roomName}`
-          : 'Reunião Legacy Meet.',
-        startISO: start.toISOString(),
-        endISO: end.toISOString(),
-        attendees,
-      });
-      if (eventId) {
-        await admin
-          .from('meet_meeting_sector')
-          .update({ calendar_event_id: eventId })
-          .eq('meeting_id', meeting.id);
-      }
-    }
   } catch (e) {
-    console.error('[schedule] falha ao criar evento no Google Agenda (segue mesmo assim):', e);
+    console.error('[schedule] falha ao resolver convidados do Calendar:', e);
   }
 
-  return NextResponse.json({ id: meeting.id, roomName });
+  if (attendees.length > 0) {
+    const base = (process.env.APP_BASE_URL || '').replace(/\/$/, '');
+    after(async () => {
+      for (let i = 0; i < occurrences.length; i++) {
+        try {
+          const eventId = await createCalendarEvent({
+            summary: title,
+            description: base
+              ? `Reunião Legacy Meet.\nLink: ${base}/rooms/${roomNames[i]}`
+              : 'Reunião Legacy Meet.',
+            startISO: occurrences[i].toISOString(),
+            endISO: new Date(occurrences[i].getTime() + 60 * 60 * 1000).toISOString(),
+            attendees,
+          });
+          if (eventId) {
+            await admin
+              .from('meet_meeting_sector')
+              .update({ calendar_event_id: eventId })
+              .eq('meeting_id', ids[i]);
+          }
+        } catch (e) {
+          console.error(`[schedule] falha no evento do Calendar (ocorrência ${i + 1}):`, e);
+        }
+      }
+    });
+  }
+
+  return NextResponse.json({ id: ids[0], roomName: roomNames[0], occurrences: ids.length });
 }
