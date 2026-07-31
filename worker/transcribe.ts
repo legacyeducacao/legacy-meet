@@ -189,14 +189,22 @@ async function splitAudio(
 }
 
 // --------------------------- OpenRouter ---------------------------
-function buildPrompt(participants: string[]): string {
+function buildPrompt(participants: string[], prevTail: Utterance[] = []): string {
   const speakerSection = participants.length
-    ? `Os participantes desta reunião são: ${participants.join(', ')}. ` +
-      `Use o NOME EXATO de um deles quando conseguir identificar pela voz/contexto; ` +
-      `se não conseguir, use "Pessoa 1", "Pessoa 2", etc, mantendo consistência.`
-    : `Se houver vozes distintas, use "Pessoa 1", "Pessoa 2", etc, mantendo consistência.`;
+    ? `Os participantes desta reunião são EXATAMENTE: ${participants.join(', ')}.
+- Use SEMPRE o nome exato de um deles no campo "speaker".
+- Só use "Desconhecido" quando realmente não conseguir atribuir a fala a nenhum deles.
+- NUNCA invente outros nomes nem rótulos como "Pessoa 1".`
+    : `Se houver vozes distintas, use "Pessoa 1", "Pessoa 2", etc, mantendo consistência dentro deste áudio.`;
+  // Cauda do chunk anterior: sem isso cada chunk era uma chamada sem memória e
+  // os rótulos de speaker não tinham relação entre chunks.
+  const contextSection = prevTail.length
+    ? `\nCONTEXTO (NÃO transcrever — apenas referência): este áudio é a CONTINUAÇÃO da mesma reunião. Últimas falas do trecho anterior:\n${prevTail
+        .map((u) => `${u.speaker}: ${u.text}`)
+        .join('\n')}\nUse os MESMOS rótulos de speaker para as mesmas vozes.\n`
+    : '';
   return `Você é um transcritor de áudio. Vai receber um áudio de uma reunião empresarial em português brasileiro.
-
+${contextSection}
 REGRAS ABSOLUTAS - TRANSCRIÇÃO LITERAL:
 - Transcreva EXATAMENTE o que foi dito. Palavra por palavra.
 - NÃO invente conteúdo. Se não houver fala num trecho, NÃO gere utterance.
@@ -225,27 +233,34 @@ Retorne APENAS um objeto JSON no formato:
 Se o áudio estiver mudo, com ruído sem fala ou sem conteúdo transcrevível, retorne {"utterances": []}.`;
 }
 
-const TRANSCRIPTION_SCHEMA = {
-  type: 'object',
-  properties: {
-    utterances: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          speaker: { type: 'string' },
-          text: { type: 'string' },
-          start: { type: 'number' },
-          end: { type: 'number' },
+// Com participantes conhecidos, `speaker` vira enum (nomes + "Desconhecido"):
+// o modelo fica IMPEDIDO de inventar rótulos novos ("Pessoa 3", nomes errados).
+function buildTranscriptionSchema(participants: string[]) {
+  const speaker = participants.length
+    ? { type: 'string', enum: [...participants, 'Desconhecido'] }
+    : { type: 'string' };
+  return {
+    type: 'object',
+    properties: {
+      utterances: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            speaker,
+            text: { type: 'string' },
+            start: { type: 'number' },
+            end: { type: 'number' },
+          },
+          required: ['speaker', 'text', 'start', 'end'],
+          additionalProperties: false,
         },
-        required: ['speaker', 'text', 'start', 'end'],
-        additionalProperties: false,
       },
     },
-  },
-  required: ['utterances'],
-  additionalProperties: false,
-} as const;
+    required: ['utterances'],
+    additionalProperties: false,
+  };
+}
 
 function parseTranscriptionContent(content: unknown): { utterances?: unknown[] } {
   if (typeof content !== 'string') {
@@ -295,21 +310,29 @@ function isRepetitiveText(text: string): boolean {
   return unique.size / words.length < 0.15;
 }
 
-async function transcribeChunkOnce(audioB64: string, participants: string[]): Promise<unknown[]> {
+async function transcribeChunkOnce(
+  audioB64: string,
+  participants: string[],
+  prevTail: Utterance[],
+): Promise<unknown[]> {
   const body = {
     model: OPENROUTER_MODEL,
     messages: [
       {
         role: 'user',
         content: [
-          { type: 'text', text: buildPrompt(participants) },
+          { type: 'text', text: buildPrompt(participants, prevTail) },
           { type: 'input_audio', input_audio: { data: audioB64, format: 'mp3' } },
         ],
       },
     ],
     response_format: {
       type: 'json_schema',
-      json_schema: { name: 'transcription', strict: true, schema: TRANSCRIPTION_SCHEMA },
+      json_schema: {
+        name: 'transcription',
+        strict: true,
+        schema: buildTranscriptionSchema(participants),
+      },
     },
     temperature: 0,
     // Alto o suficiente para um chunk denso de 5 min caber sem truncar (antes
@@ -389,12 +412,16 @@ async function transcribeChunkOnce(audioB64: string, participants: string[]): Pr
   return utterances;
 }
 
-async function transcribeChunk(chunkPath: string, participants: string[]): Promise<unknown[]> {
+async function transcribeChunk(
+  chunkPath: string,
+  participants: string[],
+  prevTail: Utterance[],
+): Promise<unknown[]> {
   const audioB64 = (await readFile(chunkPath)).toString('base64');
   let lastErr: unknown;
   for (let attempt = 1; attempt <= CHUNK_RETRY_ATTEMPTS; attempt++) {
     try {
-      return await transcribeChunkOnce(audioB64, participants);
+      return await transcribeChunkOnce(audioB64, participants, prevTail);
     } catch (e) {
       if (e instanceof NonRetryableChunkError) throw e;
       lastErr = e;
@@ -652,12 +679,15 @@ async function processRecording(rec: RecordingObject) {
       allUtts.push(...reused);
       log(`reaproveitando transcrição existente do MinIO — ${reused.length} utterance(s)`);
     } else {
+      // Cauda do chunk anterior enviada como contexto do próximo — mantém os
+      // rótulos de speaker consistentes ao longo da reunião inteira.
+      let prevTail: Utterance[] = [];
       for (let i = 0; i < chunks.length; i++) {
         const { path: chunkPath, offset } = chunks[i];
         log(`chunk ${i + 1}/${chunks.length} (offset=${offset}s)`);
         let utts: unknown[];
         try {
-          utts = await transcribeChunk(chunkPath, participants);
+          utts = await transcribeChunk(chunkPath, participants, prevTail);
         } catch (e) {
           const reason = e instanceof Error ? e.message : String(e);
           log(`chunk ${i + 1} pulado: ${reason}`);
@@ -666,15 +696,18 @@ async function processRecording(rec: RecordingObject) {
           continue;
         }
         let added = 0;
+        const chunkUtts: Utterance[] = [];
         for (const raw of utts as Array<Record<string, unknown>>) {
           const text = String(raw.text ?? '').trim();
           if (!text) continue;
           const start = Number(raw.start ?? 0) + offset;
           const end = Number(raw.end ?? start) + offset;
-          const speaker = String(raw.speaker ?? 'Pessoa 1').trim();
-          allUtts.push({ speaker, text, start, end });
+          const speaker = String(raw.speaker ?? 'Desconhecido').trim();
+          chunkUtts.push({ speaker, text, start, end });
           added += 1;
         }
+        allUtts.push(...chunkUtts);
+        if (chunkUtts.length) prevTail = chunkUtts.slice(-10);
         log(`chunk ${i + 1} → ${added} utterance(s)`);
       }
     }
