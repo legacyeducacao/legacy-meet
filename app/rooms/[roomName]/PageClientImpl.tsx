@@ -11,6 +11,7 @@ import { ConnectionDetails } from '@/lib/types';
 import { formatChatMessageLinks, LocalUserChoices, PreJoin, RoomContext } from '@livekit/components-react';
 import { LegacyVideoConference } from '@/lib/LegacyVideoConference';
 import { HostLobbyPanel } from '@/lib/HostLobbyPanel';
+import { NoiseFilterBoot } from '@/lib/NoiseFilterBoot';
 import {
   DisconnectReason,
   ExternalE2EEKeyProvider,
@@ -486,6 +487,10 @@ function VideoConferenceComponent(props: {
         {admitted ? (
           <>
             <KeyboardShortcuts />
+            {/* Com o menu de configurações ligado, quem gerencia o Krisp é o
+                MicrophoneSettings — duas instâncias do hook disputariam o
+                processor do microfone. */}
+            {!SHOW_SETTINGS_MENU && <NoiseFilterBoot />}
             <RecordingIndicator />
             <LegacyVideoConference
               chatMessageFormatter={formatChatMessageLinks}
