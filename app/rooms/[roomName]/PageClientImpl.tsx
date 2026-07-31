@@ -360,6 +360,33 @@ function VideoConferenceComponent(props: {
 
   const lowPowerMode = useLowCPUOptimizer(room);
 
+  // Navegação client-side (ex.: /obrigado) desmonta o componente sem fechar a
+  // conexão — o Room ficava órfão consumindo rede até o servidor perceber.
+  // O `room` é estável (useMemo sem deps), então este cleanup roda só no unmount.
+  React.useEffect(() => {
+    return () => {
+      room.disconnect().catch(() => {});
+    };
+  }, [room]);
+
+  // Fechar a aba de forma abrupta perdia os nomes dos participantes (o fetch de
+  // saída não completava) → transcrição sem participantes → "Pessoa N".
+  // sendBeacon sobrevive ao fechamento da página.
+  React.useEffect(() => {
+    const onPageHide = () => {
+      collectParticipants();
+      const names = [...participantNamesRef.current];
+      if (!names.length) return;
+      const blob = new Blob([JSON.stringify({ names })], { type: 'application/json' });
+      navigator.sendBeacon(
+        `/api/record/participants?roomName=${encodeURIComponent(room.name)}`,
+        blob,
+      );
+    };
+    window.addEventListener('pagehide', onPageHide);
+    return () => window.removeEventListener('pagehide', onPageHide);
+  }, [room, collectParticipants]);
+
   const router = useRouter();
 
   // Envia os nomes dos participantes para o meta sidecar (identificação de speakers)

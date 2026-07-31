@@ -121,9 +121,9 @@ function createParticipantToken(userInfo: AccessTokenOptions, roomName: string, 
 }
 
 function getCookieExpirationTime(): string {
-  var now = new Date();
-  var time = now.getTime();
-  var expireTime = time + 60 * 120 * 1000;
-  now.setTime(expireTime);
+  // Alinhado ao TTL do token (12h): se o cookie expirar antes, um reload no meio
+  // de uma reunião longa troca a identidade (nome__postfix) e quebra a sessão.
+  const now = new Date();
+  now.setTime(now.getTime() + 12 * 60 * 60 * 1000);
   return now.toUTCString();
 }
