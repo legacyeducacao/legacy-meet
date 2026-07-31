@@ -18,7 +18,7 @@ export function roomService() {
 type LivekitPayload = {
   sub?: string;
   exp?: number;
-  video?: { room?: string; roomAdmin?: boolean };
+  video?: { room?: string; roomAdmin?: boolean; roomJoin?: boolean };
 };
 function verifyLivekitPayload(token: string | undefined, roomName: string): LivekitPayload | null {
   const secret = process.env.LIVEKIT_API_SECRET;
@@ -37,6 +37,19 @@ function verifyLivekitPayload(token: string | undefined, roomName: string): Live
   } catch {
     return null;
   }
+}
+
+/**
+ * Token de PARTICIPANTE válido para a sala (grant roomJoin + sala correta).
+ * Prova que quem chama está de fato na reunião — usado nos endpoints que
+ * qualquer participante pode acionar (ex.: iniciar a gravação automática).
+ */
+export function verifyRoomToken(
+  token: string | undefined,
+  roomName: string,
+): LivekitPayload | null {
+  const payload = verifyLivekitPayload(token, roomName);
+  return payload?.video?.roomJoin === true ? payload : null;
 }
 
 /**

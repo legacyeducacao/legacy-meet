@@ -14,12 +14,15 @@ import { MicrophoneSettings } from './MicrophoneSettings';
 /**
  * @alpha
  */
-export interface SettingsMenuProps extends React.HTMLAttributes<HTMLDivElement> {}
+export interface SettingsMenuProps extends React.HTMLAttributes<HTMLDivElement> {
+  /** Token do participante — exigido pelos endpoints de gravação (start/stop). */
+  participantToken?: string;
+}
 
 /**
  * @alpha
  */
-export function SettingsMenu(props: SettingsMenuProps) {
+export function SettingsMenu({ participantToken, ...props }: SettingsMenuProps) {
   const layoutContext = useMaybeLayoutContext();
   const room = useRoomContext();
   const recordingEndpoint = process.env.NEXT_PUBLIC_LK_RECORD_ENDPOINT;
@@ -56,11 +59,13 @@ export function SettingsMenu(props: SettingsMenuProps) {
     }
     setProcessingRecRequest(true);
     setInitialRecStatus(isRecording);
+    const params = new URLSearchParams({ roomName: room.name });
+    if (participantToken) params.set('token', participantToken);
     let response: Response;
     if (isRecording) {
-      response = await fetch(recordingEndpoint + `/stop?roomName=${room.name}`);
+      response = await fetch(`${recordingEndpoint}/stop?${params.toString()}`);
     } else {
-      response = await fetch(recordingEndpoint + `/start?roomName=${room.name}`);
+      response = await fetch(`${recordingEndpoint}/start?${params.toString()}`);
     }
     if (response.ok) {
     } else {

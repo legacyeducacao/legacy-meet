@@ -93,15 +93,21 @@ export function VideoConferenceClientImpl(props: {
 
   useLowCPUOptimizer(room);
 
+  // Wrapper estável do menu com o token embutido (endpoints de gravação exigem).
+  const token = props.token;
+  const SettingsWithToken = useMemo(() => {
+    if (process.env.NEXT_PUBLIC_SHOW_SETTINGS_MENU !== 'true') return undefined;
+    const Comp = () => <SettingsMenu participantToken={token} />;
+    return Comp;
+  }, [token]);
+
   return (
     <div className="lk-room-container">
       <RoomContext.Provider value={room}>
         <KeyboardShortcuts />
         <LegacyVideoConference
           chatMessageFormatter={formatChatMessageLinks}
-          SettingsComponent={
-            process.env.NEXT_PUBLIC_SHOW_SETTINGS_MENU === 'true' ? SettingsMenu : undefined
-          }
+          SettingsComponent={SettingsWithToken}
         />
         <DebugMode logLevel={LogLevel.debug} />
       </RoomContext.Provider>

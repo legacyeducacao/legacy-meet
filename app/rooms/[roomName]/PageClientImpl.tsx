@@ -310,11 +310,20 @@ function VideoConferenceComponent(props: {
       transcribe: props.options.transcribe ? '1' : '0',
       title: props.options.title,
       host: props.userChoices.username ?? '',
+      // Prova que o chamador é participante da sala (o endpoint exige).
+      token: props.connectionDetails.participantToken,
     });
     fetch(`${endpoint}/start?${params.toString()}`).catch((error) =>
       console.error('Falha ao iniciar a gravação automática:', error),
     );
-  }, [room, collectParticipants, props.options, props.userChoices.username, isHost]);
+  }, [
+    room,
+    collectParticipants,
+    props.options,
+    props.userChoices.username,
+    props.connectionDetails.participantToken,
+    isHost,
+  ]);
 
   React.useEffect(() => {
     room.on(RoomEvent.Disconnected, handleOnLeave);
@@ -528,6 +537,15 @@ function VideoConferenceComponent(props: {
     }
   }, [lowPowerMode]);
 
+  // Wrapper estável do menu de configurações com o token embutido (os endpoints
+  // de gravação passaram a exigir o token do participante).
+  const participantToken = props.connectionDetails.participantToken;
+  const SettingsWithToken = React.useMemo(() => {
+    if (!SHOW_SETTINGS_MENU) return undefined;
+    const Comp = () => <SettingsMenu participantToken={participantToken} />;
+    return Comp;
+  }, [participantToken]);
+
   return (
     <div className="lk-room-container">
       <RoomContext.Provider value={room}>
@@ -541,7 +559,7 @@ function VideoConferenceComponent(props: {
             <RecordingIndicator />
             <LegacyVideoConference
               chatMessageFormatter={formatChatMessageLinks}
-              SettingsComponent={SHOW_SETTINGS_MENU ? SettingsMenu : undefined}
+              SettingsComponent={SettingsWithToken}
               hostControls={
                 isHost || isCohost
                   ? {

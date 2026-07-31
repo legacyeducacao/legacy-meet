@@ -1,19 +1,20 @@
 import { EgressClient } from 'livekit-server-sdk';
 import { NextRequest, NextResponse } from 'next/server';
+import { authorizeHostAction } from '@/lib/livekitAuth';
 
 export async function GET(req: NextRequest) {
   try {
     const roomName = req.nextUrl.searchParams.get('roomName');
 
-    /**
-     * CAUTION:
-     * for simplicity this implementation does not authenticate users and therefore allows anyone with knowledge of a roomName
-     * to start/stop recordings for that room.
-     * DO NOT USE THIS FOR PRODUCTION PURPOSES AS IS
-     */
-
     if (roomName === null) {
       return new NextResponse('Missing roomName parameter', { status: 403 });
+    }
+
+    // Parar a gravação é ação de anfitrião (hostKey, roomAdmin no token, sessão
+    // staff ou co-anfitrião) — antes qualquer um com o nome da sala conseguia.
+    const token = req.nextUrl.searchParams.get('token') ?? undefined;
+    if (!(await authorizeHostAction(req, roomName, { participantToken: token }))) {
+      return new NextResponse('Não autorizado', { status: 401 });
     }
 
     const { LIVEKIT_API_KEY, LIVEKIT_API_SECRET, LIVEKIT_URL } = process.env;

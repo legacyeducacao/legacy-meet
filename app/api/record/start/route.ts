@@ -1,20 +1,21 @@
 import { EgressClient, EncodedFileOutput, EncodingOptions, S3Upload } from 'livekit-server-sdk';
 import { NextRequest, NextResponse } from 'next/server';
 import { getRoomOwners, metaKey, readJson, writeJson, type MeetingMeta } from '@/lib/recordings';
+import { verifyRoomToken } from '@/lib/livekitAuth';
 
 export async function GET(req: NextRequest) {
   try {
     const roomName = req.nextUrl.searchParams.get('roomName');
 
-    /**
-     * CAUTION:
-     * for simplicity this implementation does not authenticate users and therefore allows anyone with knowledge of a roomName
-     * to start/stop recordings for that room.
-     * DO NOT USE THIS FOR PRODUCTION PURPOSES AS IS
-     */
-
     if (roomName === null) {
       return new NextResponse('Missing roomName parameter', { status: 403 });
+    }
+
+    // Só participantes da sala (token válido com roomJoin) podem iniciar a
+    // gravação — antes qualquer um com o nome da sala conseguia.
+    const token = req.nextUrl.searchParams.get('token') ?? undefined;
+    if (!verifyRoomToken(token, roomName)) {
+      return new NextResponse('Não autorizado', { status: 401 });
     }
 
     const {
