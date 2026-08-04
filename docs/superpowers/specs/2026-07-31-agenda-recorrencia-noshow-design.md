@@ -75,8 +75,26 @@ recurrence?: {
 
 `lib/recurrence.test.ts` (vitest): semanal com count; quinzenal; diária com until (inclusive); mensal dia 31 → ajusta para fim de mês curto e volta ao dia 31 quando o mês permite; teto de 104 (lança/trunca com erro); until e count juntos → erro; nenhum → erro.
 
+## Adendo (2026-07-31, aprovado): Histórico com toggle de No-show
+
+Reuniões realizadas somem da Agenda ao virar `ended` — sem lugar para marcar
+no-show depois. Incremento:
+
+- **Abas** na lista da Agenda: "Próximas" (atual) e "Histórico".
+- **`GET /api/meetings/history`**: reuniões do host com status `ended` ou
+  `no_show`, mais recente primeiro, limite 100. Campos dos cards atuais +
+  `status`.
+- **Cards do histórico**: badge "Realizada" (`ended`) ou "No-show" (`no_show`) +
+  botão de toggle — "Marcar no-show" / "Desfazer no-show".
+- **`POST /api/meetings/no-show` estendido**: aceita `undo: boolean`.
+  - Marcar: permitido de `scheduled` (só após o horário) **e de `ended`** (host
+    entrou na sala, cliente não veio).
+  - Desfazer (`undo`): exige `no_show`; restaura `ended` se `started_at` tem
+    valor, senão `scheduled` (volta para "Próximas" como atrasada).
+- Sem mudança de banco.
+
 ## Fora do escopo (v2)
 
 - Edição em massa da série (horário/título de todas as futuras).
-- Tela de histórico/métricas de no-show.
+- Métricas/relatórios de no-show (o dado persiste; a tela fica para depois).
 - Exceções de série ("pular a semana X"), dias da semana múltiplos, "a cada N".
