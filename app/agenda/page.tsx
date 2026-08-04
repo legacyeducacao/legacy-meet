@@ -60,6 +60,17 @@ type Scheduled = {
   recurrenceParentId: string | null;
 };
 
+type HistoryItem = {
+  id: string;
+  title: string;
+  startAt: string;
+  status: 'ended' | 'no_show';
+  hostName: string | null;
+  clientName: string | null;
+  sector: string | null;
+  recurrenceParentId: string | null;
+};
+
 const REPEAT_LABELS: Record<'none' | Frequency, string> = {
   none: 'Não se repete',
   daily: 'Todo dia',
@@ -117,6 +128,14 @@ export default function AgendaPage() {
   const [pendingCancel, setPendingCancel] = useState<Scheduled | null>(null);
   const [pendingNoShow, setPendingNoShow] = useState<Scheduled | null>(null);
 
+  // histórico (realizadas + no-shows)
+  const [view, setView] = useState<'upcoming' | 'history'>('upcoming');
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [pendingHistToggle, setPendingHistToggle] = useState<HistoryItem | null>(null);
+
   // edição de reunião
   const [editMeeting, setEditMeeting] = useState<Scheduled | null>(null);
   const [editTitle, setEditTitle] = useState('');
@@ -146,6 +165,10 @@ export default function AgendaPage() {
   const totalPages = Math.max(1, Math.ceil(meetings.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const pageItems = meetings.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  const histTotalPages = Math.max(1, Math.ceil(history.length / PAGE_SIZE));
+  const histSafePage = Math.min(historyPage, histTotalPages);
+  const histPageItems = history.slice((histSafePage - 1) * PAGE_SIZE, histSafePage * PAGE_SIZE);
 
   const onRecordChange = (checked: boolean) => {
     setRecord(checked);
@@ -265,6 +288,56 @@ export default function AgendaPage() {
       setLoadingList(false);
     }
   }, []);
+
+  const loadHistory = useCallback(async () => {
+    setLoadingHistory(true);
+    try {
+      const res = await fetch('/api/meetings/history');
+      if (!res.ok) throw new Error(await res.text());
+      const json = await res.json();
+      setHistory(json.meetings ?? []);
+      setHistoryPage(1);
+      setHistoryLoaded(true);
+    } catch {
+      setHistory([]);
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, []);
+
+  // Carrega o histórico ao abrir a aba pela primeira vez.
+  useEffect(() => {
+    if (view === 'history' && !historyLoaded && !loadingHistory) loadHistory();
+  }, [view, historyLoaded, loadingHistory, loadHistory]);
+
+  // Marca/desfaz no-show a partir do histórico.
+  const confirmHistToggle = async () => {
+    if (!pendingHistToggle) return;
+    const m = pendingHistToggle;
+    const undo = m.status === 'no_show';
+    setPendingHistToggle(null);
+    setActingId(m.id);
+    try {
+      const res = await fetch('/api/meetings/no-show', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: m.id, undo }),
+      });
+      if (!res.ok) {
+        toast.error((await res.text()) || 'Falha ao atualizar o no-show.');
+        return;
+      }
+      const json = (await res.json().catch(() => ({}))) as { status?: string };
+      toast.success(undo ? 'No-show desfeito.' : 'Reunião marcada como no-show.');
+      await loadHistory();
+      // Undo de reunião nunca iniciada volta para 'scheduled' → reaparece em Próximas.
+      if (json.status === 'scheduled') await loadList();
+    } catch {
+      toast.error('Erro de rede ao atualizar o no-show.');
+    } finally {
+      setActingId(null);
+    }
+  };
 
   useEffect(() => {
     loadList();
@@ -422,6 +495,8 @@ export default function AgendaPage() {
       }
       setMeetings((prev) => prev.filter((x) => x.id !== m.id));
       toast.success('Reunião marcada como no-show.');
+      // A reunião agora pertence ao histórico — recarrega na próxima abertura.
+      setHistoryLoaded(false);
     } catch {
       toast.error('Erro de rede ao marcar no-show.');
     } finally {
@@ -485,6 +560,34 @@ export default function AgendaPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Voltar</AlertDialogCancel>
             <AlertDialogAction onClick={confirmNoShow}>Confirmar no-show</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* AlertDialog do toggle de no-show no histórico */}
+      <AlertDialog open={!!pendingHistToggle} onOpenChange={(open) => { if (!open) setPendingHistToggle(null); }}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendingHistToggle?.status === 'no_show' ? 'Desfazer no-show?' : 'Marcar como no-show?'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingHistToggle?.status === 'no_show' ? (
+                <>
+                  <strong>&quot;{pendingHistToggle?.title}&quot;</strong> deixará de contar como
+                  não comparecida.
+                </>
+              ) : (
+                <>
+                  <strong>&quot;{pendingHistToggle?.title}&quot;</strong> será registrada como não
+                  comparecida pelo cliente.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmHistToggle}>Confirmar</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -705,9 +808,108 @@ export default function AgendaPage() {
           </CardContent>
         </Card>
 
-        {/* Lista de agendadas */}
+        {/* Lista de agendadas / histórico */}
         <div className="space-y-4 lg:col-span-2">
-          {loadingList ? (
+          <Tabs value={view} onValueChange={(v) => setView(v as 'upcoming' | 'history')}>
+            <TabsList className="grid w-full max-w-xs grid-cols-2">
+              <TabsTrigger value="upcoming">Próximas</TabsTrigger>
+              <TabsTrigger value="history">Histórico</TabsTrigger>
+            </TabsList>
+          </Tabs>
+
+          {view === 'history' ? (
+            <>
+              {loadingHistory ? (
+                <>
+                  <Skeleton className="h-28 w-full rounded-xl" />
+                  <Skeleton className="h-28 w-full rounded-xl" />
+                </>
+              ) : history.length === 0 ? (
+                <Card>
+                  <CardContent className="flex flex-col items-center gap-2 py-12 text-center text-muted-foreground">
+                    <Clock className="h-8 w-8 opacity-60" />
+                    <p>Nenhuma reunião no histórico ainda.</p>
+                  </CardContent>
+                </Card>
+              ) : (
+                histPageItems.map((m) => (
+                  <Card key={m.id}>
+                    <CardContent className="flex flex-col gap-4 py-5 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0 space-y-1.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="truncate font-semibold">{m.title}</span>
+                          {m.sector && (
+                            <Badge variant="secondary">
+                              {m.sector === 'comercial' ? 'Comercial' : 'Executoria'}
+                            </Badge>
+                          )}
+                          {m.recurrenceParentId && (
+                            <Badge variant="outline" className="gap-1">
+                              <Repeat className="h-3 w-3" />
+                              Recorrente
+                            </Badge>
+                          )}
+                          {m.status === 'no_show' ? (
+                            <Badge variant="destructive">No-show</Badge>
+                          ) : (
+                            <Badge variant="secondary">Realizada</Badge>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+                          <span className="inline-flex items-center gap-1">
+                            <Clock className="h-3.5 w-3.5" />
+                            {formatDateTime(m.startAt)}
+                          </span>
+                          {m.clientName && <span>· {m.clientName}</span>}
+                          {m.hostName && <span>· {m.hostName}</span>}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1.5"
+                          disabled={actingId === m.id}
+                          onClick={() => setPendingHistToggle(m)}
+                        >
+                          <UserX className="h-3.5 w-3.5" />
+                          {m.status === 'no_show' ? 'Desfazer no-show' : 'Marcar no-show'}
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))
+              )}
+
+              {!loadingHistory && histTotalPages > 1 && (
+                <div className="flex items-center justify-center gap-4 pt-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    disabled={histSafePage <= 1}
+                    onClick={() => setHistoryPage((p) => p - 1)}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Anterior
+                  </Button>
+                  <span className="text-sm text-muted-foreground">
+                    {histSafePage} / {histTotalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    disabled={histSafePage >= histTotalPages}
+                    onClick={() => setHistoryPage((p) => p + 1)}
+                  >
+                    Próxima
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
+            </>
+          ) : loadingList ? (
             <>
               <Skeleton className="h-28 w-full rounded-xl" />
               <Skeleton className="h-28 w-full rounded-xl" />
@@ -809,7 +1011,7 @@ export default function AgendaPage() {
             })
           )}
 
-          {!loadingList && totalPages > 1 && (
+          {view === 'upcoming' && !loadingList && totalPages > 1 && (
             <div className="flex items-center justify-center gap-4 pt-2">
               <Button
                 variant="outline"
