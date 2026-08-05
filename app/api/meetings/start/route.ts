@@ -23,6 +23,11 @@ export async function POST(req: NextRequest) {
   if (!user.isAdmin && meeting.host_id !== user.id)
     return new NextResponse('Não autorizado', { status: 403 });
 
-  await admin.from('meetings').update({ status: 'live' }).eq('id', id);
+  // started_at marca que a reunião de fato aconteceu — é o que decide, no
+  // desfazer de um no-show, se ela volta para 'ended' ou para 'scheduled'.
+  await admin
+    .from('meetings')
+    .update({ status: 'live', started_at: new Date().toISOString() })
+    .eq('id', id);
   return NextResponse.json({ roomName: meeting.room_name });
 }

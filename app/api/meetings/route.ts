@@ -80,6 +80,7 @@ export async function POST(req: NextRequest) {
           scheduled_start_at: now.toISOString(),
           scheduled_end_at: end.toISOString(),
           status: 'live',
+          started_at: now.toISOString(),
           recording_enabled: true,
           auto_transcribe: true,
         })

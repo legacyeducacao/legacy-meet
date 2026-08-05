@@ -1,6 +1,7 @@
 import { WebhookReceiver } from 'livekit-server-sdk';
 import { NextRequest, NextResponse } from 'next/server';
 import { metaKey, readJson, writeJson, type MeetingMeta } from '@/lib/recordings';
+import { createAdminSupabase } from '@/lib/supabase/admin';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,6 +41,21 @@ export async function POST(req: NextRequest) {
         const meta = (await readJson<MeetingMeta>(key)) ?? {};
         meta.participants = [...new Set([...(meta.participants ?? []), name])];
         await writeJson(key, meta);
+      }
+    } else if (event.event === 'room_finished') {
+      // Fecha o ciclo de vida da reunião: a sala esvaziou (departureTimeout) →
+      // 'live' vira 'ended' e a reunião passa a aparecer no Histórico da
+      // Agenda. Só mexe em quem está 'live' — não sobrescreve no_show/canceled
+      // nem marca como realizada uma sala aberta só por convidado na espera.
+      const roomName = event.room?.name;
+      if (roomName) {
+        const admin = createAdminSupabase();
+        const { error } = await admin
+          .from('meetings')
+          .update({ status: 'ended', ended_at: new Date().toISOString() })
+          .eq('room_name', roomName)
+          .eq('status', 'live');
+        if (error) console.error('webhook livekit room_finished:', error.message);
       }
     } else if (event.event === 'egress_ended') {
       const filename = event.egressInfo?.fileResults?.[0]?.filename ?? '';
