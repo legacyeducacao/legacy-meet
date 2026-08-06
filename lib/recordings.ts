@@ -10,6 +10,7 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Readable } from 'node:stream';
 import { deleteDriveFile, getDriveAccessToken } from './drive';
+import { chunkArray } from './chunk';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 
 export interface Utterance {
@@ -197,11 +198,23 @@ export async function getRoomOwners(roomNames: string[]): Promise<Map<string, Ro
   const out = new Map<string, RoomOwner>();
   if (!roomNames.length) return out;
   const admin = createAdminSupabase();
-  const { data, error } = await admin
-    .from('meetings')
-    .select('room_name, title, host_id, users:host_id(name), meet_meeting_sector(sector)')
-    .in('room_name', roomNames);
-  if (error) console.error('getRoomOwners', error);
+  // O PostgREST manda o .in() na URL da requisição: acima de algumas centenas
+  // de salas a URL estoura o limite e a consulta INTEIRA falha com Bad Request
+  // — o mapa voltava vazio e usuários não-admin ficavam sem NENHUMA gravação.
+  // Lotes de 100 mantêm a URL pequena em qualquer volume.
+  const results = await Promise.all(
+    chunkArray(roomNames, 100).map((batch) =>
+      admin
+        .from('meetings')
+        .select('room_name, title, host_id, users:host_id(name), meet_meeting_sector(sector)')
+        .in('room_name', batch),
+    ),
+  );
+  const data: unknown[] = [];
+  for (const r of results) {
+    if (r.error) console.error('getRoomOwners', r.error);
+    else data.push(...(r.data ?? []));
+  }
   for (const m of (data ?? []) as Array<{
     room_name: string;
     title?: string | null;
