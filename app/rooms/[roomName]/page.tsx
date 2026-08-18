@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { PageClientImpl } from './PageClientImpl';
 import { isVideoCodec } from '@/lib/types';
+import { getCurrentUser } from '@/lib/auth';
 
 export default async function Page({
   params,
@@ -28,7 +29,13 @@ export default async function Page({
       : 'vp9';
   const hq = _searchParams.hq === 'true' ? true : false;
   const singlePC = _searchParams.singlePC !== 'false';
-  const hostName = typeof _searchParams.name === 'string' ? _searchParams.name : '';
+  const urlName = typeof _searchParams.name === 'string' ? _searchParams.name : '';
+  // Usuário logado: o nome CADASTRADO tem prioridade e já vem preenchido no
+  // PreJoin. Grafia canônica (a mesma do banco) — evita variações de nome que
+  // confundem a identificação de speakers na transcrição. Convidado sem login
+  // segue o fluxo atual (nome da URL ou digitado).
+  const user = await getCurrentUser();
+  const hostName = (user?.name ?? '').trim() || urlName;
   const title = typeof _searchParams.title === 'string' ? _searchParams.title : '';
   const record = _searchParams.rec !== '0';
   const transcribe = record && _searchParams.tx !== '0';
