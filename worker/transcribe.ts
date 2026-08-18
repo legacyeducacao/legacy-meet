@@ -42,6 +42,7 @@ import {
 import { parsePlainTextToUtterances, utterancesToPlainText, type Utterance } from './lib/text';
 import { computeChunkBoundaries, parseSilences, type Silence } from './lib/audioChunks';
 import { normalizeUtterances } from './lib/speakers';
+import { mergeParticipants } from './lib/participants';
 import { fetchWithTimeout } from './lib/http';
 import {
   driveFindFileInFolder,
@@ -749,11 +750,13 @@ async function processRecording(rec: RecordingObject) {
     await mkdir(chunkDir, { recursive: true });
 
     const meta = await getMeta(roomName);
-    const participants = meta?.participants?.length
-      ? meta.participants
-      : meta?.host
-        ? [meta.host]
-        : [];
+    // Canonicaliza também na LEITURA: metas antigos podem ter o mesmo nome em
+    // variações ("MARIZA"/"Mariza") — cada variante extra no enum divide a
+    // mesma voz em dois speakers.
+    const participants = mergeParticipants(
+      [],
+      meta?.participants?.length ? meta.participants : meta?.host ? [meta.host] : [],
+    );
     const title = (meta?.title || '').trim();
     if (participants.length) log(`participantes: ${participants.join(', ')}`);
 

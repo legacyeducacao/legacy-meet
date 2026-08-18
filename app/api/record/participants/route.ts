@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { metaKey, readJson, writeJson, type MeetingMeta } from '@/lib/recordings';
+import { mergeParticipants } from '@/worker/lib/participants';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,8 +17,7 @@ export async function POST(req: NextRequest) {
 
     const key = metaKey(roomName);
     const meta = (await readJson<MeetingMeta>(key)) ?? {};
-    const merged = new Set([...(meta.participants ?? []), ...names.map((n) => n.trim())]);
-    meta.participants = [...merged];
+    meta.participants = mergeParticipants(meta.participants ?? [], names);
     await writeJson(key, meta);
 
     return NextResponse.json({ ok: true, participants: meta.participants });

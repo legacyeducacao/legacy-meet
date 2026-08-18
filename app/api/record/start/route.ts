@@ -2,6 +2,7 @@ import { EgressClient, EncodedFileOutput, EncodingOptions, S3Upload } from 'live
 import { NextRequest, NextResponse } from 'next/server';
 import { getRoomOwners, metaKey, readJson, writeJson, type MeetingMeta } from '@/lib/recordings';
 import { verifyRoomToken } from '@/lib/livekitAuth';
+import { mergeParticipants } from '@/worker/lib/participants';
 
 export async function GET(req: NextRequest) {
   try {
@@ -56,7 +57,7 @@ export async function GET(req: NextRequest) {
         if (caller) {
           const key = metaKey(roomName);
           const meta = (await readJson<MeetingMeta>(key)) ?? {};
-          meta.participants = [...new Set([...(meta.participants ?? []), caller])];
+          meta.participants = mergeParticipants(meta.participants ?? [], [caller]);
           await writeJson(key, meta);
         }
       } catch (e) {
@@ -122,7 +123,9 @@ export async function GET(req: NextRequest) {
         title: title || dbTitle || existing.title || '',
         host: host || dbHost || existing.host || '',
         createdAt: new Date().toISOString(),
-        participants: [...new Set([host, dbHost].filter(Boolean))] as string[],
+        // Dedup canônico: nome digitado e nome do banco costumam ser a MESMA
+        // pessoa com grafia diferente ("MARIZA" vs "Mariza").
+        participants: mergeParticipants([], [host, dbHost].filter(Boolean) as string[]),
       });
     } catch (e) {
       console.error('Falha ao gravar metadados da reunião:', e);

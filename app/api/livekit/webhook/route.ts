@@ -2,6 +2,7 @@ import { WebhookReceiver } from 'livekit-server-sdk';
 import { NextRequest, NextResponse } from 'next/server';
 import { metaKey, readJson, writeJson, type MeetingMeta } from '@/lib/recordings';
 import { createAdminSupabase } from '@/lib/supabase/admin';
+import { mergeParticipants } from '@/worker/lib/participants';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
       if (roomName && name && !identity.startsWith('EG_')) {
         const key = metaKey(roomName);
         const meta = (await readJson<MeetingMeta>(key)) ?? {};
-        meta.participants = [...new Set([...(meta.participants ?? []), name])];
+        meta.participants = mergeParticipants(meta.participants ?? [], [name]);
         await writeJson(key, meta);
       }
     } else if (event.event === 'room_finished') {
