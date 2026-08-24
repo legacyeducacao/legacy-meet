@@ -49,6 +49,31 @@ describe('normalizeUtterances', () => {
     expect(out).toHaveLength(2);
   });
 
+  it('descarta fala idêntica à anterior (resquício de loop) em vez de fundir', () => {
+    const out = normalizeUtterances(
+      [
+        { speaker: 'A', text: 'Aí o cara só recebia o diploma.', start: 0, end: 1 },
+        { speaker: 'A', text: 'aí o cara só recebia o diploma.', start: 1, end: 2 },
+      ],
+      [],
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].text).toBe('Aí o cara só recebia o diploma.');
+    expect(out[0].end).toBe(2);
+  });
+
+  it('não funde além do tamanho máximo do bloco', () => {
+    const long = 'x'.repeat(590);
+    const out = normalizeUtterances(
+      [
+        { speaker: 'A', text: long, start: 0, end: 1 },
+        { speaker: 'A', text: 'continua aqui', start: 1, end: 2 },
+      ],
+      [],
+    );
+    expect(out).toHaveLength(2);
+  });
+
   it('ordena por start e corrige end < start', () => {
     const out = normalizeUtterances(
       [

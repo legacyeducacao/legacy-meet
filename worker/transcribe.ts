@@ -43,6 +43,7 @@ import { parsePlainTextToUtterances, utterancesToPlainText, type Utterance } fro
 import { computeChunkBoundaries, parseSilences, type Silence } from './lib/audioChunks';
 import { normalizeUtterances } from './lib/speakers';
 import { mergeParticipants } from './lib/participants';
+import { collapseRepetitions } from './lib/repetition';
 import { fetchWithTimeout } from './lib/http';
 import {
   driveFindFileInFolder,
@@ -347,11 +348,24 @@ function isRepetitiveText(text: string): boolean {
   return unique.size / words.length < 0.15;
 }
 
+// Resultado de um chunk: falas já tipadas (timestamps relativos ao chunk) e se
+// o modelo entrou em loop de repetição (trecho colapsado, possivelmente
+// incompleto).
+interface ChunkResult {
+  utterances: Utterance[];
+  looped: boolean;
+}
+
+// Repetições removidas num chunk a partir das quais consideramos que o modelo
+// degenerou em loop (e não apenas repetiu uma frase de verdade).
+const LOOP_THRESHOLD = 5;
+
 async function transcribeChunkOnce(
   audioB64: string,
   participants: string[],
   prevTail: Utterance[],
-): Promise<unknown[]> {
+  temperature = 0,
+): Promise<ChunkResult> {
   const body = {
     model: OPENROUTER_MODEL,
     messages: [
@@ -371,7 +385,7 @@ async function transcribeChunkOnce(
         schema: buildTranscriptionSchema(participants),
       },
     },
-    temperature: 0,
+    temperature,
     // Alto o suficiente para um chunk denso de 5 min caber sem truncar (antes
     // 8192 cortava trechos com muita fala). Se ainda truncar, o salvamento no
     // parse recupera as utterances completas.
@@ -446,19 +460,28 @@ async function transcribeChunkOnce(
       `pile-up de timestamps (${maxPileup} no mesmo start) - descartando chunk`,
     );
   }
-  return utterances;
+
+  // Loop de repetição: o modelo devolve a mesma frase dezenas de vezes, em
+  // falas curtas (cada uma passa no filtro acima). Colapsa para uma ocorrência;
+  // muitas remoções = o chunk degenerou (o chamador refaz sem contexto).
+  const typed: Utterance[] = utterances
+    .map((u) => ({
+      speaker: String(u.speaker ?? 'Desconhecido').trim(),
+      text: String(u.text ?? '').trim(),
+      start: Number(u.start ?? 0),
+      end: Number(u.end ?? u.start ?? 0),
+    }))
+    .filter((u) => u.text);
+  const { utterances: collapsed, removed } = collapseRepetitions(typed);
+  if (removed > 0) log(`repetições colapsadas no chunk: ${removed}`);
+  return { utterances: collapsed, looped: removed >= LOOP_THRESHOLD };
 }
 
-async function transcribeChunk(
-  chunkPath: string,
-  participants: string[],
-  prevTail: Utterance[],
-): Promise<unknown[]> {
-  const audioB64 = (await readFile(chunkPath)).toString('base64');
+async function withRetries<T>(fn: () => Promise<T>): Promise<T> {
   let lastErr: unknown;
   for (let attempt = 1; attempt <= CHUNK_RETRY_ATTEMPTS; attempt++) {
     try {
-      return await transcribeChunkOnce(audioB64, participants, prevTail);
+      return await fn();
     } catch (e) {
       if (e instanceof NonRetryableChunkError) throw e;
       lastErr = e;
@@ -469,6 +492,28 @@ async function transcribeChunk(
     }
   }
   throw lastErr;
+}
+
+async function transcribeChunk(
+  chunkPath: string,
+  participants: string[],
+  prevTail: Utterance[],
+): Promise<ChunkResult> {
+  const audioB64 = (await readFile(chunkPath)).toString('base64');
+  const first = await withRetries(() => transcribeChunkOnce(audioB64, participants, prevTail));
+  if (!first.looped) return first;
+
+  // O loop é não-determinístico: refaz UMA vez sem o contexto do chunk anterior
+  // (que pode ter primado o loop) e com um pouco de temperatura. Se voltar a
+  // loopar, fica com a versão colapsada (melhor do que perder o chunk).
+  log('chunk em loop de repetição — refazendo sem contexto');
+  try {
+    const retry = await withRetries(() => transcribeChunkOnce(audioB64, participants, [], 0.3));
+    if (!retry.looped) return retry;
+  } catch (e) {
+    log(`retry do chunk em loop falhou (${e}) — mantendo versão colapsada`);
+  }
+  return first;
 }
 
 // --------------------------- S3 helpers ---------------------------
@@ -786,9 +831,9 @@ async function processRecording(rec: RecordingObject) {
       for (let i = 0; i < chunks.length; i++) {
         const { path: chunkPath, offset } = chunks[i];
         log(`chunk ${i + 1}/${chunks.length} (offset=${offset}s)`);
-        let utts: unknown[];
+        let result: ChunkResult;
         try {
-          utts = await transcribeChunk(chunkPath, participants, prevTail);
+          result = await transcribeChunk(chunkPath, participants, prevTail);
         } catch (e) {
           const reason = e instanceof Error ? e.message : String(e);
           log(`chunk ${i + 1} pulado: ${reason}`);
@@ -796,20 +841,28 @@ async function processRecording(rec: RecordingObject) {
           skippedDetails.push({ chunk: i + 1, offsetSeconds: offset, reason });
           continue;
         }
-        let added = 0;
-        const chunkUtts: Utterance[] = [];
-        for (const raw of utts as Array<Record<string, unknown>>) {
-          const text = String(raw.text ?? '').trim();
-          if (!text) continue;
-          const start = Number(raw.start ?? 0) + offset;
-          const end = Number(raw.end ?? start) + offset;
-          const speaker = String(raw.speaker ?? 'Desconhecido').trim();
-          chunkUtts.push({ speaker, text, start, end });
-          added += 1;
-        }
+        const chunkUtts: Utterance[] = result.utterances.map((u) => ({
+          speaker: u.speaker,
+          text: u.text,
+          start: u.start + offset,
+          end: Math.max(u.end, u.start) + offset,
+        }));
         allUtts.push(...chunkUtts);
-        if (chunkUtts.length) prevTail = chunkUtts.slice(-10);
-        log(`chunk ${i + 1} → ${added} utterance(s)`);
+        if (result.looped) {
+          // Fica registrado como trecho possivelmente incompleto (a UI oferece
+          // "Transcrever novamente") e NÃO alimenta o contexto do próximo chunk
+          // — era isso que propagava o loop através da fronteira dos 5 min.
+          skipped.push(i + 1);
+          skippedDetails.push({
+            chunk: i + 1,
+            offsetSeconds: offset,
+            reason: 'loop de repetição do modelo — trecho colapsado, pode estar incompleto',
+          });
+          prevTail = [];
+        } else if (chunkUtts.length) {
+          prevTail = chunkUtts.slice(-10);
+        }
+        log(`chunk ${i + 1} → ${chunkUtts.length} utterance(s)${result.looped ? ' (loop)' : ''}`);
       }
     }
 

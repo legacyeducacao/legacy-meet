@@ -22,9 +22,15 @@ export function matchSpeaker(label: string, participants: string[]): string {
 }
 
 const MERGE_GAP_SECONDS = 1.5;
+// Bloco fundido não passa disso: falas gigantes escondem loops do modelo e
+// pioram a leitura.
+const MERGE_MAX_CHARS = 600;
+
+const normText = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
 
 // Ordena, corrige timestamps invertidos, casa rótulos com os nomes reais e
-// funde falas consecutivas do mesmo speaker (o modelo fragmenta demais).
+// funde falas consecutivas do mesmo speaker (o modelo fragmenta demais) —
+// sem duplicar falas idênticas nem criar blocos gigantes.
 export function normalizeUtterances(utts: Utterance[], participants: string[]): Utterance[] {
   const mapped = utts
     .map((u) => ({
@@ -37,11 +43,18 @@ export function normalizeUtterances(utts: Utterance[], participants: string[]): 
   for (const u of mapped) {
     const last = out[out.length - 1];
     if (last && last.speaker === u.speaker && u.start - last.end <= MERGE_GAP_SECONDS) {
-      last.text = `${last.text} ${u.text}`.trim();
-      last.end = Math.max(last.end, u.end);
-    } else {
-      out.push({ ...u });
+      // Fala idêntica à anterior = resquício de loop do modelo: descarta.
+      if (normText(u.text) === normText(last.text)) {
+        last.end = Math.max(last.end, u.end);
+        continue;
+      }
+      if (last.text.length + u.text.length + 1 <= MERGE_MAX_CHARS) {
+        last.text = `${last.text} ${u.text}`.trim();
+        last.end = Math.max(last.end, u.end);
+        continue;
+      }
     }
+    out.push({ ...u });
   }
   return out;
 }
