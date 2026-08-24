@@ -2,8 +2,9 @@ import '../styles/globals.css';
 import '@livekit/components-styles';
 import '@livekit/components-styles/prefabs';
 import type { Metadata, Viewport } from 'next';
-import { Toaster } from 'react-hot-toast';
 import { Urbanist } from 'next/font/google';
+import { AppProviders } from '@/components/AppProviders';
+import { THEME_BOOT_SCRIPT } from '@/lib/theme';
 
 const urbanist = Urbanist({
   subsets: ['latin'],
@@ -30,9 +31,11 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="pt-BR" className={urbanist.variable}>
+    <html lang="pt-BR" className={urbanist.variable} suppressHydrationWarning>
       <body data-lk-theme="default" className={urbanist.className}>
-        <Toaster />
+        {/* Aplica o tema escuro antes da hidratação (evita flash) */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
+        <AppProviders />
         {children}
       </body>
     </html>

@@ -2,7 +2,7 @@
 
 import React, { useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import toast from 'react-hot-toast';
+import { toast } from '@/components/ui/custom-toast';
 import { ArrowLeft, Download, RotateCcw, Search } from 'lucide-react';
 import type { RecordingManifest } from '@/lib/recordings';
 import { AppShell } from '@/components/AppShell';

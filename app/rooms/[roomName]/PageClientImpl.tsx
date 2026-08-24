@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import toast from 'react-hot-toast';
+import { toast } from '@/components/ui/custom-toast';
 import { decodePassphrase, isLowPowerDevice } from '@/lib/client-utils';
 import { DebugMode } from '@/lib/Debug';
 import { KeyboardShortcuts } from '@/lib/KeyboardShortcuts';
@@ -467,7 +467,7 @@ function VideoConferenceComponent(props: {
   );
 
   // Feedback visual da reconexão automática do SDK.
-  const reconnectingToastId = React.useRef<string | null>(null);
+  const reconnectingToastId = React.useRef<string | number | null>(null);
   const handleReconnecting = React.useCallback(() => {
     if (!reconnectingToastId.current) {
       reconnectingToastId.current = toast.loading('Conexão instável — reconectando…');

@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import toast from 'react-hot-toast';
+import { toast } from '@/components/ui/custom-toast';
 import {
   CalendarPlus,
   ChevronLeft,

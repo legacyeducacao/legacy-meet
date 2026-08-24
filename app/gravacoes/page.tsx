@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import React, { useEffect, useMemo, useState } from 'react';
-import toast from 'react-hot-toast';
+import { toast } from '@/components/ui/custom-toast';
 import { Search, ChevronLeft, ChevronRight, Trash2, Video } from 'lucide-react';
 import { AppShell } from '@/components/AppShell';
 import { Button } from '@/components/ui/button';

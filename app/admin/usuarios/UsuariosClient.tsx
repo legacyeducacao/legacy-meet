@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { UserPlus } from 'lucide-react';
-import toast from 'react-hot-toast';
+import { toast } from '@/components/ui/custom-toast';
 
 import { AppShell } from '@/components/AppShell';
 
