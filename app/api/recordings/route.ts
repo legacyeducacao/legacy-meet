@@ -29,6 +29,7 @@ export async function GET() {
         hostName: owner?.hostName ?? null,
         metaHost: r.metaHost ?? null,
         sector: owner?.sector ?? null,
+        noShow: owner?.noShow ?? false,
         // Excluir é do dono ou admin (comercial vê tudo mas não apaga de colega).
         canDelete: user.isAdmin || (!!owner?.hostId && owner.hostId === user.id),
       };

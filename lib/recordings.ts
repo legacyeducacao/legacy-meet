@@ -192,6 +192,8 @@ export type RoomOwner = {
   sector: string | null;
   /** Título cadastrado da reunião (agenda ou ao iniciar). Fonte da verdade do nome. */
   title: string | null;
+  /** Reunião marcada como no-show na Agenda (cliente não compareceu). */
+  noShow: boolean;
 };
 
 export async function getRoomOwners(roomNames: string[]): Promise<Map<string, RoomOwner>> {
@@ -206,7 +208,9 @@ export async function getRoomOwners(roomNames: string[]): Promise<Map<string, Ro
     chunkArray(roomNames, 100).map((batch) =>
       admin
         .from('meetings')
-        .select('room_name, title, host_id, users:host_id(name), meet_meeting_sector(sector)')
+        .select(
+          'room_name, title, host_id, status, users:host_id(name), meet_meeting_sector(sector)',
+        )
         .in('room_name', batch),
     ),
   );
@@ -219,6 +223,7 @@ export async function getRoomOwners(roomNames: string[]): Promise<Map<string, Ro
     room_name: string;
     title?: string | null;
     host_id: string | null;
+    status?: string | null;
     users?: { name?: string | null } | null;
     meet_meeting_sector?: { sector?: string | null } | null;
   }>) {
@@ -228,6 +233,7 @@ export async function getRoomOwners(roomNames: string[]): Promise<Map<string, Ro
       hostName: m.users?.name ?? null,
       sector: m.meet_meeting_sector?.sector ?? null,
       title: m.title?.trim() || null,
+      noShow: m.status === 'no_show',
     });
   }
   return out;

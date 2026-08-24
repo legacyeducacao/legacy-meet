@@ -34,6 +34,7 @@ interface Rec {
   hostName?: string | null;
   metaHost?: string | null;
   sector?: string | null;
+  noShow?: boolean;
   canDelete?: boolean;
 }
 
@@ -64,6 +65,7 @@ export default function GravacoesPage() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [host, setHost] = useState('');
+  const [hideNoShow, setHideNoShow] = useState(false);
   const [page, setPage] = useState(1);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Rec | null>(null);
@@ -122,16 +124,17 @@ export default function GravacoesPage() {
         if (!haystack.includes(q)) return false;
       }
       if (host && r.hostName !== host) return false;
+      if (hideNoShow && r.noShow) return false;
       const day = (r.createdAt || '').slice(0, 10);
       if (from && day < from) return false;
       if (to && day > to) return false;
       return true;
     });
-  }, [items, query, from, to, host]);
+  }, [items, query, from, to, host, hideNoShow]);
 
   useEffect(() => {
     setPage(1);
-  }, [query, from, to, host]);
+  }, [query, from, to, host, hideNoShow]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -153,7 +156,7 @@ export default function GravacoesPage() {
     }
   };
 
-  const hasFilters = !!(query || from || to || host);
+  const hasFilters = !!(query || from || to || host || hideNoShow);
 
   return (
     <AppShell>
@@ -234,6 +237,16 @@ export default function GravacoesPage() {
             </label>
           </div>
 
+          <label className="flex h-10 cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border border-input px-3 text-sm text-muted-foreground">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-primary"
+              checked={hideNoShow}
+              onChange={(e) => setHideNoShow(e.target.checked)}
+            />
+            Ocultar no-show
+          </label>
+
           {hasFilters && (
             <Button
               type="button"
@@ -244,6 +257,7 @@ export default function GravacoesPage() {
                 setFrom('');
                 setTo('');
                 setHost('');
+                setHideNoShow(false);
               }}
             >
               Limpar
@@ -322,6 +336,7 @@ export default function GravacoesPage() {
                     <CardContent>
                       <div className="flex flex-wrap gap-1.5">
                         {rec.storage === 'gdrive' && <Badge variant="secondary">Google Drive</Badge>}
+                        {rec.noShow && <Badge variant="destructive">No-show</Badge>}
                         {rec.transcriptionStatus === 'failed' ? (
                           <Badge variant="destructive">Transcrição falhou</Badge>
                         ) : (
