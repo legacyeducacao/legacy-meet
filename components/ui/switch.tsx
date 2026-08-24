@@ -1,9 +1,11 @@
-"use client"
+'use client';
+
+﻿"use client"
 
 import * as React from"react"
 import { Switch as SwitchPrimitive } from"radix-ui"
 
-import { cn } from"@/lib/utils"
+import { cn } from"../../lib/utils"
 
 function Switch({
  className,

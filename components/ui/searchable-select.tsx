@@ -1,6 +1,6 @@
 'use client';
 
-/**
+﻿/**
  * SearchableSelect — combobox com search input embutido.
  *
  * USAR como padrao em selects que listam:
@@ -13,9 +13,10 @@
  * Mantem cursor de teclado (↑/↓/Enter/Esc) pra acessibilidade.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, Search, X } from 'lucide-react';
+import { Check, ChevronDown, X } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from './popover';
-import { cn } from '@/lib/utils';
+import { cn } from '../../lib/utils';
+import { filterBySearch, SelectSearchEmptyState, SelectSearchInput } from './select-search-core';
 
 export interface SearchableSelectOption {
   value: string;
@@ -35,6 +36,22 @@ interface Props {
   className?: string;
   /** Mostra um X pra limpar a selecao (volta value pra ''). Default: false. */
   clearable?: boolean;
+  /** Rotulo acessivel do combobox (quando nao ha <label for>). */
+  ariaLabel?: string;
+  /** id do botao-gatilho — pra casar com um <label htmlFor>. */
+  id?: string;
+  /**
+   * Use `true` quando a combobox vive DENTRO de um Dialog/Sheet.
+   *
+   * O Radix Dialog tranca a rolagem da página (react-remove-scroll) e o
+   * popover é renderizado num portal FORA da árvore do diálogo — resultado: a
+   * roda do mouse é engolida e a lista só rola arrastando a barra. Com
+   * `modal`, o popover passa a gerenciar a própria trava e a roda volta a
+   * funcionar dentro dele.
+   */
+  modal?: boolean;
+  /** Largura do popover. Default: confortável para nomes longos. */
+  contentClassName?: string;
 }
 
 export const SearchableSelect: React.FC<Props> = ({
@@ -47,6 +64,10 @@ export const SearchableSelect: React.FC<Props> = ({
   disabled = false,
   className,
   clearable = false,
+  ariaLabel,
+  id,
+  modal = false,
+  contentClassName,
 }) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -56,17 +77,13 @@ export const SearchableSelect: React.FC<Props> = ({
 
   const selectedOption = options.find((o) => o.value === value);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return options;
-    return options.filter((o) => {
-      return (
-        o.label.toLowerCase().includes(q) ||
-        (o.description?.toLowerCase().includes(q) ?? false) ||
-        o.value.toLowerCase().includes(q)
-      );
-    });
-  }, [options, query]);
+  // Busca ignorando ACENTO e caixa (utils/normalizeForSearch): num plano de
+  // contas com ~100 linhas, "lancamentos" tem que achar "Lançamentos" — o
+  // usuário não digita acento no meio de uma triagem de importação.
+  const filtered = useMemo(
+    () => filterBySearch(options, query, (o) => [o.label, o.description, o.value]),
+    [options, query],
+  );
 
   // Reset query + highlight quando abre/fecha
   useEffect(() => {
@@ -127,18 +144,29 @@ export const SearchableSelect: React.FC<Props> = ({
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={setOpen} modal={modal}>
       <PopoverTrigger asChild>
         <button
           type="button"
+          id={id}
           disabled={disabled}
+          // Padrão "listbox button": o gatilho continua sendo um BUTTON (é o
+          // que ele é — não tem campo de texto embutido; a busca vive dentro do
+          // popover) e anuncia o popup e o estado. Trocar para role="combobox"
+          // mentiria sobre a estrutura e ainda renomearia o controle para todo
+          // consumidor que já o encontra como botão.
+          aria-expanded={open}
+          aria-haspopup="listbox"
+          aria-label={ariaLabel}
           className={cn(
             'flex items-center gap-2 w-full h-9 px-3 py-1 rounded-md border border-input bg-transparent text-sm shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer dark:bg-input/30',
             !selectedOption && 'text-muted-foreground',
             className,
           )}
         >
-          <span className="flex-1 truncate text-left">{selectedOption?.label ?? placeholder}</span>
+          <span className="flex-1 truncate text-left">
+            {selectedOption?.label ?? placeholder}
+          </span>
           {clearable && selectedOption && !disabled && (
             <span
               role="button"
@@ -153,30 +181,34 @@ export const SearchableSelect: React.FC<Props> = ({
         </button>
       </PopoverTrigger>
       <PopoverContent
-        className="p-0 w-[var(--radix-popover-trigger-width)] min-w-[220px]"
+        // Largura: NUNCA menor que o gatilho, porém livre para passar dele —
+        // preso à largura da coluna, "1.1.1.1 — Receita com produto 1" chegava
+        // truncado como "Receita com pro...", que é ilegível numa triagem.
+        className={cn(
+          'p-0 min-w-[var(--radix-popover-trigger-width)] w-[min(26rem,calc(100vw-2rem))]',
+          contentClassName,
+        )}
         align="start"
         sideOffset={4}
       >
-        <div className="p-2 border-b border-border">
-          <div className="relative">
-            <Search
-              size={14}
-              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
-            />
-            <input
-              ref={searchRef}
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={searchPlaceholder}
-              className="w-full h-8 pl-8 pr-2 text-sm bg-transparent outline-none placeholder:text-muted-foreground"
-            />
-          </div>
-        </div>
-        <div ref={listRef} className="max-h-64 overflow-y-auto py-1">
+        <SelectSearchInput
+          ref={searchRef}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={searchPlaceholder}
+        />
+        <div
+          ref={listRef}
+          role="listbox"
+          aria-label={ariaLabel}
+          // A roda do mouse para AQUI: se subir, o contêiner que trancou a
+          // rolagem (Dialog) a engole e a lista só rolaria pela barra.
+          onWheel={(e) => e.stopPropagation()}
+          className="max-h-72 overflow-y-auto overscroll-contain py-1"
+        >
           {filtered.length === 0 ? (
-            <div className="px-3 py-6 text-center text-xs text-muted-foreground">{emptyText}</div>
+            <SelectSearchEmptyState text={emptyText} />
           ) : (
             filtered.map((opt, idx) => {
               const isSelected = opt.value === value;
@@ -185,6 +217,8 @@ export const SearchableSelect: React.FC<Props> = ({
                 <button
                   key={opt.value}
                   type="button"
+                  role="option"
+                  aria-selected={isSelected}
                   data-idx={idx}
                   onClick={() => selectAt(idx)}
                   onMouseEnter={() => setHighlightIdx(idx)}
@@ -202,7 +236,7 @@ export const SearchableSelect: React.FC<Props> = ({
                     )}
                   />
                   <span className="flex-1 min-w-0">
-                    <span className="block truncate">{opt.label}</span>
+                    <span className="block truncate" title={opt.label}>{opt.label}</span>
                     {opt.description && (
                       <span className="block text-[11px] text-muted-foreground truncate">
                         {opt.description}
