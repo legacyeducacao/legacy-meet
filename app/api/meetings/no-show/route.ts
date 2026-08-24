@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
   const admin = createAdminSupabase();
   const { data: meeting } = await admin
     .from('meetings')
-    .select('host_id, status, scheduled_start_at, started_at')
+    .select('host_id, status, scheduled_start_at, scheduled_end_at, started_at, ended_at')
     .eq('id', id)
     .maybeSingle();
   if (!meeting) return new NextResponse('Reunião não encontrada', { status: 404 });
@@ -29,7 +29,9 @@ export async function POST(req: NextRequest) {
   if (undo) {
     if (meeting.status !== 'no_show')
       return new NextResponse('A reunião não está marcada como no-show', { status: 400 });
-    const restored = meeting.started_at ? 'ended' : 'scheduled';
+    // Aconteceu de fato (iniciou ou foi encerrada — inclui reuniões anteriores
+    // à coluna started_at ser preenchida) → volta para 'ended'; senão 'scheduled'.
+    const restored = meeting.started_at || meeting.ended_at ? 'ended' : 'scheduled';
     const { error } = await admin.from('meetings').update({ status: restored }).eq('id', id);
     if (error)
       return new NextResponse('Falha ao desfazer no-show: ' + error.message, { status: 500 });
@@ -46,7 +48,13 @@ export async function POST(req: NextRequest) {
   )
     return new NextResponse('A reunião ainda não chegou ao horário de início', { status: 400 });
 
-  const { error } = await admin.from('meetings').update({ status: 'no_show' }).eq('id', id);
+  // Reunião realizada sem ended_at (legado): carimba para o "desfazer" saber
+  // que ela aconteceu e restaurar 'ended', não 'scheduled'.
+  const update: Record<string, unknown> = { status: 'no_show' };
+  if (meeting.status === 'ended' && !meeting.ended_at) {
+    update.ended_at = meeting.scheduled_end_at;
+  }
+  const { error } = await admin.from('meetings').update(update).eq('id', id);
   if (error) return new NextResponse('Falha ao marcar no-show: ' + error.message, { status: 500 });
 
   return NextResponse.json({ ok: true, status: 'no_show' });

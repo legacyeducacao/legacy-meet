@@ -6,7 +6,8 @@
 //
 // Fonte única: o app importa este arquivo via '@/worker/lib/participants'.
 
-const norm = (s: string) =>
+/** Normalização canônica de nomes: sem acentos, minúsculas, espaços colapsados. */
+export const norm = (s: string) =>
   s
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')

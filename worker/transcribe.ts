@@ -973,6 +973,10 @@ async function main() {
           } catch (e2) {
             log(`falha ao registrar tentativa de ${id}: ${e2}`);
           }
+          // Espera antes da próxima tentativa: sem isso uma indisponibilidade
+          // transitória de segundos (MinIO reiniciando) consumia as 3 tentativas
+          // em sequência e marcava a gravação como failed para sempre.
+          await sleep(POLL_INTERVAL_SECONDS * 1000);
         }
       }
       if (!shuttingDown) await reconcileS3Recordings();

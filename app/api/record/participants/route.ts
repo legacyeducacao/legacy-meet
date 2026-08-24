@@ -18,6 +18,7 @@ export async function POST(req: NextRequest) {
     const key = metaKey(roomName);
     const meta = (await readJson<MeetingMeta>(key)) ?? {};
     meta.participants = mergeParticipants(meta.participants ?? [], names);
+    meta.participantsUpdatedAt = new Date().toISOString();
     await writeJson(key, meta);
 
     return NextResponse.json({ ok: true, participants: meta.participants });

@@ -57,12 +57,18 @@ export async function POST(req: NextRequest) {
             : body.recurrence.until,
         )
       : undefined;
+    if (until && isNaN(until.getTime())) {
+      return new NextResponse('Data limite da repetição inválida', { status: 400 });
+    }
     try {
       occurrences = computeOccurrences(start, { frequency, until, count: body.recurrence.count });
     } catch (e) {
       return new NextResponse(e instanceof Error ? e.message : 'Recorrência inválida', {
         status: 400,
       });
+    }
+    if (occurrences.length === 0) {
+      return new NextResponse('A data limite é anterior à primeira reunião', { status: 400 });
     }
     recurrenceRule = until
       ? `${frequency};until=${until.toISOString().slice(0, 10)}`
@@ -136,6 +142,14 @@ export async function POST(req: NextRequest) {
     after(async () => {
       for (let i = 0; i < occurrences.length; i++) {
         try {
+          // A série pode ter sido cancelada/editada nos segundos entre a
+          // resposta e este loop — só cria o convite se ainda estiver agendada.
+          const { data: current } = await admin
+            .from('meetings')
+            .select('status')
+            .eq('id', ids[i])
+            .maybeSingle();
+          if (!current || current.status !== 'scheduled') continue;
           const eventId = await createCalendarEvent({
             summary: title,
             description: base

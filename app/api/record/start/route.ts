@@ -1,6 +1,13 @@
 import { EgressClient, EncodedFileOutput, EncodingOptions, S3Upload } from 'livekit-server-sdk';
 import { NextRequest, NextResponse } from 'next/server';
-import { getRoomOwners, metaKey, readJson, writeJson, type MeetingMeta } from '@/lib/recordings';
+import {
+  getRoomOwners,
+  metaKey,
+  PARTICIPANTS_SESSION_WINDOW_MS,
+  readJson,
+  writeJson,
+  type MeetingMeta,
+} from '@/lib/recordings';
 import { verifyRoomToken } from '@/lib/livekitAuth';
 import { mergeParticipants } from '@/worker/lib/participants';
 
@@ -58,6 +65,7 @@ export async function GET(req: NextRequest) {
           const key = metaKey(roomName);
           const meta = (await readJson<MeetingMeta>(key)) ?? {};
           meta.participants = mergeParticipants(meta.participants ?? [], [caller]);
+          meta.participantsUpdatedAt = new Date().toISOString();
           await writeJson(key, meta);
         }
       } catch (e) {
@@ -119,13 +127,22 @@ export async function GET(req: NextRequest) {
       // nomes de reuniões antigas na mesma sala contaminavam o prompt do worker
       // e o modelo "encontrava" na gravação gente que não estava presente.
       const existing = (await readJson<MeetingMeta>(metaKey(roomName))) ?? {};
+      // Nomes já registrados HÁ POUCO (webhook/POST de quem entrou antes do
+      // host disparar a gravação) são desta sessão e ficam; só nomes de uma
+      // sessão antiga na mesma sala são descartados.
+      const updatedAt = existing.participantsUpdatedAt
+        ? new Date(existing.participantsUpdatedAt).getTime()
+        : 0;
+      const recent =
+        Date.now() - updatedAt <= PARTICIPANTS_SESSION_WINDOW_MS ? (existing.participants ?? []) : [];
       await writeJson(metaKey(roomName), {
         title: title || dbTitle || existing.title || '',
         host: host || dbHost || existing.host || '',
         createdAt: new Date().toISOString(),
         // Dedup canônico: nome digitado e nome do banco costumam ser a MESMA
         // pessoa com grafia diferente ("MARIZA" vs "Mariza").
-        participants: mergeParticipants([], [host, dbHost].filter(Boolean) as string[]),
+        participants: mergeParticipants(recent, [host, dbHost].filter(Boolean) as string[]),
+        participantsUpdatedAt: new Date().toISOString(),
       });
     } catch (e) {
       console.error('Falha ao gravar metadados da reunião:', e);

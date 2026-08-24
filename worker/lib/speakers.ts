@@ -1,11 +1,7 @@
 import type { Utterance } from './text';
-
-const norm = (s: string) =>
-  s
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .trim();
+// Mesma normalização da dedup de participantes — divergir aqui (ex.: espaços
+// duplos) faria um nome casar na lista e não casar no rótulo.
+import { norm } from './participants';
 
 // Mapeia o rótulo devolvido pelo modelo para o nome real mais próximo da lista
 // de participantes. Conservador de propósito: na dúvida, mantém o rótulo em vez

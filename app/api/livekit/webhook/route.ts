@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
         const key = metaKey(roomName);
         const meta = (await readJson<MeetingMeta>(key)) ?? {};
         meta.participants = mergeParticipants(meta.participants ?? [], [name]);
+        meta.participantsUpdatedAt = new Date().toISOString();
         await writeJson(key, meta);
       }
     } else if (event.event === 'room_finished') {

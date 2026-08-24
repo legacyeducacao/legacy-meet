@@ -329,6 +329,7 @@ function VideoConferenceComponent(props: {
     room.on(RoomEvent.Disconnected, handleOnLeave);
     room.on(RoomEvent.Reconnecting, handleReconnecting);
     room.on(RoomEvent.Reconnected, handleReconnected);
+    room.on(RoomEvent.Connected, clearConnectionLost);
     room.on(RoomEvent.EncryptionError, handleEncryptionError);
     room.on(RoomEvent.MediaDevicesError, handleMediaError);
     room.on(RoomEvent.Connected, handleConnected);
@@ -345,6 +346,7 @@ function VideoConferenceComponent(props: {
       room.off(RoomEvent.Disconnected, handleOnLeave);
       room.off(RoomEvent.Reconnecting, handleReconnecting);
       room.off(RoomEvent.Reconnected, handleReconnected);
+      room.off(RoomEvent.Connected, clearConnectionLost);
       room.off(RoomEvent.EncryptionError, handleEncryptionError);
       room.off(RoomEvent.MediaDevicesError, handleMediaError);
       room.off(RoomEvent.Connected, handleConnected);
@@ -451,8 +453,10 @@ function VideoConferenceComponent(props: {
       // Saída pelo botão, remoção pelo host ou sala encerrada → fluxo normal de
       // pós-reunião. Queda de rede/servidor → oferece reconectar (o token vale
       // 12h) em vez de ejetar o usuário para o /obrigado.
+      // ATENÇÃO: o SDK emite Disconnected SEM motivo justamente quando a
+      // reconexão automática desiste (RTCEngine "giving up") — "sem motivo" é
+      // queda, nunca saída voluntária.
       const voluntary =
-        reason === undefined ||
         reason === DisconnectReason.CLIENT_INITIATED ||
         reason === DisconnectReason.PARTICIPANT_REMOVED ||
         reason === DisconnectReason.ROOM_DELETED ||
@@ -481,27 +485,26 @@ function VideoConferenceComponent(props: {
     toast.success('Conexão restabelecida');
   }, []);
 
-  // Conexão com retry: em rede ruim, a primeira tentativa falhar é comum —
-  // tenta 3x com espera progressiva antes de desistir.
+  // Conexão: as tentativas em rede ruim ficam por conta do SDK
+  // (connectOptions.maxRetries) — uma única camada de retry.
   const connectRoom = React.useCallback(async () => {
-    const attempts = 3;
-    for (let i = 1; i <= attempts; i++) {
-      try {
-        await room.connect(
-          props.connectionDetails.serverUrl,
-          props.connectionDetails.participantToken,
-          connectOptions,
-        );
-        return;
-      } catch (e) {
-        if (i === attempts) throw e;
-        await new Promise((r) => setTimeout(r, 1000 * i));
-      }
-    }
+    await room.connect(
+      props.connectionDetails.serverUrl,
+      props.connectionDetails.participantToken,
+      connectOptions,
+    );
   }, [room, props.connectionDetails, connectOptions]);
+
+  // Conexão (re)estabelecida → some o overlay de "conexão perdida" (uma
+  // tentativa que falhou antes da que deu certo já tinha ligado o overlay).
+  const clearConnectionLost = React.useCallback(() => setConnectionLost(null), []);
 
   const handleManualReconnect = React.useCallback(async () => {
     setConnectionLost('reconnecting');
+    // O token do convidado não carrega a admissão (ela é concedida pelo host
+    // no servidor): ao reconectar ele volta para a sala de espera até ser
+    // readmitido — o estado local precisa refletir isso.
+    setAdmitted(isHost);
     try {
       await connectRoom();
       setConnectionLost(null);
@@ -511,7 +514,7 @@ function VideoConferenceComponent(props: {
       setConnectionLost('failed');
       toast.error('Ainda sem conexão. Verifique sua internet e tente de novo.');
     }
-  }, [connectRoom]);
+  }, [connectRoom, isHost]);
 
   const handleError = React.useCallback((error: Error) => {
     // Usado na falha de CONEXÃO com a sala — avisa sem popup nativo bloqueante.

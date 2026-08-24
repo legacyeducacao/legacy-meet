@@ -158,6 +158,9 @@ export default function AgendaPage() {
         count: endMode === 'count' ? countTimes : undefined,
         until: endMode === 'until' ? new Date(`${untilDate}T23:59:59.999-03:00`) : undefined,
       }).length;
+      if (n === 0) {
+        return { n, error: 'A data limite é anterior à primeira reunião.' };
+      }
       return { n, error: '' };
     } catch (e) {
       return { n: 0, error: e instanceof Error ? e.message : 'Recorrência inválida.' };
@@ -299,10 +302,13 @@ export default function AgendaPage() {
       const json = await res.json();
       setHistory(json.meetings ?? []);
       setHistoryPage(1);
-      setHistoryLoaded(true);
     } catch {
       setHistory([]);
+      toast.error('Não foi possível carregar o histórico.');
     } finally {
+      // Marca como carregado também no erro — senão o effect da aba refaz a
+      // requisição em loop enquanto a API estiver falhando.
+      setHistoryLoaded(true);
       setLoadingHistory(false);
     }
   }, []);
@@ -331,9 +337,16 @@ export default function AgendaPage() {
       }
       const json = (await res.json().catch(() => ({}))) as { status?: string };
       toast.success(undo ? 'No-show desfeito.' : 'Reunião marcada como no-show.');
-      await loadHistory();
-      // Undo de reunião nunca iniciada volta para 'scheduled' → reaparece em Próximas.
-      if (json.status === 'scheduled') await loadList();
+      // Atualiza o item no lugar (sem refetch nem voltar para a página 1).
+      if (json.status === 'scheduled') {
+        // Undo de reunião nunca iniciada volta para 'scheduled' → sai do
+        // histórico e reaparece em Próximas.
+        setHistory((prev) => prev.filter((x) => x.id !== m.id));
+        await loadList();
+      } else {
+        const status = json.status === 'no_show' ? 'no_show' : 'ended';
+        setHistory((prev) => prev.map((x) => (x.id === m.id ? { ...x, status } : x)));
+      }
     } catch {
       toast.error('Erro de rede ao atualizar o no-show.');
     } finally {

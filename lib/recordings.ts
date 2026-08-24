@@ -152,7 +152,12 @@ export interface MeetingMeta {
   host?: string;
   createdAt?: string;
   participants?: string[];
+  /** Última escrita em `participants` — distingue a sessão atual de uma antiga na mesma sala. */
+  participantsUpdatedAt?: string;
 }
+
+/** Janela em que nomes já registrados na sala contam como "desta sessão". */
+export const PARTICIPANTS_SESSION_WINDOW_MS = 10 * 60 * 1000;
 
 export async function readJson<T = unknown>(key: string): Promise<T | null> {
   const text = await getObjectText(key);
