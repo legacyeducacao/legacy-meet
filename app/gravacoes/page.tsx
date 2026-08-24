@@ -5,6 +5,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { toast } from '@/components/ui/custom-toast';
 import { Search, ChevronLeft, ChevronRight, Trash2, Video } from 'lucide-react';
 import { AppShell } from '@/components/AppShell';
+import { PageHeader } from '@/components/patterns/PageHeader';
+import { EmptyState } from '@/components/patterns/EmptyState';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -181,13 +183,11 @@ export default function GravacoesPage() {
       </AlertDialog>
 
       <div className="flex min-h-[calc(100vh-4rem)] flex-col gap-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Gravações</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Acesse e gerencie todas as reuniões gravadas.
-          </p>
-        </div>
+        <PageHeader
+          title="Gravações"
+          subtitle="Acesse e gerencie todas as reuniões gravadas."
+          className="animate-in-fade"
+        />
 
         {/* Toolbar */}
         <div className="flex flex-wrap items-center gap-3">
@@ -295,12 +295,11 @@ export default function GravacoesPage() {
           )}
 
           {!loading && !error && filtered.length === 0 && (
-            <Card className="rounded-xl">
-              <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-muted-foreground">
-                <Video className="h-10 w-10 opacity-40" />
-                <p className="text-sm">Nenhuma gravação encontrada.</p>
-              </CardContent>
-            </Card>
+            <EmptyState
+              icon={<Video className="h-10 w-10" />}
+              title="Nenhuma gravação encontrada"
+              description={hasFilters ? 'Ajuste os filtros para ver mais resultados.' : undefined}
+            />
           )}
 
           {!loading && !error && pageItems.length > 0 && (

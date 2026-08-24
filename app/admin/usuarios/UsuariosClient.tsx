@@ -5,6 +5,8 @@ import { UserPlus } from 'lucide-react';
 import { toast } from '@/components/ui/custom-toast';
 
 import { AppShell } from '@/components/AppShell';
+import { PageHeader } from '@/components/patterns/PageHeader';
+import { EmptyState } from '@/components/patterns/EmptyState';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -144,11 +146,11 @@ export default function UsuariosClient() {
   return (
     <AppShell>
       <div className="flex flex-col gap-6 lg:h-[calc(100vh-4rem)]">
-        {/* Page header */}
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Usuários</h1>
-          <p className="text-sm text-muted-foreground">Gerencie quem acessa o Legacy Meet.</p>
-        </div>
+        <PageHeader
+          title="Usuários"
+          subtitle="Gerencie quem acessa o Legacy Meet."
+          className="animate-in-fade"
+        />
 
         <div className="grid gap-6 lg:grid-cols-3 lg:min-h-0 lg:flex-1">
           {/* Create-user form */}
@@ -250,7 +252,11 @@ export default function UsuariosClient() {
               )}
 
               {!loading && !loadError && users.length === 0 && (
-                <p className="text-sm text-muted-foreground">Nenhum usuário encontrado.</p>
+                <EmptyState
+                  icon={<UserPlus className="h-8 w-8" />}
+                  title="Nenhum usuário encontrado"
+                  description="Convide o primeiro pelo formulário ao lado."
+                />
               )}
 
               {!loading && !loadError && users.length > 0 && (

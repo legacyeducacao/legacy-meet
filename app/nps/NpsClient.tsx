@@ -30,6 +30,8 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { AppShell } from '@/components/AppShell';
+import { PageHeader } from '@/components/patterns/PageHeader';
+import { EmptyState } from '@/components/patterns/EmptyState';
 import { cn } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
@@ -249,13 +251,11 @@ export function NpsClient({ isAdmin }: { isAdmin: boolean }) {
   return (
     <AppShell>
     <div className="flex flex-col gap-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">NPS</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Acompanhe as avaliações de satisfação das reuniões.
-        </p>
-      </div>
+      <PageHeader
+        title="NPS"
+        subtitle="Acompanhe as avaliações de satisfação das reuniões."
+        className="animate-in-fade"
+      />
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
@@ -486,12 +486,11 @@ export function NpsClient({ isAdmin }: { isAdmin: boolean }) {
 
       {/* Empty state */}
       {!loading && !error && filtered.length === 0 && (
-        <Card className="rounded-xl">
-          <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-muted-foreground">
-            <ClipboardList className="h-10 w-10 opacity-40" />
-            <p className="text-sm">Nenhuma resposta de NPS encontrada.</p>
-          </CardContent>
-        </Card>
+        <EmptyState
+          icon={<ClipboardList className="h-10 w-10" />}
+          title="Nenhuma resposta de NPS encontrada"
+          description="As avaliações dos clientes aparecem aqui assim que forem enviadas."
+        />
       )}
 
       {/* Paginated list */}

@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import React, { useEffect, useState } from 'react';
 import { Video } from 'lucide-react';
 import { AppShell } from '@/components/AppShell';
+import { PageHeader } from '@/components/patterns/PageHeader';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Label } from '@/components/ui/label';
@@ -128,12 +129,9 @@ export default function Page() {
     <AppShell>
       <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center">
         <div className="w-full max-w-xl">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold tracking-tight">Seja bem-vindo!</h1>
-          <p className="text-muted-foreground">Crie uma reunião da Legacy.</p>
-        </div>
+        <PageHeader title="Seja bem-vindo!" subtitle="Crie uma reunião da Legacy." className="mb-6 animate-in-fade" />
 
-        <Card>
+        <Card className="animate-in-fade stagger-1">
           <CardHeader>
             <CardTitle>Nova reunião</CardTitle>
             <CardDescription>Escolha o setor e os detalhes da reunião.</CardDescription>

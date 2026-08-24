@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 import { computeOccurrences, MAX_OCCURRENCES, type Frequency } from '@/lib/recurrence';
 import { AppShell } from '@/components/AppShell';
+import { PageHeader } from '@/components/patterns/PageHeader';
+import { EmptyState } from '@/components/patterns/EmptyState';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Label } from '@/components/ui/label';
@@ -644,10 +646,11 @@ export default function AgendaPage() {
         </DialogContent>
       </Dialog>
 
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">Agenda</h1>
-        <p className="text-muted-foreground">Marque reuniões futuras e inicie quando chegar a hora.</p>
-      </div>
+      <PageHeader
+        title="Agenda"
+        subtitle="Marque reuniões futuras e inicie quando chegar a hora."
+        className="mb-6 animate-in-fade"
+      />
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Formulário de agendamento */}
@@ -825,12 +828,11 @@ export default function AgendaPage() {
                   <Skeleton className="h-28 w-full rounded-xl" />
                 </>
               ) : history.length === 0 ? (
-                <Card>
-                  <CardContent className="flex flex-col items-center gap-2 py-12 text-center text-muted-foreground">
-                    <Clock className="h-8 w-8 opacity-60" />
-                    <p>Nenhuma reunião no histórico ainda.</p>
-                  </CardContent>
-                </Card>
+                <EmptyState
+                  icon={<Clock className="h-8 w-8" />}
+                  title="Nenhuma reunião no histórico ainda"
+                  description="Reuniões realizadas e no-shows aparecem aqui."
+                />
               ) : (
                 histPageItems.map((m) => (
                   <Card key={m.id}>
@@ -915,12 +917,11 @@ export default function AgendaPage() {
               <Skeleton className="h-28 w-full rounded-xl" />
             </>
           ) : meetings.length === 0 ? (
-            <Card>
-              <CardContent className="flex flex-col items-center gap-2 py-12 text-center text-muted-foreground">
-                <Clock className="h-8 w-8 opacity-60" />
-                <p>Nenhuma reunião agendada.</p>
-              </CardContent>
-            </Card>
+            <EmptyState
+              icon={<Clock className="h-8 w-8" />}
+              title="Nenhuma reunião agendada"
+              description="Use o formulário ao lado para marcar a próxima."
+            />
           ) : (
             pageItems.map((m) => {
               const overdue = new Date(m.startAt).getTime() < Date.now();
