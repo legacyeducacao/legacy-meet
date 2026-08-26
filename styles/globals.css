@@ -288,3 +288,20 @@ h2 a {
   width: min(320px, 85vw);
   max-width: 85vw;
 }
+
+/* ─── Fora da sala, o app segue os tokens do design system ──────────────────
+   O <body> carrega data-lk-theme para os prefabs do LiveKit, mas a folha do
+   LiveKit aplica nele `color: var(--lk-fg)` (branco), `color-scheme: dark` e a
+   fonte de sistema — o que deixava inputs/textos brancos no login e nas telas
+   internas. Especificidade maior que [data-lk-theme] devolve o padrão; dentro
+   da sala o <main data-lk-theme="default"> continua com o tema do LiveKit. */
+body[data-lk-theme] {
+  color: hsl(var(--foreground));
+  background-color: hsl(var(--background));
+  color-scheme: light;
+  font-family: var(--font-sans);
+  font-size: 1rem;
+}
+.dark body[data-lk-theme] {
+  color-scheme: dark;
+}

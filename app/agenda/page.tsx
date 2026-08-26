@@ -143,7 +143,6 @@ export default function AgendaPage() {
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [historyPage, setHistoryPage] = useState(1);
-  const [pendingHistToggle, setPendingHistToggle] = useState<HistoryItem | null>(null);
 
   // filtros de admin (vê as reuniões de todo mundo): setor e pessoa
   const [filterSector, setFilterSector] = useState<'all' | 'comercial' | 'executoria'>('all');
@@ -353,12 +352,10 @@ export default function AgendaPage() {
     if (view === 'history' && !historyLoaded && !loadingHistory) loadHistory();
   }, [view, historyLoaded, loadingHistory, loadHistory]);
 
-  // Marca/desfaz no-show a partir do histórico.
-  const confirmHistToggle = async () => {
-    if (!pendingHistToggle) return;
-    const m = pendingHistToggle;
+  // Marca/desfaz no-show a partir do histórico (switch — aplica na hora; o
+  // "desfazer" é o mesmo switch de volta).
+  const toggleHistNoShow = async (m: HistoryItem) => {
     const undo = m.status === 'no_show';
-    setPendingHistToggle(null);
     setActingId(m.id);
     try {
       const res = await fetch('/api/meetings/no-show', {
@@ -608,34 +605,6 @@ export default function AgendaPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* AlertDialog do toggle de no-show no histórico */}
-      <AlertDialog open={!!pendingHistToggle} onOpenChange={(open) => { if (!open) setPendingHistToggle(null); }}>
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {pendingHistToggle?.status === 'no_show' ? 'Desfazer no-show?' : 'Marcar como no-show?'}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {pendingHistToggle?.status === 'no_show' ? (
-                <>
-                  <strong>&quot;{pendingHistToggle?.title}&quot;</strong> deixará de contar como
-                  não comparecida.
-                </>
-              ) : (
-                <>
-                  <strong>&quot;{pendingHistToggle?.title}&quot;</strong> será registrada como não
-                  comparecida pelo cliente.
-                </>
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Voltar</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmHistToggle}>Confirmar</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
       {/* Dialog de edição de reunião */}
       <Dialog open={!!editMeeting} onOpenChange={(open) => { if (!open) closeEdit(); }}>
         <DialogContent>
@@ -696,7 +665,7 @@ export default function AgendaPage() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Formulário de agendamento */}
-        <Card className="lg:col-span-1">
+        <Card className="h-fit self-start lg:col-span-1">
           <CardHeader>
             <CardTitle>Agendar reunião</CardTitle>
             <CardDescription>Escolha o setor, a data e os detalhes.</CardDescription>
@@ -905,10 +874,10 @@ export default function AgendaPage() {
               ) : (
                 histPageItems.map((m) => (
                   <Card key={m.id}>
-                    <CardContent className="flex flex-col gap-4 py-5 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="min-w-0 space-y-1.5">
+                    <CardContent className="flex flex-col gap-2 px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0 space-y-0.5">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="truncate font-semibold">{m.title}</span>
+                          <span className="truncate text-sm font-semibold">{m.title}</span>
                           {m.sector && (
                             <Badge variant="secondary">
                               {m.sector === 'comercial' ? 'Comercial' : 'Executoria'}
@@ -932,7 +901,7 @@ export default function AgendaPage() {
                             {HISTORY_STATUS_LABEL[m.status]}
                           </Badge>
                         </div>
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
                           <span className="inline-flex items-center gap-1">
                             <Clock className="h-3.5 w-3.5" />
                             {formatDateTime(m.startAt)}
@@ -941,18 +910,16 @@ export default function AgendaPage() {
                           {m.hostName && <span>· {m.hostName}</span>}
                         </div>
                       </div>
-                      <div className="flex shrink-0 items-center gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="gap-1.5"
+                      <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs font-medium text-muted-foreground">
+                        <UserX className="h-3.5 w-3.5" />
+                        No-show
+                        <Switch
+                          checked={m.status === 'no_show'}
                           disabled={actingId === m.id}
-                          onClick={() => setPendingHistToggle(m)}
-                        >
-                          <UserX className="h-3.5 w-3.5" />
-                          {m.status === 'no_show' ? 'Desfazer no-show' : 'Marcar no-show'}
-                        </Button>
-                      </div>
+                          onCheckedChange={() => toggleHistNoShow(m)}
+                          aria-label={m.status === 'no_show' ? 'Desfazer no-show' : 'Marcar no-show'}
+                        />
+                      </label>
                     </CardContent>
                   </Card>
                 ))
@@ -1002,10 +969,10 @@ export default function AgendaPage() {
               const overdue = new Date(m.startAt).getTime() < Date.now();
               return (
                 <Card key={m.id}>
-                  <CardContent className="flex flex-col gap-4 py-5 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0 space-y-1.5">
+                  <CardContent className="flex flex-col gap-2 px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0 space-y-0.5">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="truncate font-semibold">{m.title}</span>
+                        <span className="truncate text-sm font-semibold">{m.title}</span>
                         {m.sector && (
                           <Badge variant="secondary">
                             {m.sector === 'comercial' ? 'Comercial' : 'Executoria'}
@@ -1019,7 +986,7 @@ export default function AgendaPage() {
                         )}
                         {overdue && <Badge variant="destructive">Atrasada</Badge>}
                       </div>
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
                         <span className="inline-flex items-center gap-1">
                           <Clock className="h-3.5 w-3.5" />
                           {formatDateTime(m.startAt)}
