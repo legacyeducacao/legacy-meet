@@ -38,7 +38,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, status: restored });
   }
 
-  if (meeting.status !== 'scheduled' && meeting.status !== 'ended')
+  // 'live' entra: host clicou em Iniciar, ficou esperando e o cliente não veio.
+  if (!['scheduled', 'ended', 'live'].includes(meeting.status as string))
     return new NextResponse('Só reuniões agendadas ou realizadas podem virar no-show', {
       status: 400,
     });
@@ -51,7 +52,7 @@ export async function POST(req: NextRequest) {
   // Reunião realizada sem ended_at (legado): carimba para o "desfazer" saber
   // que ela aconteceu e restaurar 'ended', não 'scheduled'.
   const update: Record<string, unknown> = { status: 'no_show' };
-  if (meeting.status === 'ended' && !meeting.ended_at) {
+  if ((meeting.status === 'ended' || meeting.status === 'live') && !meeting.ended_at) {
     update.ended_at = meeting.scheduled_end_at;
   }
   const { error } = await admin.from('meetings').update(update).eq('id', id);

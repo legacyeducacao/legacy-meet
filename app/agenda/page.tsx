@@ -66,11 +66,18 @@ type HistoryItem = {
   id: string;
   title: string;
   startAt: string;
-  status: 'ended' | 'no_show';
+  status: 'ended' | 'no_show' | 'scheduled' | 'live';
   hostName: string | null;
   clientName: string | null;
   sector: string | null;
   recurrenceParentId: string | null;
+};
+
+const HISTORY_STATUS_LABEL: Record<HistoryItem['status'], string> = {
+  ended: 'Realizada',
+  live: 'Realizada',
+  no_show: 'No-show',
+  scheduled: 'Não iniciada',
 };
 
 const REPEAT_LABELS: Record<'none' | Frequency, string> = {
@@ -138,6 +145,10 @@ export default function AgendaPage() {
   const [historyPage, setHistoryPage] = useState(1);
   const [pendingHistToggle, setPendingHistToggle] = useState<HistoryItem | null>(null);
 
+  // filtros de admin (vê as reuniões de todo mundo): setor e pessoa
+  const [filterSector, setFilterSector] = useState<'all' | 'comercial' | 'executoria'>('all');
+  const [filterHost, setFilterHost] = useState('');
+
   // edição de reunião
   const [editMeeting, setEditMeeting] = useState<Scheduled | null>(null);
   const [editTitle, setEditTitle] = useState('');
@@ -167,13 +178,37 @@ export default function AgendaPage() {
     }
   }, [repeat, endMode, countTimes, untilDate, startAt]);
 
-  const totalPages = Math.max(1, Math.ceil(meetings.length / PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-  const pageItems = meetings.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  // Filtros de setor/pessoa (só fazem diferença para admin, que recebe tudo).
+  const matchesFilters = useCallback(
+    (m: { sector: string | null; hostName: string | null }) =>
+      (filterSector === 'all' || m.sector === filterSector) &&
+      (!filterHost || m.hostName === filterHost),
+    [filterSector, filterHost],
+  );
+  const visibleMeetings = useMemo(() => meetings.filter(matchesFilters), [meetings, matchesFilters]);
+  const visibleHistory = useMemo(() => history.filter(matchesFilters), [history, matchesFilters]);
+  const hostOptions = useMemo(
+    () =>
+      (
+        [...new Set([...meetings, ...history].map((m) => m.hostName).filter(Boolean))] as string[]
+      ).sort(),
+    [meetings, history],
+  );
+  useEffect(() => {
+    setPage(1);
+    setHistoryPage(1);
+  }, [filterSector, filterHost]);
 
-  const histTotalPages = Math.max(1, Math.ceil(history.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(visibleMeetings.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageItems = visibleMeetings.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  const histTotalPages = Math.max(1, Math.ceil(visibleHistory.length / PAGE_SIZE));
   const histSafePage = Math.min(historyPage, histTotalPages);
-  const histPageItems = history.slice((histSafePage - 1) * PAGE_SIZE, histSafePage * PAGE_SIZE);
+  const histPageItems = visibleHistory.slice(
+    (histSafePage - 1) * PAGE_SIZE,
+    histSafePage * PAGE_SIZE,
+  );
 
   const onRecordChange = (checked: boolean) => {
     setRecord(checked);
@@ -337,16 +372,10 @@ export default function AgendaPage() {
       }
       const json = (await res.json().catch(() => ({}))) as { status?: string };
       toast.success(undo ? 'No-show desfeito.' : 'Reunião marcada como no-show.');
-      // Atualiza o item no lugar (sem refetch nem voltar para a página 1).
-      if (json.status === 'scheduled') {
-        // Undo de reunião nunca iniciada volta para 'scheduled' → sai do
-        // histórico e reaparece em Próximas.
-        setHistory((prev) => prev.filter((x) => x.id !== m.id));
-        await loadList();
-      } else {
-        const status = json.status === 'no_show' ? 'no_show' : 'ended';
-        setHistory((prev) => prev.map((x) => (x.id === m.id ? { ...x, status } : x)));
-      }
+      // Atualiza o item no lugar (sem refetch nem voltar para a página 1). A
+      // reunião continua no histórico em qualquer caso: ela já passou da data.
+      const status = (json.status ?? (undo ? 'ended' : 'no_show')) as HistoryItem['status'];
+      setHistory((prev) => prev.map((x) => (x.id === m.id ? { ...x, status } : x)));
     } catch {
       toast.error('Erro de rede ao atualizar o no-show.');
     } finally {
@@ -826,12 +855,39 @@ export default function AgendaPage() {
 
         {/* Lista de agendadas / histórico */}
         <div className="space-y-4 lg:col-span-2">
-          <Tabs value={view} onValueChange={(v) => setView(v as 'upcoming' | 'history')}>
-            <TabsList className="grid w-full max-w-xs grid-cols-2">
-              <TabsTrigger value="upcoming">Próximas</TabsTrigger>
-              <TabsTrigger value="history">Histórico</TabsTrigger>
-            </TabsList>
-          </Tabs>
+          <div className="flex flex-wrap items-center gap-3">
+            <Tabs value={view} onValueChange={(v) => setView(v as 'upcoming' | 'history')}>
+              <TabsList className="grid w-64 grid-cols-2">
+                <TabsTrigger value="upcoming">Próximas</TabsTrigger>
+                <TabsTrigger value="history">Histórico</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            {meIsAdmin && (
+              <>
+                <Tabs
+                  value={filterSector}
+                  onValueChange={(v) => setFilterSector(v as 'all' | 'comercial' | 'executoria')}
+                >
+                  <TabsList className="grid w-72 grid-cols-3">
+                    <TabsTrigger value="all">Todos</TabsTrigger>
+                    <TabsTrigger value="comercial">Comercial</TabsTrigger>
+                    <TabsTrigger value="executoria">Executoria</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+                <div className="w-56">
+                  <SearchableSelect
+                    value={filterHost}
+                    onValueChange={setFilterHost}
+                    options={hostOptions.map((h) => ({ value: h, label: h }))}
+                    placeholder="Todas as pessoas"
+                    searchPlaceholder="Buscar pessoa…"
+                    emptyText="Ninguém encontrado."
+                    clearable
+                  />
+                </div>
+              </>
+            )}
+          </div>
 
           {view === 'history' ? (
             <>
@@ -840,7 +896,7 @@ export default function AgendaPage() {
                   <Skeleton className="h-28 w-full rounded-xl" />
                   <Skeleton className="h-28 w-full rounded-xl" />
                 </>
-              ) : history.length === 0 ? (
+              ) : visibleHistory.length === 0 ? (
                 <EmptyState
                   icon={<Clock className="h-8 w-8" />}
                   title="Nenhuma reunião no histórico ainda"
@@ -864,11 +920,17 @@ export default function AgendaPage() {
                               Recorrente
                             </Badge>
                           )}
-                          {m.status === 'no_show' ? (
-                            <Badge variant="destructive">No-show</Badge>
-                          ) : (
-                            <Badge variant="secondary">Realizada</Badge>
-                          )}
+                          <Badge
+                            variant={
+                              m.status === 'no_show'
+                                ? 'destructive'
+                                : m.status === 'scheduled'
+                                  ? 'outline'
+                                  : 'secondary'
+                            }
+                          >
+                            {HISTORY_STATUS_LABEL[m.status]}
+                          </Badge>
                         </div>
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
                           <span className="inline-flex items-center gap-1">
@@ -929,7 +991,7 @@ export default function AgendaPage() {
               <Skeleton className="h-28 w-full rounded-xl" />
               <Skeleton className="h-28 w-full rounded-xl" />
             </>
-          ) : meetings.length === 0 ? (
+          ) : visibleMeetings.length === 0 ? (
             <EmptyState
               icon={<Clock className="h-8 w-8" />}
               title="Nenhuma reunião agendada"

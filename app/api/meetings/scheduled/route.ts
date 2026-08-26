@@ -10,7 +10,9 @@ function one<T>(x: T | T[] | null | undefined): T | null {
   return x ?? null;
 }
 
-// Lista as reuniões agendadas (status=scheduled). EXECUTOR vê as suas; MASTER vê todas.
+// Próximas: reuniões agendadas cujo horário de término previsto ainda não
+// passou (as que passaram vão para o Histórico, onde se marca o no-show).
+// Admin vê as de todo mundo (UI filtra por setor/pessoa); demais só as suas.
 export async function GET() {
   const user = await getCurrentUser();
   if (!user) return new NextResponse('Não autorizado', { status: 401 });
@@ -18,15 +20,17 @@ export async function GET() {
   const admin = createAdminSupabase();
   // !inner em meet_meeting_sector: traz SOMENTE reuniões criadas pelo Meet
   // (ignora as do Planner do Legacy Plan, que compartilham a tabela `meetings`).
-  // host_id = user.id: cada usuário vê apenas as suas próprias reuniões.
-  const { data, error } = await admin
+  let query = admin
     .from('meetings')
     .select(
       'id, title, room_name, scheduled_start_at, recording_enabled, auto_transcribe, host_id, recurrence_parent_id, users:host_id(name), client_tenants:tenant_id(name), meet_meeting_sector!inner(sector)',
     )
     .eq('status', 'scheduled')
-    .eq('host_id', user.id)
+    .gte('scheduled_end_at', new Date().toISOString())
     .order('scheduled_start_at', { ascending: true });
+  if (!user.isAdmin) query = query.eq('host_id', user.id);
+
+  const { data, error } = await query;
   if (error) return new NextResponse('Erro ao buscar a agenda: ' + error.message, { status: 500 });
 
   const meetings = ((data ?? []) as any[]).map((m) => ({
@@ -37,6 +41,7 @@ export async function GET() {
     record: m.recording_enabled !== false,
     transcribe: m.auto_transcribe !== false,
     recurrenceParentId: (m.recurrence_parent_id ?? null) as string | null,
+    hostId: (m.host_id ?? null) as string | null,
     hostName: (one<{ name: string | null }>(m.users)?.name ?? null) as string | null,
     clientName: (one<{ name: string | null }>(m.client_tenants)?.name ?? null) as string | null,
     sector: (one<{ sector: string | null }>(m.meet_meeting_sector)?.sector ?? null) as string | null,

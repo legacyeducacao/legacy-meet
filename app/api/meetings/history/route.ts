@@ -10,24 +10,31 @@ function one<T>(x: T | T[] | null | undefined): T | null {
   return x ?? null;
 }
 
-// Histórico da Agenda: reuniões realizadas (ended) e no-shows do host logado,
-// da mais recente para a mais antiga. Permite marcar/desfazer o no-show depois
-// que a reunião saiu da lista de próximas.
+export type HistoryStatus = 'ended' | 'no_show' | 'scheduled' | 'live';
+
+// Histórico da Agenda: TODA reunião que já ficou para trás — encerrada,
+// no-show, ou cuja data prevista já passou mesmo sem ter sido iniciada/
+// encerrada (scheduled/live com scheduled_end_at no passado). É aqui que se
+// marca/desfaz o no-show. Admin vê as reuniões de todo mundo (a UI filtra por
+// setor e por pessoa); os demais veem só as suas.
 export async function GET() {
   const user = await getCurrentUser();
   if (!user) return new NextResponse('Não autorizado', { status: 401 });
 
   const admin = createAdminSupabase();
+  const nowIso = new Date().toISOString();
   // !inner em meet_meeting_sector: só reuniões criadas pelo Meet.
-  const { data, error } = await admin
+  let query = admin
     .from('meetings')
     .select(
       'id, title, room_name, scheduled_start_at, status, host_id, recurrence_parent_id, users:host_id(name), client_tenants:tenant_id(name), meet_meeting_sector!inner(sector)',
     )
-    .in('status', ['ended', 'no_show'])
-    .eq('host_id', user.id)
+    .or(`status.in.(ended,no_show),and(status.in.(scheduled,live),scheduled_end_at.lt.${nowIso})`)
     .order('scheduled_start_at', { ascending: false })
-    .limit(100);
+    .limit(200);
+  if (!user.isAdmin) query = query.eq('host_id', user.id);
+
+  const { data, error } = await query;
   if (error)
     return new NextResponse('Erro ao buscar o histórico: ' + error.message, { status: 500 });
 
@@ -35,7 +42,8 @@ export async function GET() {
     id: m.id as string,
     title: m.title as string,
     startAt: m.scheduled_start_at as string,
-    status: m.status as 'ended' | 'no_show',
+    status: m.status as HistoryStatus,
+    hostId: (m.host_id ?? null) as string | null,
     hostName: (one<{ name: string | null }>(m.users)?.name ?? null) as string | null,
     clientName: (one<{ name: string | null }>(m.client_tenants)?.name ?? null) as string | null,
     sector: (one<{ sector: string | null }>(m.meet_meeting_sector)?.sector ?? null) as
