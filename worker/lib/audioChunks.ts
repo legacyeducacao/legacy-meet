@@ -51,3 +51,35 @@ export function computeChunkBoundaries(
   }
   return cuts;
 }
+
+export interface Segment {
+  start: number;
+  end: number;
+}
+
+// Mapa de FALA: complemento dos silêncios (detectados por dB) dentro da
+// duração do áudio. Base do guardrail anti-alucinação — o que o modelo
+// "transcrever" fora destes trechos não veio do áudio.
+export function speechSegments(duration: number, silences: Silence[]): Segment[] {
+  const out: Segment[] = [];
+  let cursor = 0;
+  for (const s of [...silences].sort((a, b) => a.start - b.start)) {
+    const start = Math.max(0, s.start);
+    const end = Math.min(duration, s.end);
+    if (start > cursor) out.push({ start: cursor, end: start });
+    cursor = Math.max(cursor, end);
+  }
+  if (cursor < duration) out.push({ start: cursor, end: duration });
+  return out;
+}
+
+// Segundos do intervalo [start, end] que caem dentro de trechos de fala.
+export function speechOverlap(start: number, end: number, segments: Segment[]): number {
+  let total = 0;
+  for (const seg of segments) {
+    const a = Math.max(start, seg.start);
+    const b = Math.min(end, seg.end);
+    if (b > a) total += b - a;
+  }
+  return total;
+}

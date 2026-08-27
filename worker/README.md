@@ -61,6 +61,10 @@ Sem o webhook tudo continua funcionando — o worker só espera
 | `POLL_INTERVAL_SECONDS` | não | `30` | Intervalo do polling |
 | `CHUNK_SECONDS` | não | `300` | Tamanho-alvo do chunk de áudio |
 | `EGRESS_MIN_AGE_SECONDS` | não | `120` | Idade mínima do MP4 sem marker `ready/` |
+| `SILENCE_NOISE_DB` | não | `-35` | Abaixo disto é silêncio/ruído (guardrail anti-alucinação e cortes) |
+| `SILENCE_MIN_SECONDS` | não | `0.5` | Duração mínima para contar como silêncio |
+| `MIN_SPEECH_SECONDS_PER_CHUNK` | não | `2` | Chunk com menos fala que isto nem vai para a IA |
+| `MIN_SPEECH_RATIO` | não | `0.25` | Fala reportada com menos que esta fração em trechos de fala é descartada |
 | `MAX_RECORDING_ATTEMPTS` | não | `3` | Tentativas antes de marcar como `failed` |
 | `SOURCE_PREFIX` | não | `com-transcricao/` | Pasta de origem no bucket |
 | `OUTPUT_PREFIX` | não | `transcricoes/` | Pasta de destino das transcrições |

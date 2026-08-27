@@ -40,7 +40,14 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { parsePlainTextToUtterances, utterancesToPlainText, type Utterance } from './lib/text';
-import { computeChunkBoundaries, parseSilences, type Silence } from './lib/audioChunks';
+import {
+  computeChunkBoundaries,
+  parseSilences,
+  speechOverlap,
+  speechSegments,
+  type Segment,
+  type Silence,
+} from './lib/audioChunks';
 import { normalizeUtterances } from './lib/speakers';
 import { mergeParticipants } from './lib/participants';
 import { collapseRepetitions } from './lib/repetition';
@@ -174,11 +181,24 @@ async function getAudioDuration(audioPath: string): Promise<number> {
   return parseFloat(out.trim());
 }
 
+// Guardrail de silêncio (anti-alucinação). Ajustáveis por env:
+// - SILENCE_NOISE_DB: abaixo disto é silêncio/ruído de fundo (default -35 dB)
+// - SILENCE_MIN_SECONDS: duração mínima para contar como silêncio (0.5 s)
+// - MIN_SPEECH_SECONDS_PER_CHUNK: chunk com menos fala que isto nem vai para a IA (2 s)
+// - MIN_SPEECH_RATIO: fala reportada com menos que esta fração dentro de trechos
+//   de fala é descartada como alucinação (0.25); janela tolerante de ±1,5 s
+//   porque os timestamps do modelo são aproximados.
+const SILENCE_NOISE_DB = Number(env.SILENCE_NOISE_DB ?? '-35');
+const SILENCE_MIN_SECONDS = Number(env.SILENCE_MIN_SECONDS ?? '0.5');
+const MIN_SPEECH_SECONDS_PER_CHUNK = Number(env.MIN_SPEECH_SECONDS_PER_CHUNK ?? '2');
+const MIN_SPEECH_RATIO = Number(env.MIN_SPEECH_RATIO ?? '0.25');
+const SPEECH_PAD_SECONDS = 1.5;
+
 async function detectSilences(audioPath: string): Promise<Silence[]> {
   try {
     const out = await runProcessAll('ffmpeg', [
       '-i', audioPath,
-      '-af', 'silencedetect=noise=-35dB:d=0.5',
+      '-af', `silencedetect=noise=${SILENCE_NOISE_DB}dB:d=${SILENCE_MIN_SECONDS}`,
       '-f', 'null', '-',
     ]);
     return parseSilences(out);
@@ -192,14 +212,14 @@ async function splitAudio(
   audioPath: string,
   chunkDir: string,
   chunkSeconds: number,
-): Promise<Array<{ path: string; offset: number }>> {
-  const duration = await getAudioDuration(audioPath);
+  duration: number,
+  silences: Silence[],
+): Promise<Array<{ path: string; offset: number; length: number }>> {
   // Cortes alinhados a pausas de silêncio: cortar no meio de uma frase confundia
   // o speaker na fronteira entre chunks.
-  const silences = await detectSilences(audioPath);
   const cuts = computeChunkBoundaries(duration, silences, chunkSeconds, 60);
   const starts = [0, ...cuts];
-  const chunks: Array<{ path: string; offset: number }> = [];
+  const chunks: Array<{ path: string; offset: number; length: number }> = [];
   for (let idx = 0; idx < starts.length; idx++) {
     const offset = starts[idx];
     const len = (idx + 1 < starts.length ? starts[idx + 1] : duration) - offset;
@@ -220,7 +240,7 @@ async function splitAudio(
     ]);
     const { size } = await stat(outPath);
     log(`  chunk ${idx} offset=${offset.toFixed(1)}s dur=${len.toFixed(1)}s tamanho=${(size / 1024).toFixed(0)}KB`);
-    chunks.push({ path: outPath, offset });
+    chunks.push({ path: outPath, offset, length: len });
   }
   log(`dividido em ${chunks.length} chunk(s)`);
   return chunks;
@@ -807,8 +827,17 @@ async function processRecording(rec: RecordingObject) {
 
     await downloadToFile(key, videoPath);
     await extractAudio(videoPath, audioPath);
-    const durationSeconds = Math.round(await getAudioDuration(audioPath));
-    const chunks = await splitAudio(audioPath, chunkDir, CHUNK_SECONDS);
+    const duration = await getAudioDuration(audioPath);
+    const durationSeconds = Math.round(duration);
+    // Mapa de silêncio/fala da gravação inteira: guia os cortes dos chunks E é
+    // o guardrail contra alucinação em trechos sem fala.
+    const silences = await detectSilences(audioPath);
+    const speech: Segment[] = speechSegments(duration, silences);
+    const speechTotal = speech.reduce((acc, s) => acc + (s.end - s.start), 0);
+    log(`fala detectada: ${speechTotal.toFixed(0)}s de ${durationSeconds}s (${silences.length} silêncios)`);
+    const chunks = await splitAudio(audioPath, chunkDir, CHUNK_SECONDS, duration, silences);
+    let silentChunks = 0;
+    let droppedSilent = 0;
 
     // Reuso de backlog: se já existe transcrição (txt) no MinIO de um run
     // anterior, reconstrói as falas dela em vez de re-transcrever (economiza
@@ -829,8 +858,16 @@ async function processRecording(rec: RecordingObject) {
       // rótulos de speaker consistentes ao longo da reunião inteira.
       let prevTail: Utterance[] = [];
       for (let i = 0; i < chunks.length; i++) {
-        const { path: chunkPath, offset } = chunks[i];
-        log(`chunk ${i + 1}/${chunks.length} (offset=${offset}s)`);
+        const { path: chunkPath, offset, length } = chunks[i];
+        // Chunk sem fala (só silêncio/ruído): nem vai para a IA — é onde ela
+        // mais inventa conteúdo, e não custa nada pular.
+        const chunkSpeech = speechOverlap(offset, offset + length, speech);
+        if (chunkSpeech < MIN_SPEECH_SECONDS_PER_CHUNK) {
+          silentChunks += 1;
+          log(`chunk ${i + 1}/${chunks.length} sem fala (${chunkSpeech.toFixed(1)}s) — pulado`);
+          continue;
+        }
+        log(`chunk ${i + 1}/${chunks.length} (offset=${offset}s, fala=${chunkSpeech.toFixed(0)}s)`);
         let result: ChunkResult;
         try {
           result = await transcribeChunk(chunkPath, participants, prevTail);
@@ -841,12 +878,27 @@ async function processRecording(rec: RecordingObject) {
           skippedDetails.push({ chunk: i + 1, offsetSeconds: offset, reason });
           continue;
         }
-        const chunkUtts: Utterance[] = result.utterances.map((u) => ({
-          speaker: u.speaker,
-          text: u.text,
-          start: u.start + offset,
-          end: Math.max(u.end, u.start) + offset,
-        }));
+        const chunkUtts: Utterance[] = result.utterances
+          .map((u) => ({
+            speaker: u.speaker,
+            text: u.text,
+            start: u.start + offset,
+            end: Math.max(u.end, u.start) + offset,
+          }))
+          // Guardrail: fala "transcrita" onde o áudio estava em silêncio é
+          // alucinação. Janela com folga de ±1,5s (timestamps do modelo são
+          // aproximados); descarta se quase nada dela cai em trecho de fala.
+          .filter((u) => {
+            const a = u.start - SPEECH_PAD_SECONDS;
+            const b = Math.max(u.end, u.start + 1) + SPEECH_PAD_SECONDS;
+            const ratio = speechOverlap(a, b, speech) / (b - a);
+            if (ratio < MIN_SPEECH_RATIO) {
+              droppedSilent += 1;
+              log(`  descartada (silêncio no áudio) [${u.start.toFixed(0)}s] ${u.speaker}: ${u.text.slice(0, 60)}`);
+              return false;
+            }
+            return true;
+          });
         allUtts.push(...chunkUtts);
         if (result.looped) {
           // Fica registrado como trecho possivelmente incompleto (a UI oferece
@@ -918,6 +970,10 @@ async function processRecording(rec: RecordingObject) {
       participants,
       skippedChunks: skipped,
       skippedChunkDetails: skippedDetails,
+      // Diagnóstico do guardrail de silêncio.
+      speechSeconds: Math.round(speechTotal),
+      silentChunks,
+      droppedSilentUtterances: droppedSilent,
       utterances: finalUtts,
     };
     await uploadText(manifestKey(id), JSON.stringify(manifest, null, 2), 'application/json');

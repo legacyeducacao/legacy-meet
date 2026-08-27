@@ -43,3 +43,32 @@ describe('computeChunkBoundaries', () => {
     expect(computeChunkBoundaries(650, silences, 300, 60)).toEqual([300, 600]);
   });
 });
+
+describe('speechSegments / speechOverlap', () => {
+  const silences = [
+    { start: 0, end: 10 },
+    { start: 20, end: 25 },
+    { start: 55, end: 60 },
+  ];
+
+  it('speechSegments é o complemento dos silêncios dentro da duração', async () => {
+    const { speechSegments } = await import('./audioChunks');
+    expect(speechSegments(60, silences)).toEqual([
+      { start: 10, end: 20 },
+      { start: 25, end: 55 },
+    ]);
+  });
+
+  it('sem silêncios, tudo é fala', async () => {
+    const { speechSegments } = await import('./audioChunks');
+    expect(speechSegments(30, [])).toEqual([{ start: 0, end: 30 }]);
+  });
+
+  it('speechOverlap conta só os segundos dentro de fala', async () => {
+    const { speechSegments, speechOverlap } = await import('./audioChunks');
+    const segs = speechSegments(60, silences);
+    expect(speechOverlap(5, 15, segs)).toBe(5); // 10..15
+    expect(speechOverlap(0, 10, segs)).toBe(0); // todo em silêncio
+    expect(speechOverlap(18, 27, segs)).toBe(4); // 18..20 + 25..27
+  });
+});
