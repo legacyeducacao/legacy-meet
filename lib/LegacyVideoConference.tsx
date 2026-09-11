@@ -4,6 +4,9 @@ import * as React from 'react';
 import { Track, RoomEvent, ConnectionState, ScreenSharePresets, isLocalTrack } from 'livekit-client';
 import { BackgroundBlur } from '@livekit/track-processors';
 import { HostParticipantsPanel } from './HostParticipantsPanel';
+import { toast } from '@/components/ui/custom-toast';
+import { describeMediaError, type MediaSource } from './mediaErrors';
+import { reportClientEvent, serializeError } from './telemetry';
 import {
   Chat,
   ChatToggle,
@@ -111,8 +114,23 @@ function LegacyControlBar(props: {
     [saveVideoInputEnabled],
   );
 
-  const reportError = (source: Track.Source) => (error: Error) =>
+  const reportError = (source: Track.Source) => (error: Error) => {
+    const kind: MediaSource =
+      source === Track.Source.Camera
+        ? 'camera'
+        : source === Track.Source.Microphone
+          ? 'microphone'
+          : source === Track.Source.ScreenShare
+            ? 'screenshare'
+            : 'unknown';
+    console.error(`Erro ao ativar ${kind}:`, error);
+    reportClientEvent('media_error', { source: kind, viaButton: true, error: serializeError(error) });
+    // Cancelar o seletor de tela não é erro para o usuário.
+    if (!(kind === 'screenshare' && error.name === 'NotAllowedError')) {
+      toast.error(describeMediaError(error, kind), { duration: 8000 });
+    }
     props.onDeviceError?.({ source, error });
+  };
 
   // Hook do toggle de microfone (preserva onChange + onDeviceError)
   const {

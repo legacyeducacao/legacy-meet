@@ -30,6 +30,7 @@ import { useRouter } from 'next/navigation';
 import { useSetupE2EE } from '@/lib/useSetupE2EE';
 import { useLowCPUOptimizer } from '@/lib/usePerfomanceOptimiser';
 import { reportClientEvent, serializeError, setTelemetryContext } from '@/lib/telemetry';
+import { describeMediaError, iframePermissionProblem } from '@/lib/mediaErrors';
 
 const CONN_DETAILS_ENDPOINT =
   process.env.NEXT_PUBLIC_CONN_DETAILS_ENDPOINT ?? '/api/connection-details';
@@ -77,6 +78,17 @@ export function PageClientImpl(props: {
     }
   }, []);
 
+  // Meet embutido (CRM) em iframe sem allow="camera; microphone": o navegador
+  // nega os dispositivos sem perguntar. Avisa com orientação em vez de deixar
+  // o usuário achar que a câmera dele quebrou.
+  React.useEffect(() => {
+    const problem = iframePermissionProblem();
+    if (problem) {
+      toast.error(problem, { duration: 15000 });
+      reportClientEvent('iframe_permissions_blocked', { room: props.roomName });
+    }
+  }, [props.roomName]);
+
   // Nome é obrigatório para entrar (vale para host e convidado).
   const handleValidate = React.useCallback(
     (values: LocalUserChoices) => !!values.username && values.username.trim().length > 0,
@@ -94,13 +106,32 @@ export function PageClientImpl(props: {
     if (props.hostKey) {
       url.searchParams.append('hostKey', props.hostKey);
     }
-    const connectionDetailsResp = await fetch(url.toString());
-    const connectionDetailsData = await connectionDetailsResp.json();
-    setConnectionDetails(connectionDetailsData);
+    try {
+      const connectionDetailsResp = await fetch(url.toString());
+      if (!connectionDetailsResp.ok) {
+        const text = (await connectionDetailsResp.text().catch(() => '')).slice(0, 200);
+        throw new Error(`connection-details ${connectionDetailsResp.status}: ${text}`);
+      }
+      const connectionDetailsData = (await connectionDetailsResp.json()) as ConnectionDetails;
+      if (!connectionDetailsData?.serverUrl || !connectionDetailsData?.participantToken) {
+        throw new Error('connection-details sem serverUrl/participantToken');
+      }
+      setConnectionDetails(connectionDetailsData);
+    } catch (e) {
+      // Sem isto o clique em "Entrar" falhava em silêncio e o usuário ficava
+      // preso na tela de pré-entrada sem saber o motivo.
+      console.error(e);
+      reportClientEvent('connection_details_failed', { room: props.roomName, error: serializeError(e) });
+      setPreJoinChoices(undefined);
+      toast.error('Não foi possível preparar a entrada na reunião. Verifique sua internet e tente de novo.', {
+        duration: 8000,
+      });
+    }
   }, [props.roomName, props.region, props.hostKey]);
   const handlePreJoinError = React.useCallback((e: any) => {
     console.error(e);
     reportClientEvent('prejoin_error', { room: props.roomName, error: serializeError(e) });
+    toast.error(describeMediaError(e), { duration: 10000 });
   }, [props.roomName]);
 
   return (
@@ -385,19 +416,29 @@ function VideoConferenceComponent(props: {
           } catch (error) {
             console.error('Falha ao habilitar a câmera (2 tentativas):', error);
             reportClientEvent('device_enable_failed', { source: 'camera', error: serializeError(error) });
-            toast.error(
-              'Não foi possível iniciar a câmera (pode estar em uso por outro app). Você entrou sem vídeo — ative a câmera pela barra quando estiver livre.',
-              { duration: 6000 },
-            );
+            toast.error(`${describeMediaError(error, 'camera')} Você entrou sem vídeo.`, { duration: 8000 });
           }
         }
       })();
     }
     if (props.userChoices.audioEnabled) {
-      room.localParticipant.setMicrophoneEnabled(true).catch((error) => {
-        console.error('Falha ao habilitar o microfone:', error);
-        reportClientEvent('device_enable_failed', { source: 'microphone', error: serializeError(error) });
-      });
+      (async () => {
+        try {
+          await room.localParticipant.setMicrophoneEnabled(true);
+        } catch {
+          // Mesma corrida do PreJoin liberando o dispositivo: uma segunda tentativa.
+          await new Promise((r) => setTimeout(r, 1000));
+          try {
+            await room.localParticipant.setMicrophoneEnabled(true);
+          } catch (error) {
+            console.error('Falha ao habilitar o microfone (2 tentativas):', error);
+            reportClientEvent('device_enable_failed', { source: 'microphone', error: serializeError(error) });
+            toast.error(`${describeMediaError(error, 'microphone')} Você entrou sem áudio.`, {
+              duration: 10000,
+            });
+          }
+        }
+      })();
     }
     if (!isHost) {
       room.localParticipant.setAttributes({ lobby: '' }).catch(() => {});
@@ -562,9 +603,16 @@ function VideoConferenceComponent(props: {
   // Erros de dispositivo de mídia (ex.: "Timeout starting video source") já são
   // tratados de forma amigável (retry + toast + ingresso sem vídeo) — aqui só
   // registramos no console, sem alert disruptivo.
+  const lastMediaErrorRef = React.useRef<string>('');
   const handleMediaError = React.useCallback((error: Error) => {
     console.error('Erro de dispositivo de mídia:', error);
     reportClientEvent('media_error', { error: serializeError(error) });
+    // Um toast por tipo de erro (o SDK pode repetir o mesmo erro em sequência).
+    const key = `${error.name}:${error.message}`;
+    if (key !== lastMediaErrorRef.current) {
+      lastMediaErrorRef.current = key;
+      toast.error(describeMediaError(error), { duration: 8000 });
+    }
   }, []);
   const handleEncryptionError = React.useCallback((error: Error) => {
     console.error(error);
