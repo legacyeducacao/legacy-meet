@@ -36,6 +36,22 @@ export interface RecordingManifest {
   participants?: string[];
   skippedChunks?: number[];
   skippedChunkDetails?: Array<{ chunk: number; offsetSeconds: number; reason: string }>;
+  // Rastreabilidade da transcrição (worker >= 2.0). Ausentes em manifestos
+  // antigos gerados pelo pipeline Gemini — todos opcionais.
+  /** Motor que transcreveu: 'gemini' (chunks via OpenRouter) ou 'assemblyai'. */
+  provider?: 'gemini' | 'assemblyai';
+  /** id da transcrição no provider (transcript_id da AssemblyAI). */
+  providerTranscriptId?: string;
+  /** Modelo de fala usado (ex.: universal-3-5-pro). */
+  speechModel?: string;
+  workerVersion?: string;
+  /** Duração do áudio cobrado pelo provider, em segundos (custo). */
+  audioDurationSeconds?: number;
+  estimatedCostUsd?: number;
+  /** Rótulo da diarização (A, B, C) → nome final exibido. */
+  speakerMap?: Record<string, string>;
+  /** Motivo quando transcriptionStatus === 'failed'. */
+  transcriptionError?: string;
   utterances: Utterance[];
 }
 
@@ -261,6 +277,8 @@ export async function canAccessRecording(
 }
 
 const SOURCE_PREFIX = 'com-transcricao/';
+const JOBS_PREFIX = process.env.JOBS_PREFIX ?? 'asr-jobs/';
+const DONE_PREFIX = process.env.TRANSCRIPTION_DONE_PREFIX ?? 'asr-done/';
 
 /**
  * Reenfileira uma gravação para transcrição (usado no "Transcrever novamente").
@@ -349,6 +367,12 @@ export async function requeueTranscription(id: string): Promise<void> {
   // Remove manifesto + txt: o worker só reprocessa quem não tem manifesto.
   await deleteObject(`${MANIFEST_PREFIX}${id}.json`);
   if (manifest.transcriptTxtKey) await deleteObject(manifest.transcriptTxtKey);
+  // Job assíncrono antigo (AssemblyAI) e marker do webhook: sem isso o worker
+  // acharia que a gravação já está submetida e não a reenviaria.
+  await deleteObject(`${JOBS_PREFIX}${id}.json`);
+  if (manifest.providerTranscriptId) {
+    await deleteObject(`${DONE_PREFIX}${manifest.providerTranscriptId}.json`);
+  }
 
   // O vídeo acabou de ser garantido em com-transcricao/ — o marker libera o
   // worker imediatamente (sem ele, esperaria o arquivo "esfriar"). Zera também

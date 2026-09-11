@@ -163,6 +163,11 @@ export function RecordingDetail({ manifest }: { manifest: RecordingManifest }) {
                     ? 'Reenviada. Ela some da lista por alguns minutos e reaparece transcrita quando o worker concluir.'
                     : 'O vídeo continua salvo. Você pode reenviar para transcrever novamente.'}
                 </p>
+                {failed && manifest.transcriptionError && (
+                  <p className="text-xs text-muted-foreground/80 mt-1 break-words">
+                    Motivo: {manifest.transcriptionError}
+                  </p>
+                )}
               </div>
               {renderRetry()}
             </CardContent>
