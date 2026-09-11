@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { toast } from '@/components/ui/custom-toast';
-import { isLowPowerDevice, isMobileDevice } from '@/lib/client-utils';
+import { isLowPowerDevice, isMobileDevice, preferredDeviceId } from '@/lib/client-utils';
 import { DebugMode } from '@/lib/Debug';
 import { KeyboardShortcuts } from '@/lib/KeyboardShortcuts';
 import { RecordingIndicator } from '@/lib/RecordingIndicator';
@@ -213,7 +213,9 @@ function VideoConferenceComponent(props: {
       videoCodec = undefined;
     }
     const videoCaptureDefaults: VideoCaptureOptions = {
-      deviceId: props.userChoices.videoDeviceId ?? undefined,
+      // Nunca o literal "default": vira filtro `exact` e nenhuma câmera casa
+      // com ele (ver preferredDeviceId).
+      deviceId: preferredDeviceId(props.userChoices.videoDeviceId),
       resolution: props.options.hq ? VideoPresets.h1080 : VideoPresets.h540,
     };
     const publishDefaults: TrackPublishDefaults = {
@@ -235,7 +237,7 @@ function VideoConferenceComponent(props: {
       videoCaptureDefaults: videoCaptureDefaults,
       publishDefaults: publishDefaults,
       audioCaptureDefaults: {
-        deviceId: props.userChoices.audioDeviceId ?? undefined,
+        deviceId: preferredDeviceId(props.userChoices.audioDeviceId),
         // Cancelamento de ruído + eco ligados; auto-ganho DESLIGADO (evita o volume
         // variar sozinho/"pumping"). O cancelamento de eco é mantido pra não gerar
         // microfonia em quem usa alto-falante.
