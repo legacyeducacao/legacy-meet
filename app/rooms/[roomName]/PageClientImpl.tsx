@@ -32,6 +32,7 @@ import { useSetupE2EE } from '@/lib/useSetupE2EE';
 import { useLowCPUOptimizer } from '@/lib/usePerfomanceOptimiser';
 import { reportClientEvent, serializeError, setTelemetryContext } from '@/lib/telemetry';
 import { describeMediaError, iframePermissionProblem } from '@/lib/mediaErrors';
+import { isCohostIdentity } from '@/lib/cohosts';
 
 const CONN_DETAILS_ENDPOINT =
   process.env.NEXT_PUBLIC_CONN_DETAILS_ENDPOINT ?? '/api/connection-details';
@@ -306,19 +307,29 @@ function VideoConferenceComponent(props: {
     }
   }, [room]);
 
-  // Co-anfitrião: o anfitrião principal pode promover (atributo cohost='true');
-  // o cliente promovido passa a ver os painéis de anfitrião.
+  // Co-anfitrião: o anfitrião principal promove e o SERVIDOR grava a identidade
+  // nos metadados da sala; o cliente promovido passa a ver os painéis.
   const [isCohost, setIsCohost] = React.useState(false);
   React.useEffect(() => {
-    const update = () => setIsCohost(room.localParticipant.attributes?.cohost === 'true');
+    const update = () =>
+      setIsCohost(isCohostIdentity(room.metadata, room.localParticipant.identity));
     update();
-    room.on(RoomEvent.ParticipantAttributesChanged, update);
+    room.on(RoomEvent.RoomMetadataChanged, update);
     room.on(RoomEvent.Connected, update);
     return () => {
-      room.off(RoomEvent.ParticipantAttributesChanged, update);
+      room.off(RoomEvent.RoomMetadataChanged, update);
       room.off(RoomEvent.Connected, update);
     };
   }, [room]);
+
+  // URL do registro de participantes com o token (o endpoint exige prova de
+  // que quem chama está na sala). Usada no join, na saída e no pagehide.
+  const participantToken = props.connectionDetails.participantToken;
+  const participantsUrl = React.useMemo(
+    () =>
+      `/api/record/participants?roomName=${encodeURIComponent(room.name)}&token=${encodeURIComponent(participantToken)}`,
+    [room, participantToken],
+  );
 
   // Coleta os nomes de quem participou (para identificar os speakers na transcrição)
   const participantNamesRef = React.useRef<Set<string>>(new Set());
@@ -338,19 +349,18 @@ function VideoConferenceComponent(props: {
     // fechar a aba perdia o nome e a transcrição ficava sem os participantes).
     const myName = (props.userChoices.username ?? '').trim();
     if (myName) {
-      fetch(`/api/record/participants?roomName=${encodeURIComponent(room.name)}`, {
+      fetch(participantsUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ names: [myName] }),
         keepalive: true,
       }).catch(() => {});
     }
-    // Convidado: sinaliza que está na sala de espera para o host autorizar.
-    if (!isHost) {
-      room.localParticipant.setAttributes({ lobby: 'true' }).catch(() => {});
-    }
+    // Gravação automática: só o anfitrião dispara (o endpoint exige roomAdmin).
+    // Convidado disparando vencia a corrida com o host e gravava com os
+    // parâmetros da própria URL (sem transcrição, sem título).
     const endpoint = process.env.NEXT_PUBLIC_LK_RECORD_ENDPOINT;
-    if (!endpoint || !props.options.record || recordingStartedRef.current) {
+    if (!endpoint || !isHost || !props.options.record || recordingStartedRef.current) {
       return;
     }
     recordingStartedRef.current = true;
@@ -371,6 +381,7 @@ function VideoConferenceComponent(props: {
     props.options,
     props.userChoices.username,
     props.connectionDetails.participantToken,
+    participantsUrl,
     isHost,
   ]);
 
@@ -418,10 +429,7 @@ function VideoConferenceComponent(props: {
         }
       })();
     }
-    if (!isHost) {
-      room.localParticipant.setAttributes({ lobby: '' }).catch(() => {});
-    }
-  }, [admitted, room, props.userChoices.videoEnabled, props.userChoices.audioEnabled, isHost]);
+  }, [admitted, room, props.userChoices.videoEnabled, props.userChoices.audioEnabled]);
 
   const lowPowerMode = useLowCPUOptimizer(room);
 
@@ -443,14 +451,11 @@ function VideoConferenceComponent(props: {
       const names = [...participantNamesRef.current];
       if (!names.length) return;
       const blob = new Blob([JSON.stringify({ names })], { type: 'application/json' });
-      navigator.sendBeacon(
-        `/api/record/participants?roomName=${encodeURIComponent(room.name)}`,
-        blob,
-      );
+      navigator.sendBeacon(participantsUrl, blob);
     };
     window.addEventListener('pagehide', onPageHide);
     return () => window.removeEventListener('pagehide', onPageHide);
-  }, [room, collectParticipants]);
+  }, [participantsUrl, collectParticipants]);
 
   const router = useRouter();
 
@@ -459,14 +464,14 @@ function VideoConferenceComponent(props: {
     collectParticipants();
     const names = [...participantNamesRef.current];
     if (names.length) {
-      fetch(`/api/record/participants?roomName=${encodeURIComponent(room.name)}`, {
+      fetch(participantsUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ names }),
         keepalive: true,
       }).catch(() => {});
     }
-  }, [room, collectParticipants]);
+  }, [participantsUrl, collectParticipants]);
 
   const goToThanks = React.useCallback(() => {
     // host=1 quando é anfitrião OU co-anfitrião → o /obrigado NÃO mostra o NPS
@@ -684,7 +689,6 @@ function VideoConferenceComponent(props: {
 
   // Wrapper estável do menu de configurações com o token embutido (os endpoints
   // de gravação passaram a exigir o token do participante).
-  const participantToken = props.connectionDetails.participantToken;
   const SettingsWithToken = React.useMemo(() => {
     if (!SHOW_SETTINGS_MENU) return undefined;
     const Comp = () => <SettingsMenu participantToken={participantToken} />;

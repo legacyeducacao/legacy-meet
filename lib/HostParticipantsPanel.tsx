@@ -2,8 +2,9 @@
 
 import * as React from 'react';
 import { Users } from 'lucide-react';
-import { useParticipants, useRoomContext } from '@livekit/components-react';
+import { useParticipants, useRoomContext, useRoomInfo } from '@livekit/components-react';
 import { RoomEvent, Track } from 'livekit-client';
+import { parseCohosts } from './cohosts';
 
 const box: React.CSSProperties = {
   width: 'min(92vw, 320px)',
@@ -42,7 +43,7 @@ export function HostParticipantsPanel({
     updateOnlyOn: [
       RoomEvent.ParticipantConnected,
       RoomEvent.ParticipantDisconnected,
-      RoomEvent.ParticipantAttributesChanged,
+      RoomEvent.ParticipantPermissionsChanged,
       RoomEvent.TrackMuted,
       RoomEvent.TrackUnmuted,
       RoomEvent.TrackPublished,
@@ -53,8 +54,11 @@ export function HostParticipantsPanel({
 
   // Participantes admitidos (fora da sala de espera, sem o robô de gravação).
   const people = participants.filter(
-    (p) => !p.isLocal && p.attributes?.lobby !== 'true' && !p.identity.startsWith('EG_'),
+    (p) => !p.isLocal && p.permissions?.canPublish !== false && !p.identity.startsWith('EG_'),
   );
+  // Co-anfitriões vêm dos metadados da sala (escritos só pelo servidor).
+  const { metadata: roomMetadata } = useRoomInfo();
+  const cohosts = parseCohosts(roomMetadata);
 
   const post = React.useCallback(
     async (path: 'mute' | 'promote', payload: Record<string, unknown>, key: string) => {
@@ -113,7 +117,7 @@ export function HostParticipantsPanel({
           {people.map((p) => {
             const mic = p.getTrackPublication(Track.Source.Microphone);
             const muted = mic?.isMuted ?? true;
-            const isCohost = p.attributes?.cohost === 'true';
+            const isCohost = cohosts.includes(p.identity);
             return (
               <div
                 key={p.identity}

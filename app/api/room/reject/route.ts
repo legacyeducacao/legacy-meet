@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { authorizeHostAction, roomService } from '@/lib/livekitAuth';
+import { authorizeHostAction, isValidRoomName, roomService } from '@/lib/livekitAuth';
 
 export const dynamic = 'force-dynamic';
 

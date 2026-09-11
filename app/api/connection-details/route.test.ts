@@ -4,12 +4,15 @@ import { NextRequest } from 'next/server';
 const state = vi.hoisted(() => ({ user: null as null | { isStaff: boolean } }));
 vi.mock('@/lib/auth', () => ({ getCurrentUser: async () => state.user }));
 
-process.env.LIVEKIT_API_KEY = 'APIkey';
-process.env.LIVEKIT_API_SECRET = 'secret-de-teste-com-tamanho-suficiente-1234567890';
-process.env.LIVEKIT_URL = 'wss://livekit.example';
+// A rota lê as envs no carregamento do módulo: define antes dos imports (hoisted).
+vi.hoisted(() => {
+  process.env.LIVEKIT_API_KEY = 'APIkey';
+  process.env.LIVEKIT_API_SECRET = 'secret-de-teste-com-tamanho-suficiente-1234567890';
+  process.env.LIVEKIT_URL = 'wss://livekit.example';
+});
 
-const { GET } = await import('./route');
-const { signHostKey } = await import('@/lib/hostLink');
+import { GET } from './route';
+import { signHostKey } from '@/lib/hostLink';
 
 function req(params: Record<string, string>, cookies: Record<string, string> = {}) {
   const url = new URL('https://meet.example/api/connection-details');
@@ -38,9 +41,34 @@ describe('GET /api/connection-details', () => {
     const data = await res!.json();
     expect(data.isHost).toBe(false);
     const claims = decodeJwt(data.participantToken);
-    expect(claims.video).toMatchObject({ room: 'sala-1', roomJoin: true, canPublish: false, canSubscribe: false });
+    expect(claims.video).toMatchObject({
+      room: 'sala-1',
+      roomJoin: true,
+      canPublish: false,
+      canSubscribe: false,
+      canUpdateOwnMetadata: false,
+    });
     expect(claims.video.roomAdmin).toBeUndefined();
     expect(res!.headers.get('set-cookie')).not.toContain('lm-host-');
+  });
+
+  it('sufixo da identidade vem de cookie assinado; cookie forjado é ignorado', async () => {
+    const first = await GET(req({ roomName: 'sala-1', participantName: 'Ana' }));
+    const setCookie = first!.headers.get('set-cookie') ?? '';
+    const m = setCookie.match(/random-participant-postfix=([a-z0-9]+\.[a-f0-9]+)/);
+    expect(m).not.toBeNull();
+    const cookieValue = m![1];
+    const identity1 = decodeJwt((await first!.json()).participantToken).sub as string;
+    expect(identity1).toBe(`Ana__${cookieValue.split('.')[0]}`);
+
+    // Mesmo cookie → mesma identidade (reload no meio da reunião).
+    const again = await GET(req({ roomName: 'sala-1', participantName: 'Ana' }, { 'random-participant-postfix': cookieValue }));
+    expect(decodeJwt((await again!.json()).participantToken).sub).toBe(identity1);
+
+    // Cookie forjado com o sufixo de outra pessoa → sufixo novo, não o forjado.
+    const forged = await GET(req({ roomName: 'sala-1', participantName: 'Ana' }, { 'random-participant-postfix': 'ab12' }));
+    const identityForged = decodeJwt((await forged!.json()).participantToken).sub as string;
+    expect(identityForged).not.toBe('Ana__ab12');
   });
 
   it('hostKey válido na URL: vira host e grava o cookie lm-host-<sala>', async () => {

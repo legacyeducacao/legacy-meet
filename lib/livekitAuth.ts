@@ -3,6 +3,24 @@ import { NextRequest } from 'next/server';
 import { RoomServiceClient } from 'livekit-server-sdk';
 import { getCurrentUser } from '@/lib/auth';
 import { verifyHostKey } from './hostLink';
+import { isCohostIdentity, withCohost } from './cohosts';
+
+/** Nomes de sala aceitos em toda a API (o /api/meetings já gera neste formato). */
+export const ROOM_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;
+export const isValidRoomName = (name: unknown): name is string =>
+  typeof name === 'string' && ROOM_NAME_RE.test(name);
+
+/** Metadados atuais da sala (string JSON) ou '' se a sala não existe. */
+export async function getRoomMetadata(roomName: string): Promise<string> {
+  const rooms = await roomService().listRooms([roomName]);
+  return rooms[0]?.metadata ?? '';
+}
+
+/** Marca/desmarca um participante como co-anfitrião nos metadados da sala. */
+export async function setCohost(roomName: string, identity: string, enabled: boolean): Promise<void> {
+  const current = await getRoomMetadata(roomName);
+  await roomService().updateRoomMetadata(roomName, withCohost(current, identity, enabled));
+}
 
 export function roomService() {
   const { LIVEKIT_API_KEY, LIVEKIT_API_SECRET, LIVEKIT_URL } = process.env;
@@ -43,6 +61,12 @@ function verifyLivekitPayload(token: string | undefined, roomName: string): Live
   }
 }
 
+/** Token de ANFITRIÃO (grant roomAdmin) válido para a sala. */
+export function verifyHostToken(token: string | undefined, roomName: string): LivekitPayload | null {
+  const payload = verifyLivekitPayload(token, roomName);
+  return payload?.video?.roomAdmin === true ? payload : null;
+}
+
 /**
  * Token de PARTICIPANTE válido para a sala (grant roomJoin + sala correta).
  * Prova que quem chama está de fato na reunião — usado nos endpoints que
@@ -63,7 +87,8 @@ export function verifyRoomToken(
  *  - token do participante com grant de ADMIN da sala (host que entrou como
  *    staff/hostKey) — funciona mesmo sem o cookie de sessão (Meet embutido no
  *    CRM), ou
- *  - co-anfitrião: token válido + atributo cohost='true'.
+ *  - co-anfitrião: token válido + identidade na lista de co-anfitriões dos
+ *    metadados da sala (escrita só pelo servidor em /api/room/promote).
  */
 export async function authorizeHostAction(
   req: NextRequest,
@@ -86,10 +111,9 @@ export async function authorizeHostAction(
   const identity = typeof payload?.sub === 'string' ? payload.sub : null;
   if (identity) {
     try {
-      const p = await roomService().getParticipant(roomName, identity);
-      if (p?.attributes?.cohost === 'true') return true;
+      if (isCohostIdentity(await getRoomMetadata(roomName), identity)) return true;
     } catch {
-      /* participante não encontrado */
+      /* sala não encontrada */
     }
   }
   return false;

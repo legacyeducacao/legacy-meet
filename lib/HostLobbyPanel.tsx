@@ -5,7 +5,8 @@ import { useParticipants, useRoomContext } from '@livekit/components-react';
 import { RoomEvent } from 'livekit-client';
 
 // Painel exibido apenas para o anfitrião: lista convidados aguardando na "sala de
-// espera" (atributo lobby='true') e permite Admitir ou Recusar cada um.
+// espera" (sem permissão de publicar — estado que o SERVIDOR controla, não um
+// atributo que o convidado escreve) e permite Admitir ou Recusar cada um.
 export function HostLobbyPanel({
   hostKey,
   participantToken,
@@ -18,13 +19,13 @@ export function HostLobbyPanel({
     updateOnlyOn: [
       RoomEvent.ParticipantConnected,
       RoomEvent.ParticipantDisconnected,
-      RoomEvent.ParticipantAttributesChanged,
+      RoomEvent.ParticipantPermissionsChanged,
     ],
   });
   const [busy, setBusy] = React.useState<string | null>(null);
 
   const waiting = participants.filter(
-    (p) => !p.isLocal && p.attributes?.lobby === 'true',
+    (p) => !p.isLocal && !p.identity.startsWith('EG_') && p.permissions?.canPublish === false,
   );
 
   // Notificação sonora quando um NOVO convidado entra na sala de espera.

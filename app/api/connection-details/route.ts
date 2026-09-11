@@ -1,5 +1,5 @@
 import { getCurrentUser } from '@/lib/auth';
-import { randomString } from '@/lib/client-utils';
+import { newSignedPostfix, verifySignedPostfix } from '@/lib/participantIdentity';
 import { getLiveKitURL } from '@/lib/getLiveKitURL';
 import { verifyHostKey } from '@/lib/hostLink';
 import { ConnectionDetails } from '@/lib/types';
@@ -39,7 +39,11 @@ export async function GET(request: NextRequest) {
       throw new Error('LIVEKIT_URL is not defined');
     }
     const livekitServerUrl = region ? getLiveKitURL(LIVEKIT_URL, region) : LIVEKIT_URL;
-    let randomParticipantPostfix = request.cookies.get(COOKIE_KEY)?.value;
+    // Sufixo da identidade vem de cookie ASSINADO: sem assinatura qualquer um
+    // forjava a identidade de outro participante (nome + sufixo visíveis na
+    // sala) e o derrubava com DUPLICATE_IDENTITY.
+    let randomParticipantPostfix = verifySignedPostfix(request.cookies.get(COOKIE_KEY)?.value);
+    let postfixCookieValue: string | null = null;
     if (livekitServerUrl === undefined) {
       throw new Error('Invalid region');
     }
@@ -70,7 +74,9 @@ export async function GET(request: NextRequest) {
 
     // Generate participant token
     if (!randomParticipantPostfix) {
-      randomParticipantPostfix = randomString(4);
+      const fresh = newSignedPostfix();
+      randomParticipantPostfix = fresh.postfix;
+      postfixCookieValue = fresh.cookieValue;
     }
     const participantToken = await createParticipantToken(
       {
@@ -91,7 +97,7 @@ export async function GET(request: NextRequest) {
       isHost,
     };
     const res = NextResponse.json(data);
-    res.cookies.set(COOKIE_KEY, randomParticipantPostfix, COOKIE_OPTS);
+    if (postfixCookieValue) res.cookies.set(COOKIE_KEY, postfixCookieValue, COOKIE_OPTS);
     if (hostKeyUsed) res.cookies.set(hostCookieName(roomName), hostKeyUsed, COOKIE_OPTS);
     return res;
   } catch (error) {
@@ -109,6 +115,8 @@ function createParticipantToken(userInfo: AccessTokenOptions, roomName: string, 
   at.ttl = '12h';
   // Host: pode tudo + admin (admitir/remover). Convidado: entra na "sala de espera"
   // sem publicar nem assinar mídia até o host autorizar (server concede depois).
+  // Convidado também NÃO atualiza os próprios atributos: era por aí que ele se
+  // marcava como co-anfitrião. A admissão (/api/room/admit) libera depois.
   const grant: VideoGrant = isHost
     ? {
         room: roomName,
@@ -125,7 +133,7 @@ function createParticipantToken(userInfo: AccessTokenOptions, roomName: string, 
         canPublish: false,
         canPublishData: false,
         canSubscribe: false,
-        canUpdateOwnMetadata: true,
+        canUpdateOwnMetadata: false,
       };
   at.addGrant(grant);
   // Fecha a sala logo após o último participante sair, para a gravação (egress)

@@ -8,21 +8,22 @@ import {
   writeJson,
   type MeetingMeta,
 } from '@/lib/recordings';
-import { verifyRoomToken } from '@/lib/livekitAuth';
+import { isValidRoomName, verifyHostToken } from '@/lib/livekitAuth';
 import { mergeParticipants } from '@/worker/lib/participants';
 
 export async function GET(req: NextRequest) {
   try {
     const roomName = req.nextUrl.searchParams.get('roomName');
 
-    if (roomName === null) {
-      return new NextResponse('Missing roomName parameter', { status: 403 });
+    if (!isValidRoomName(roomName)) {
+      return new NextResponse('Missing or invalid roomName parameter', { status: 400 });
     }
 
-    // Só participantes da sala (token válido com roomJoin) podem iniciar a
-    // gravação — antes qualquer um com o nome da sala conseguia.
+    // Só o ANFITRIÃO (token com roomAdmin) inicia a gravação. Convidado — até
+    // um ainda na sala de espera — disparava o egress com os parâmetros da
+    // própria URL (sem transcrição, título vazio) e vencia a corrida com o host.
     const token = req.nextUrl.searchParams.get('token') ?? undefined;
-    if (!verifyRoomToken(token, roomName)) {
+    if (!verifyHostToken(token, roomName)) {
       return new NextResponse('Não autorizado', { status: 401 });
     }
 

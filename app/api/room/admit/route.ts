@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { authorizeHostAction, roomService } from '@/lib/livekitAuth';
+import { authorizeHostAction, isValidRoomName, roomService } from '@/lib/livekitAuth';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
     participantToken?: string;
   };
   const { roomName, identity } = body;
-  if (!roomName || !identity) {
+  if (!isValidRoomName(roomName) || !identity) {
     return new NextResponse('roomName e identity são obrigatórios', { status: 400 });
   }
   if (!(await authorizeHostAction(req, roomName, body))) {
@@ -26,7 +26,6 @@ export async function POST(req: NextRequest) {
         canPublishData: true,
         canUpdateMetadata: true,
       },
-      attributes: { lobby: '' },
     });
     return NextResponse.json({ ok: true });
   } catch (e) {
