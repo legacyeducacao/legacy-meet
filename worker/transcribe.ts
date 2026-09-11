@@ -64,6 +64,9 @@ import type {
   TranscriptionResult,
 } from './providers/types';
 import { createGeminiProvider } from './providers/gemini';
+import { createAssemblyAIProvider } from './providers/assemblyai';
+import { AssemblyAIClient, DEFAULT_SPEECH_MODEL } from './lib/assemblyai';
+import { loadKeytermsFile } from './lib/keyterms';
 
 // ----------------------------- Config -----------------------------
 const env = process.env;
@@ -88,6 +91,24 @@ const DONE_PREFIX = env.DONE_PREFIX ?? 'asr-done/';
 const JOB_MAX_WAIT_MINUTES = Number(env.ASSEMBLYAI_MAX_WAIT_MINUTES ?? '180');
 // Validade da URL assinada entregue ao provider (precisa cobrir fila + download).
 const SIGNED_URL_TTL_SECONDS = Number(env.SIGNED_URL_TTL_SECONDS ?? '43200');
+
+// AssemblyAI (TRANSCRIPTION_PROVIDER=assemblyai).
+const ASSEMBLYAI_API_KEY = env.ASSEMBLYAI_API_KEY;
+const ASSEMBLYAI_SPEECH_MODEL = env.ASSEMBLYAI_SPEECH_MODEL ?? DEFAULT_SPEECH_MODEL;
+const ASSEMBLYAI_LANGUAGE_CODE = env.ASSEMBLYAI_LANGUAGE_CODE ?? 'pt';
+const ASSEMBLYAI_TIMEOUT_MS = Number(env.ASSEMBLYAI_TIMEOUT_MS ?? '60000');
+const ASSEMBLYAI_USE_PARTICIPANT_COUNT = (env.ASSEMBLYAI_USE_PARTICIPANT_COUNT ?? 'true') !== 'false';
+const ASSEMBLYAI_SENTIMENT = env.ASSEMBLYAI_SENTIMENT === 'true';
+const ASSEMBLYAI_ENTITIES = env.ASSEMBLYAI_ENTITIES === 'true';
+const ASSEMBLYAI_RATE_USD_PER_HOUR = env.ASSEMBLYAI_RATE_USD_PER_HOUR
+  ? Number(env.ASSEMBLYAI_RATE_USD_PER_HOUR)
+  : undefined;
+const ASSEMBLYAI_POLL_MIN_SECONDS = Number(env.ASSEMBLYAI_POLL_MIN_SECONDS ?? '60');
+const ASSEMBLYAI_POLL_MAX_SECONDS = Number(env.ASSEMBLYAI_POLL_MAX_SECONDS ?? '300');
+// Webhook: o app recebe o callback e grava o marker; sem secret ou URL base, só polling.
+const ASSEMBLYAI_WEBHOOK_SECRET = env.ASSEMBLYAI_WEBHOOK_SECRET;
+const APP_BASE_URL = env.APP_BASE_URL;
+const KEYTERMS_FILE = env.KEYTERMS_FILE ?? path.resolve(process.cwd(), 'config/keyterms.json');
 
 // Google Drive (opcional): se configurado, arquiva o vídeo no Drive e remove do MinIO.
 const GOOGLE_OAUTH_CLIENT_ID = env.GOOGLE_OAUTH_CLIENT_ID;
@@ -140,7 +161,39 @@ function createProvider(): TranscriptionProvider {
       chunkSeconds: CHUNK_SECONDS,
     });
   }
-  console.error(`TRANSCRIPTION_PROVIDER inválido: ${TRANSCRIPTION_PROVIDER} (use gemini)`);
+  if (TRANSCRIPTION_PROVIDER === 'assemblyai') {
+    if (!ASSEMBLYAI_API_KEY) {
+      console.error('TRANSCRIPTION_PROVIDER=assemblyai exige ASSEMBLYAI_API_KEY');
+      process.exit(1);
+    }
+    const keyterms = loadKeytermsFile(KEYTERMS_FILE);
+    const webhook =
+      ASSEMBLYAI_WEBHOOK_SECRET && APP_BASE_URL
+        ? { baseUrl: APP_BASE_URL, headerName: 'X-Legacy-Webhook-Secret', headerValue: ASSEMBLYAI_WEBHOOK_SECRET }
+        : undefined;
+    log(
+      `assemblyai: modelo=${ASSEMBLYAI_SPEECH_MODEL} idioma=${ASSEMBLYAI_LANGUAGE_CODE} ` +
+        `keyterms=${keyterms.length} (${KEYTERMS_FILE}) webhook=${webhook ? 'on' : 'off (só polling)'}`,
+    );
+    return createAssemblyAIProvider({
+      client: new AssemblyAIClient({
+        apiKey: ASSEMBLYAI_API_KEY,
+        timeoutMs: ASSEMBLYAI_TIMEOUT_MS,
+        onRetry: (attempt, e, delayMs) =>
+          log(`assemblyai: tentativa ${attempt} falhou (${e instanceof Error ? e.message : e}) — retry em ${delayMs}ms`),
+      }),
+      speechModel: ASSEMBLYAI_SPEECH_MODEL,
+      languageCode: ASSEMBLYAI_LANGUAGE_CODE,
+      keyterms,
+      useParticipantCount: ASSEMBLYAI_USE_PARTICIPANT_COUNT,
+      addons: { sentiment: ASSEMBLYAI_SENTIMENT, entities: ASSEMBLYAI_ENTITIES },
+      webhook,
+      ratePerHourUsd: ASSEMBLYAI_RATE_USD_PER_HOUR,
+      pollMinIntervalMs: ASSEMBLYAI_POLL_MIN_SECONDS * 1000,
+      pollMaxIntervalMs: ASSEMBLYAI_POLL_MAX_SECONDS * 1000,
+    });
+  }
+  console.error(`TRANSCRIPTION_PROVIDER inválido: ${TRANSCRIPTION_PROVIDER} (use gemini ou assemblyai)`);
   process.exit(1);
 }
 const provider = createProvider();
@@ -220,15 +273,17 @@ async function isEgressReady(id: string, lastModified?: Date): Promise<boolean> 
 // a cada poll para sempre (queimando créditos em loop).
 const MAX_RECORDING_ATTEMPTS = Number(env.MAX_RECORDING_ATTEMPTS ?? '3');
 
+async function readAttempts(id: string): Promise<number> {
+  try {
+    return Number(JSON.parse((await getObjectTextOrNull(`attempts/${id}.json`)) ?? '{"count":0}').count ?? 0);
+  } catch {
+    return 0;
+  }
+}
+
 async function bumpAttempts(id: string): Promise<number> {
   const key = `attempts/${id}.json`;
-  let count = 0;
-  try {
-    count = Number(JSON.parse((await getObjectTextOrNull(key)) ?? '{"count":0}').count ?? 0);
-  } catch {
-    count = 0;
-  }
-  count += 1;
+  const count = (await readAttempts(id)) + 1;
   await uploadText(key, JSON.stringify({ count }), 'application/json');
   return count;
 }
@@ -638,6 +693,7 @@ async function processRecording(rec: RecordingObject) {
       roomName: ctx.roomName,
       participants: ctx.participants,
       tmpDir: tmp,
+      attempt: await readAttempts(id),
       sources: [makeAudioSource(rec.key)],
     });
 

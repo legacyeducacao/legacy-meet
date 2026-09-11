@@ -24,6 +24,8 @@ export interface TranscriptionInput {
   participants: string[];
   /** Diretório temporário exclusivo deste processamento. */
   tmpDir: string;
+  /** Quantas vezes esta gravação já falhou (0 = primeira vez). */
+  attempt: number;
   sources: AudioSource[];
 }
 
