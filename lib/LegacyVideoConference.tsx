@@ -2,7 +2,6 @@
 
 import * as React from 'react';
 import { Track, RoomEvent, ConnectionState, ScreenSharePresets, isLocalTrack } from 'livekit-client';
-import { BackgroundBlur } from '@livekit/track-processors';
 import { HostParticipantsPanel } from './HostParticipantsPanel';
 import { toast } from '@/components/ui/custom-toast';
 import { describeMediaError, type MediaSource } from './mediaErrors';
@@ -181,6 +180,9 @@ function LegacyControlBar(props: {
         await track.stopProcessor();
         setBlurEnabled(false);
       } else {
+        // Import dinâmico: o MediaPipe (~185 KB de JS + modelo) só é baixado
+        // por quem usa o desfoque, não por todo participante ao entrar.
+        const { BackgroundBlur } = await import('@livekit/track-processors');
         await track.setProcessor(BackgroundBlur());
         setBlurEnabled(true);
       }

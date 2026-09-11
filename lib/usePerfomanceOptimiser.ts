@@ -45,6 +45,8 @@ export function useLowCPUOptimizer(room: Room, options: Partial<LowCPUOptimizerO
             publication.setVideoQuality(VideoQuality.LOW);
           });
         });
+        // Evita re-render/efeito a cada render sem mudança real.
+
       }
     };
 
@@ -52,11 +54,12 @@ export function useLowCPUOptimizer(room: Room, options: Partial<LowCPUOptimizerO
     return () => {
       room.localParticipant.off(ParticipantEvent.LocalTrackCpuConstrained, handleCpuConstrained);
     };
-  }, [room, opts.reducePublisherVideoQuality, opts.reduceSubscriberVideoQuality]);
+  }, [room, opts.reducePublisherVideoQuality, opts.reduceSubscriberVideoQuality, opts.disableVideoProcessing]);
 
   React.useEffect(() => {
-    const lowerQuality = (_: RemoteTrack, publication: RemoteTrackPublication) => {
-      publication.setVideoQuality(VideoQuality.LOW);
+    const lowerQuality = (track: RemoteTrack, publication: RemoteTrackPublication) => {
+      // Só vídeo: em áudio a chamada gerava um UpdateTrackSettings inútil.
+      if (isVideoTrack(track)) publication.setVideoQuality(VideoQuality.LOW);
     };
     if (lowPowerMode && opts.reduceSubscriberVideoQuality) {
       room.on(RoomEvent.TrackSubscribed, lowerQuality);

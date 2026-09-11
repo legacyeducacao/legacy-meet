@@ -11,7 +11,9 @@ export const useDebugMode = ({ logLevel }: { logLevel?: LogLevel }) => {
   const room = useRoomContext();
 
   React.useEffect(() => {
-    setLogLevel(logLevel ?? 'debug');
+    // Em produção o nível debug do SDK enche o console a cada pacote de
+    // estatísticas (custa CPU em máquina fraca); warn basta para diagnosticar.
+    setLogLevel(logLevel ?? (process.env.NODE_ENV === 'production' ? 'warn' : 'debug'));
 
     if (process.env.NEXT_PUBLIC_DATADOG_CLIENT_TOKEN && process.env.NEXT_PUBLIC_DATADOG_SITE) {
       console.log('setting up datadog logs');

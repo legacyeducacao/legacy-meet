@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { toast } from '@/components/ui/custom-toast';
-import { isLowPowerDevice } from '@/lib/client-utils';
+import { isLowPowerDevice, isMobileDevice } from '@/lib/client-utils';
 import { DebugMode } from '@/lib/Debug';
 import { KeyboardShortcuts } from '@/lib/KeyboardShortcuts';
 import { RecordingIndicator } from '@/lib/RecordingIndicator';
@@ -243,9 +243,10 @@ function VideoConferenceComponent(props: {
         echoCancellation: true,
         autoGainControl: false,
       },
-      // pixelDensity 'screen': em telas de alta densidade pede a resolução que o
-      // monitor realmente mostra; nos demais casos economiza banda de descida.
-      adaptiveStream: { pixelDensity: 'screen' },
+      // pixelDensity 'screen' pede ao servidor a resolução real do monitor. No
+      // celular (tela 2x/3x, rede móvel) isso triplicava a banda de descida por
+      // um ganho invisível numa tela pequena — lá fica em 1.
+      adaptiveStream: { pixelDensity: isMobileDevice() ? 1 : 'screen' },
       dynacast: true,
       e2ee: e2eeEnabled && worker ? { keyProvider, worker } : undefined,
       singlePeerConnection: props.options.singlePeerConnection,
@@ -503,6 +504,11 @@ function VideoConferenceComponent(props: {
       reportClientEvent(voluntary ? 'disconnected' : 'reconnect_gave_up', {
         reason: reason != null ? DisconnectReason[reason] : 'none',
       });
+      if (reason === DisconnectReason.DUPLICATE_IDENTITY) {
+        toast.info('Você entrou nesta reunião em outra aba ou dispositivo; esta sessão foi encerrada.', {
+          duration: 8000,
+        });
+      }
       if (voluntary) {
         goToThanks();
       } else {

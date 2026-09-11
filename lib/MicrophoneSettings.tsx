@@ -3,27 +3,17 @@ import { useKrispNoiseFilter } from '@livekit/components-react/krisp';
 import { TrackToggle } from '@livekit/components-react';
 import { MediaDeviceMenu } from '@livekit/components-react';
 import { Track } from 'livekit-client';
-import { isLowPowerDevice } from './client-utils';
+import { isLowPowerDevice, KRISP_FILTER_OPTIONS } from './client-utils';
 
 export function MicrophoneSettings() {
   const { isNoiseFilterEnabled, setNoiseFilterEnabled, isNoiseFilterPending } = useKrispNoiseFilter(
-    {
-      filterOptions: {
-        bufferOverflowMs: 100,
-        bufferDropMs: 200,
-        quality: isLowPowerDevice() ? 'low' : 'medium',
-        onBufferDrop: () => {
-          console.warn(
-            'krisp buffer dropped, noise filter versions >= 0.3.2 will automatically disable the filter',
-          );
-        },
-      },
-    },
+    { filterOptions: KRISP_FILTER_OPTIONS },
   );
 
   React.useEffect(() => {
-    // enable Krisp by default on non-low power devices
+    // Krisp por padrão fora de máquinas fracas (só funciona no LiveKit Cloud).
     setNoiseFilterEnabled(!isLowPowerDevice());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return (
     <div

@@ -6,7 +6,6 @@ import {
   useLocalParticipant,
   VideoTrack,
 } from '@livekit/components-react';
-import { BackgroundBlur, VirtualBackground } from '@livekit/track-processors';
 import { isLocalTrack, LocalTrackPublication, Track } from 'livekit-client';
 import Desk from '../public/background-images/samantha-gades-BlIhVfXbi9s-unsplash.jpg';
 import Nature from '../public/background-images/ali-kazal-tbw_KQE3Cbg-unsplash.jpg';
@@ -50,15 +49,30 @@ export function CameraSettings() {
   };
 
   React.useEffect(() => {
-    if (isLocalTrack(cameraTrack?.track)) {
-      if (backgroundType === 'blur') {
-        cameraTrack.track?.setProcessor(BackgroundBlur());
-      } else if (backgroundType === 'image' && virtualBackgroundImagePath) {
-        cameraTrack.track?.setProcessor(VirtualBackground(virtualBackgroundImagePath));
-      } else {
-        cameraTrack.track?.stopProcessor();
+    if (!isLocalTrack(cameraTrack?.track)) return;
+    const track = cameraTrack.track;
+    let cancelled = false;
+    (async () => {
+      try {
+        if (backgroundType === 'none') {
+          await track.stopProcessor();
+          return;
+        }
+        // Import dinâmico: MediaPipe só para quem escolhe um efeito de fundo.
+        const { BackgroundBlur, VirtualBackground } = await import('@livekit/track-processors');
+        if (cancelled) return;
+        if (backgroundType === 'blur') {
+          await track.setProcessor(BackgroundBlur());
+        } else if (backgroundType === 'image' && virtualBackgroundImagePath) {
+          await track.setProcessor(VirtualBackground(virtualBackgroundImagePath));
+        }
+      } catch (e) {
+        console.error('Efeito de fundo:', e);
       }
-    }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [cameraTrack, backgroundType, virtualBackgroundImagePath]);
 
   return (
