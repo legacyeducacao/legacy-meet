@@ -68,7 +68,7 @@ import { createAssemblyAIProvider } from './providers/assemblyai';
 import { AssemblyAIClient, AssemblyAIError, DEFAULT_SPEECH_MODEL } from './lib/assemblyai';
 import { loadKeytermsFile } from './lib/keyterms';
 import { applySpeakerMap, mapSpeakers, type SpeakerMap } from './lib/speakerMap';
-import { openRouterJson } from './lib/openrouter';
+import { assemblyAiLlmJson, DEFAULT_ASSEMBLYAI_LLM_MODEL, openRouterJson } from './lib/chatJson';
 
 // ----------------------------- Config -----------------------------
 const env = process.env;
@@ -111,10 +111,15 @@ const ASSEMBLYAI_POLL_MAX_SECONDS = Number(env.ASSEMBLYAI_POLL_MAX_SECONDS ?? '3
 const ASSEMBLYAI_WEBHOOK_SECRET = env.ASSEMBLYAI_WEBHOOK_SECRET;
 const APP_BASE_URL = env.APP_BASE_URL;
 const KEYTERMS_FILE = env.KEYTERMS_FILE ?? path.resolve(process.cwd(), 'config/keyterms.json');
-// Mapeamento rótulo (A/B/C) → nome via LLM (OpenRouter/Gemini). Abaixo desta
-// confiança o rótulo genérico fica ("Falante A") em vez de chutar.
+// Mapeamento rótulo (A/B/C) → nome via LLM. Com o provider assemblyai a
+// chamada vai ao LLM Gateway da própria AssemblyAI (mesma chave; pipeline em
+// um fornecedor só); com OpenRouter configurado e SPEAKER_MAP_VIA=openrouter,
+// vai ao OpenRouter. Abaixo desta confiança o rótulo genérico fica
+// ("Falante A") em vez de chutar.
 const SPEAKER_MAP_MIN_CONFIDENCE = Number(env.SPEAKER_MAP_MIN_CONFIDENCE ?? '0.7');
-const SPEAKER_MAP_MODEL = env.SPEAKER_MAP_MODEL ?? OPENROUTER_MODEL;
+const SPEAKER_MAP_VIA = env.SPEAKER_MAP_VIA ?? (TRANSCRIPTION_PROVIDER === 'assemblyai' ? 'assemblyai' : 'openrouter');
+const SPEAKER_MAP_MODEL =
+  env.SPEAKER_MAP_MODEL ?? (SPEAKER_MAP_VIA === 'assemblyai' ? DEFAULT_ASSEMBLYAI_LLM_MODEL : OPENROUTER_MODEL);
 const SPEAKER_MAP_TIMEOUT_MS = Number(env.SPEAKER_MAP_TIMEOUT_MS ?? '60000');
 
 // Google Drive (opcional): se configurado, arquiva o vídeo no Drive e remove do MinIO.
@@ -180,7 +185,8 @@ function createProvider(): TranscriptionProvider {
         : undefined;
     log(
       `assemblyai: modelo=${ASSEMBLYAI_SPEECH_MODEL} idioma=${ASSEMBLYAI_LANGUAGE_CODE} ` +
-        `keyterms=${keyterms.length} (${KEYTERMS_FILE}) webhook=${webhook ? 'on' : 'off (só polling)'}`,
+        `keyterms=${keyterms.length} (${KEYTERMS_FILE}) webhook=${webhook ? 'on' : 'off (só polling)'} ` +
+        `falantes=${SPEAKER_MAP_VIA}/${SPEAKER_MAP_MODEL}`,
     );
     return createAssemblyAIProvider({
       client: new AssemblyAIClient({
@@ -674,25 +680,30 @@ async function finalizeRecording(
   );
 }
 
-// Sem OPENROUTER_API_KEY o mapeamento é pulado (rótulos genéricos) — a
-// transcrição em si não depende do LLM.
+// Sem chave para o LLM o mapeamento é pulado (rótulos genéricos) — a
+// transcrição em si não depende dele.
 async function resolveSpeakerMap(id: string, utterances: Utterance[], participants: string[]) {
   const startedAt = Date.now();
   const r = await mapSpeakers(utterances, participants, {
     minConfidence: SPEAKER_MAP_MIN_CONFIDENCE,
     llm: async ({ prompt, schema }) => {
+      const common = { model: SPEAKER_MAP_MODEL, prompt, schema, schemaName: 'speaker_map', timeoutMs: SPEAKER_MAP_TIMEOUT_MS };
+      if (SPEAKER_MAP_VIA === 'assemblyai') {
+        if (!ASSEMBLYAI_API_KEY) throw new Error('ASSEMBLYAI_API_KEY ausente — mapeamento de falantes pulado');
+        return assemblyAiLlmJson({ apiKey: ASSEMBLYAI_API_KEY, ...common });
+      }
       if (!OPENROUTER_API_KEY) throw new Error('OPENROUTER_API_KEY ausente — mapeamento de falantes pulado');
-      return openRouterJson({
-        apiKey: OPENROUTER_API_KEY,
-        model: SPEAKER_MAP_MODEL,
-        prompt,
-        schema,
-        schemaName: 'speaker_map',
-        timeoutMs: SPEAKER_MAP_TIMEOUT_MS,
-      });
+      return openRouterJson({ apiKey: OPENROUTER_API_KEY, ...common });
     },
   });
-  logJson('speaker_map', { recordingId: id, source: r.source, map: r.map, elapsedMs: Date.now() - startedAt });
+  logJson('speaker_map', {
+    recordingId: id,
+    via: SPEAKER_MAP_VIA,
+    model: SPEAKER_MAP_MODEL,
+    source: r.source,
+    map: r.map,
+    elapsedMs: Date.now() - startedAt,
+  });
   return r;
 }
 

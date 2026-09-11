@@ -6,16 +6,16 @@
  *   cd worker
  *   npx tsx scripts/transcribe-url.ts "<url>" [--participants "Ana Souza,Bruno Lima"] [--json saida.json]
  *
- * Envs: ASSEMBLYAI_API_KEY (obrigatória); OPENROUTER_API_KEY (opcional, para
- * mapear A/B/C → nomes quando --participants é informado); ASSEMBLYAI_SPEECH_MODEL,
- * ASSEMBLYAI_LANGUAGE_CODE, KEYTERMS_FILE, SPEAKER_MAP_MIN_CONFIDENCE.
+ * Envs: ASSEMBLYAI_API_KEY (obrigatória; também usada no LLM Gateway para mapear
+ * A/B/C → nomes quando --participants é informado); ASSEMBLYAI_SPEECH_MODEL,
+ * ASSEMBLYAI_LANGUAGE_CODE, KEYTERMS_FILE, SPEAKER_MAP_MODEL, SPEAKER_MAP_MIN_CONFIDENCE.
  * Custo: ~US$ 0,28 por hora de áudio.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { AssemblyAIClient, buildTranscriptParams, DEFAULT_SPEECH_MODEL, estimateCostUsd } from '../lib/assemblyai';
 import { buildKeyterms, loadKeytermsFile } from '../lib/keyterms';
-import { openRouterJson } from '../lib/openrouter';
+import { assemblyAiLlmJson, DEFAULT_ASSEMBLYAI_LLM_MODEL } from '../lib/chatJson';
 import { mergeParticipants } from '../lib/participants';
 import { normalizeUtterances } from '../lib/speakers';
 import { applySpeakerMap, mapSpeakers } from '../lib/speakerMap';
@@ -104,20 +104,17 @@ async function main() {
   );
 
   if (participants.length) {
-    const openRouterKey = process.env.OPENROUTER_API_KEY;
     const r = await mapSpeakers(utts, participants, {
       minConfidence: Number(process.env.SPEAKER_MAP_MIN_CONFIDENCE ?? '0.7'),
-      llm: async ({ prompt, schema }) => {
-        if (!openRouterKey) throw new Error('OPENROUTER_API_KEY ausente');
-        return openRouterJson({
-          apiKey: openRouterKey,
-          model: process.env.SPEAKER_MAP_MODEL ?? process.env.OPENROUTER_MODEL ?? 'google/gemini-2.5-flash',
+      llm: ({ prompt, schema }) =>
+        assemblyAiLlmJson({
+          apiKey,
+          model: process.env.SPEAKER_MAP_MODEL ?? DEFAULT_ASSEMBLYAI_LLM_MODEL,
           prompt,
           schema,
           schemaName: 'speaker_map',
           timeoutMs: 60_000,
-        });
-      },
+        }),
     });
     console.error(`mapeamento de falantes (${r.source}): ${JSON.stringify(r.map)}`);
     utts = applySpeakerMap(utts, r.map);

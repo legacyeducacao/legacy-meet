@@ -1,8 +1,9 @@
 # Migração da transcrição: Gemini → AssemblyAI (Universal-3.5 Pro)
 
-Desde o worker 2.0 a transcrição + diarização pode ser feita pela AssemblyAI. O Gemini
-(via OpenRouter) fica só para mapear os rótulos de voz (A, B, C) para os nomes dos
-participantes. A troca é por feature flag e reversível.
+Desde o worker 2.0 a transcrição + diarização pode ser feita pela AssemblyAI. O mapeamento
+dos rótulos de voz (A, B, C) para os nomes dos participantes também roda na AssemblyAI, pelo
+LLM Gateway dela (mesma chave, modelo `gemini-2.5-flash-lite` por padrão). Com a flag em
+`assemblyai`, o OpenRouter não é mais usado. A troca é por feature flag e reversível.
 
 ## 1. Configurar a chave
 
@@ -12,7 +13,6 @@ participantes. A troca é por feature flag e reversível.
 ```
 TRANSCRIPTION_PROVIDER=assemblyai
 ASSEMBLYAI_API_KEY=<chave>
-OPENROUTER_API_KEY=<já existe — usada no mapeamento de falantes>
 APP_BASE_URL=https://meet.legacyexecutoria.com.br
 ASSEMBLYAI_WEBHOOK_SECRET=<string aleatória longa, ex. openssl rand -hex 32>
 ```
@@ -32,7 +32,8 @@ Nunca commite a chave. `.env.example` lista todas as variáveis.
 2. O job fica em `asr-jobs/<id>.json`. Se o worker reiniciar, não resubmete.
 3. Quando termina, a AssemblyAI chama `POST /api/transcription/webhook` no app, que grava
    `asr-done/<transcript_id>.json`. O worker vê o marker no próximo ciclo (30 s), busca o
-   resultado, mapeia falantes com o Gemini, grava txt + manifesto e arquiva no Drive.
+   resultado, mapeia falantes pelo LLM Gateway da AssemblyAI, grava txt + manifesto e
+   arquiva no Drive (o MP4 sai do MinIO só depois disso, como antes).
 4. Sem webhook (secret ou `APP_BASE_URL` ausentes), o worker consulta a API sozinho: 60 s,
    120 s, 240 s… até 5 min entre consultas. Funciona, só demora um pouco mais.
 5. Passados `ASSEMBLYAI_MAX_WAIT_MINUTES` (180) sem resposta, a gravação vira `failed` com
@@ -49,7 +50,7 @@ Com a flag ainda em `gemini`, teste uma reunião real onde o Gemini errava:
 ```bash
 cd worker
 npm install
-ASSEMBLYAI_API_KEY=... OPENROUTER_API_KEY=... \
+ASSEMBLYAI_API_KEY=... \
   npx tsx scripts/transcribe-url.ts "<URL assinada do MP4>" --participants "Nome A,Nome B"
 ```
 
@@ -74,9 +75,10 @@ novos como opcionais.
 ## 5. Voltar para o Gemini
 
 1. No worker: `TRANSCRIPTION_PROVIDER=gemini` (ou remova a variável) e reinicie.
-2. Jobs pendentes em `asr-jobs/` são descartados e as gravações voltam para a fila do
+2. `OPENROUTER_API_KEY` precisa estar configurada (o provider `gemini` transcreve por ela).
+3. Jobs pendentes em `asr-jobs/` são descartados e as gravações voltam para a fila do
    pipeline antigo (contam no cap de tentativas).
-3. O webhook do app pode ficar configurado — sem jobs, nunca é chamado.
+4. O webhook do app pode ficar configurado — sem jobs, nunca é chamado.
 
 ## 6. Ajustes finos
 
@@ -84,6 +86,8 @@ novos como opcionais.
 |---|---|---|
 | `ASSEMBLYAI_USE_PARTICIPANT_COUNT` | `true` | `false` se reuniões com gente sem nome registrado estiverem juntando vozes |
 | `SPEAKER_MAP_MIN_CONFIDENCE` | `0.7` | Subir se aparecer nome errado; baixar se ficar muito "Falante A" |
+| `SPEAKER_MAP_MODEL` | `gemini-2.5-flash-lite` | Outro modelo do LLM Gateway da AssemblyAI (ex.: `claude-haiku`) |
+| `SPEAKER_MAP_VIA` | `assemblyai` | `openrouter` para mapear pelo OpenRouter (exige `OPENROUTER_API_KEY`) |
 | `KEYTERMS_FILE` | `config/keyterms.json` | Apontar para um arquivo montado no container para editar sem rebuild |
 | `ASSEMBLYAI_SENTIMENT` / `ASSEMBLYAI_ENTITIES` | `false` | Add-ons pagos; o resumo continua no LLM |
 | `ASSEMBLYAI_MAX_WAIT_MINUTES` | `180` | Prazo para marcar `failed` |

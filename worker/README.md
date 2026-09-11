@@ -14,7 +14,8 @@ Serviço independente (Node + ffmpeg) que transcreve as gravações das reuniõe
      - **`assemblyai`** (recomendado): ASR dedicado com diarização acústica. O worker
        gera uma URL assinada do MinIO e a AssemblyAI baixa o MP4 direto; o resultado
        chega por webhook (`/api/transcription/webhook` no app) ou polling. Rótulos
-       A/B/C são mapeados para os participantes pelo Gemini. Ver `MIGRATION.md`.
+       A/B/C são mapeados para os participantes por um LLM no **LLM Gateway da
+       própria AssemblyAI** (mesma chave). Ver `MIGRATION.md`.
      - **`gemini`** (padrão, caminho antigo): baixa o vídeo, extrai o áudio com
        `ffmpeg`, divide em chunks de ~5 min cortados em silêncio e transcreve cada
        chunk via **OpenRouter** (modelo multimodal), com guardrails anti-alucinação.
@@ -65,7 +66,7 @@ documentado, só mais lento.
 | `S3_REGION` | não | `us-east-1` | Região (MinIO aceita qualquer) |
 | `S3_BUCKET` | não | `legacy-meet` | Bucket das gravações |
 | `TRANSCRIPTION_PROVIDER` | não | `gemini` | `gemini` ou `assemblyai` |
-| `OPENROUTER_API_KEY` | sim | — | Chave do OpenRouter (transcrição no `gemini`; mapeamento de falantes no `assemblyai`) |
+| `OPENROUTER_API_KEY` | com `gemini` | — | Chave do OpenRouter (só o provider `gemini`) |
 | `OPENROUTER_MODEL` | não | `google/gemini-2.5-flash` | Modelo multimodal do provider `gemini` |
 | `ASSEMBLYAI_API_KEY` | com `assemblyai` | — | Chave da AssemblyAI |
 | `ASSEMBLYAI_WEBHOOK_SECRET` | não | — | Secret do webhook (mesmo valor no app). Sem ele: só polling |
@@ -82,7 +83,8 @@ documentado, só mais lento.
 | `TRANSCRIPTION_DONE_PREFIX` | não | `asr-done/` | Prefixo do marker do webhook (mesmo valor no app) |
 | `KEYTERMS_FILE` | não | `config/keyterms.json` | Vocabulário (`keyterms_prompt`) |
 | `SPEAKER_MAP_MIN_CONFIDENCE` | não | `0.7` | Confiança mínima para trocar "Falante A" por um nome |
-| `SPEAKER_MAP_MODEL` | não | `OPENROUTER_MODEL` | Modelo do mapeamento de falantes |
+| `SPEAKER_MAP_VIA` | não | `assemblyai` com `assemblyai`, senão `openrouter` | Onde roda o LLM do mapeamento de falantes |
+| `SPEAKER_MAP_MODEL` | não | `gemini-2.5-flash-lite` (gateway) / `OPENROUTER_MODEL` | Modelo do mapeamento de falantes |
 | `POLL_INTERVAL_SECONDS` | não | `30` | Intervalo do polling no MinIO |
 | `CHUNK_SECONDS` | não | `300` | Tamanho-alvo do chunk de áudio (`gemini`) |
 | `EGRESS_MIN_AGE_SECONDS` | não | `120` | Idade mínima do MP4 sem marker `ready/` |
@@ -103,6 +105,7 @@ providers/gemini.ts    pipeline em chunks via OpenRouter (rollback)
 providers/assemblyai.ts submit por URL assinada, polling, custo
 lib/assemblyai.ts      cliente REST da AssemblyAI
 lib/speakerMap.ts      rótulo A/B/C → nome via LLM
+lib/chatJson.ts        chamada texto→JSON (LLM Gateway da AssemblyAI ou OpenRouter)
 config/keyterms.json   vocabulário da Legacy (editável)
 scripts/transcribe-url.ts  teste manual: URL → utterances
 MIGRATION.md           como ativar/reverter a AssemblyAI
