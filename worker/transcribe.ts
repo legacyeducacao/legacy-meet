@@ -2,14 +2,17 @@
  * Legacy Meet — Worker de transcrição (nativo, Node/TypeScript)
  *
  * Faz polling no bucket MinIO procurando gravações em `com-transcricao/` que
- * ainda não têm transcrição. Para cada uma: baixa o MP4, extrai o áudio com
- * ffmpeg, divide em chunks, transcreve via OpenRouter (modelo multimodal, ex:
- * Gemini 2.5 Flash) com saída estruturada (speaker + timestamps) e salva o
- * resultado de volta no bucket (.json + .txt). Sem banco de dados.
+ * ainda não têm transcrição. Para cada uma, entrega o áudio a um provider de
+ * transcrição (TRANSCRIPTION_PROVIDER: `gemini` = pipeline original em chunks
+ * via OpenRouter; `assemblyai` = ASR dedicado com diarização, assíncrono) e
+ * salva o resultado de volta no bucket (.json + .txt). Sem banco de dados.
+ *
+ * Providers assíncronos deixam um job em `asr-jobs/<id>.json`; o worker
+ * acompanha o job a cada ciclo (marker `asr-done/` escrito pelo webhook do app
+ * ou polling na API) e finaliza quando o resultado chega.
  */
-import { spawn } from 'node:child_process';
 import { createWriteStream, readFileSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -39,19 +42,12 @@ import {
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { parsePlainTextToUtterances, utterancesToPlainText, type Utterance } from './lib/text';
-import {
-  computeChunkBoundaries,
-  parseSilences,
-  speechOverlap,
-  speechSegments,
-  type Segment,
-  type Silence,
-} from './lib/audioChunks';
 import { normalizeUtterances } from './lib/speakers';
 import { mergeParticipants } from './lib/participants';
-import { collapseRepetitions } from './lib/repetition';
-import { fetchWithTimeout } from './lib/http';
+import { getAudioDuration } from './lib/ffmpeg';
+import { log, logJson, sleep } from './lib/log';
 import {
   driveFindFileInFolder,
   driveFindOrCreateFolder,
@@ -59,6 +55,15 @@ import {
   getDriveAccessToken,
   type DriveConfig,
 } from './lib/drive';
+import { WORKER_VERSION } from './version';
+import type {
+  AudioSource,
+  PendingJob,
+  ProviderName,
+  TranscriptionProvider,
+  TranscriptionResult,
+} from './providers/types';
+import { createGeminiProvider } from './providers/gemini';
 
 // ----------------------------- Config -----------------------------
 const env = process.env;
@@ -67,6 +72,7 @@ const S3_KEY_ID = env.S3_KEY_ID;
 const S3_KEY_SECRET = env.S3_KEY_SECRET;
 const S3_REGION = env.S3_REGION ?? 'us-east-1';
 const S3_BUCKET = env.S3_BUCKET ?? 'legacy-meet';
+const TRANSCRIPTION_PROVIDER = (env.TRANSCRIPTION_PROVIDER ?? 'gemini') as ProviderName;
 const OPENROUTER_API_KEY = env.OPENROUTER_API_KEY;
 const OPENROUTER_MODEL = env.OPENROUTER_MODEL ?? 'google/gemini-2.5-flash';
 const POLL_INTERVAL_SECONDS = Number(env.POLL_INTERVAL_SECONDS ?? '30');
@@ -75,6 +81,13 @@ const CHUNK_SECONDS = Number(env.CHUNK_SECONDS ?? '300');
 const SOURCE_PREFIX = env.SOURCE_PREFIX ?? 'com-transcricao/';
 const OUTPUT_PREFIX = env.OUTPUT_PREFIX ?? 'transcricoes/';
 const MANIFEST_PREFIX = env.MANIFEST_PREFIX ?? 'manifests/';
+// Jobs assíncronos (providers que respondem depois) e markers do webhook.
+const JOBS_PREFIX = env.JOBS_PREFIX ?? 'asr-jobs/';
+const DONE_PREFIX = env.DONE_PREFIX ?? 'asr-done/';
+// Prazo máximo para um job assíncrono responder antes de virar "failed".
+const JOB_MAX_WAIT_MINUTES = Number(env.ASSEMBLYAI_MAX_WAIT_MINUTES ?? '180');
+// Validade da URL assinada entregue ao provider (precisa cobrir fila + download).
+const SIGNED_URL_TTL_SECONDS = Number(env.SIGNED_URL_TTL_SECONDS ?? '43200');
 
 // Google Drive (opcional): se configurado, arquiva o vídeo no Drive e remove do MinIO.
 const GOOGLE_OAUTH_CLIENT_ID = env.GOOGLE_OAUTH_CLIENT_ID;
@@ -93,14 +106,8 @@ const DRIVE_ENABLED = !!(
   GOOGLE_OAUTH_REFRESH_TOKEN
 );
 
-const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const CHUNK_RETRY_ATTEMPTS = 3;
-const PILEUP_THRESHOLD = 5; // utterances no mesmo timestamp = alucinação
-
-if (!S3_ENDPOINT || !S3_KEY_ID || !S3_KEY_SECRET || !OPENROUTER_API_KEY) {
-  console.error(
-    'Faltam variáveis de ambiente: S3_ENDPOINT, S3_KEY_ID, S3_KEY_SECRET, OPENROUTER_API_KEY',
-  );
+if (!S3_ENDPOINT || !S3_KEY_ID || !S3_KEY_SECRET) {
+  console.error('Faltam variáveis de ambiente: S3_ENDPOINT, S3_KEY_ID, S3_KEY_SECRET');
   process.exit(1);
 }
 
@@ -119,422 +126,24 @@ for (const sig of ['SIGTERM', 'SIGINT'] as const) {
   });
 }
 
-// Timestamp dos logs no horário de São Paulo. Usa toLocaleString com timeZone
-// explícito (ICU embutido no Node) — funciona sem tzdata no container.
-const log = (...args: unknown[]) =>
-  console.log(new Date().toLocaleString('sv-SE', { timeZone: 'America/Sao_Paulo' }), ...args);
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-class NonRetryableChunkError extends Error {}
-
-// --------------------------- ffmpeg helpers ---------------------------
-function runProcess(cmd: string, args: string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args);
-    let stdout = '';
-    let stderr = '';
-    child.stdout?.on('data', (d) => (stdout += d.toString()));
-    child.stderr?.on('data', (d) => (stderr += d.toString()));
-    child.on('error', reject);
-    child.on('close', (code) =>
-      code === 0
-        ? resolve(stdout)
-        : reject(new Error(`${cmd} saiu com código ${code}: ${stderr.slice(0, 500)}`)),
-    );
-  });
-}
-
-// Como runProcess, mas resolve stdout+stderr (o ffmpeg loga o silencedetect no stderr).
-function runProcessAll(cmd: string, args: string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args);
-    let stdout = '';
-    let stderr = '';
-    child.stdout?.on('data', (d) => (stdout += d.toString()));
-    child.stderr?.on('data', (d) => (stderr += d.toString()));
-    child.on('error', reject);
-    child.on('close', (code) =>
-      code === 0
-        ? resolve(`${stdout}\n${stderr}`)
-        : reject(new Error(`${cmd} saiu com código ${code}: ${stderr.slice(0, 500)}`)),
-    );
-  });
-}
-
-async function extractAudio(videoPath: string, audioPath: string) {
-  await runProcess('ffmpeg', [
-    '-y', '-loglevel', 'error',
-    '-i', videoPath,
-    '-vn', '-ac', '1', '-ar', '16000',
-    '-c:a', 'libmp3lame', '-b:a', '64k',
-    audioPath,
-  ]);
-}
-
-async function getAudioDuration(audioPath: string): Promise<number> {
-  const out = await runProcess('ffprobe', [
-    '-v', 'error',
-    '-show_entries', 'format=duration',
-    '-of', 'default=noprint_wrappers=1:nokey=1',
-    audioPath,
-  ]);
-  return parseFloat(out.trim());
-}
-
-// Guardrail de silêncio (anti-alucinação). Ajustáveis por env:
-// - SILENCE_NOISE_DB: abaixo disto é silêncio/ruído de fundo (default -35 dB)
-// - SILENCE_MIN_SECONDS: duração mínima para contar como silêncio (0.5 s)
-// - MIN_SPEECH_SECONDS_PER_CHUNK: chunk com menos fala que isto nem vai para a IA (2 s)
-// - MIN_SPEECH_RATIO: fala reportada com menos que esta fração dentro de trechos
-//   de fala é descartada como alucinação (0.25); janela tolerante de ±1,5 s
-//   porque os timestamps do modelo são aproximados.
-const SILENCE_NOISE_DB = Number(env.SILENCE_NOISE_DB ?? '-35');
-const SILENCE_MIN_SECONDS = Number(env.SILENCE_MIN_SECONDS ?? '0.5');
-const MIN_SPEECH_SECONDS_PER_CHUNK = Number(env.MIN_SPEECH_SECONDS_PER_CHUNK ?? '2');
-const MIN_SPEECH_RATIO = Number(env.MIN_SPEECH_RATIO ?? '0.25');
-const SPEECH_PAD_SECONDS = 1.5;
-
-async function detectSilences(audioPath: string): Promise<Silence[]> {
-  try {
-    const out = await runProcessAll('ffmpeg', [
-      '-i', audioPath,
-      '-af', `silencedetect=noise=${SILENCE_NOISE_DB}dB:d=${SILENCE_MIN_SECONDS}`,
-      '-f', 'null', '-',
-    ]);
-    return parseSilences(out);
-  } catch (e) {
-    log(`silencedetect falhou (${e}) — usando cortes fixos`);
-    return [];
-  }
-}
-
-async function splitAudio(
-  audioPath: string,
-  chunkDir: string,
-  chunkSeconds: number,
-  duration: number,
-  silences: Silence[],
-): Promise<Array<{ path: string; offset: number; length: number }>> {
-  // Cortes alinhados a pausas de silêncio: cortar no meio de uma frase confundia
-  // o speaker na fronteira entre chunks.
-  const cuts = computeChunkBoundaries(duration, silences, chunkSeconds, 60);
-  const starts = [0, ...cuts];
-  const chunks: Array<{ path: string; offset: number; length: number }> = [];
-  for (let idx = 0; idx < starts.length; idx++) {
-    const offset = starts[idx];
-    const len = (idx + 1 < starts.length ? starts[idx + 1] : duration) - offset;
-    const outPath = path.join(chunkDir, `chunk_${String(idx).padStart(3, '0')}.mp3`);
-    // RE-ENCODE (não -c copy): cortar o MP3 no meio do stream com copy gera chunks
-    // desalinhados/sem header que o decoder do modelo lê como ruído → ele alucina
-    // ou devolve vazio e o chunk é descartado (buracos na transcrição). Re-encodar
-    // a partir do áudio íntegro garante um MP3 limpo e decodável. -ss antes do -i
-    // = seek rápido; re-encode = chunk válido.
-    await runProcess('ffmpeg', [
-      '-y', '-loglevel', 'error',
-      '-ss', String(offset),
-      '-i', audioPath,
-      '-t', String(len),
-      '-ac', '1', '-ar', '16000',
-      '-c:a', 'libmp3lame', '-b:a', '64k',
-      outPath,
-    ]);
-    const { size } = await stat(outPath);
-    log(`  chunk ${idx} offset=${offset.toFixed(1)}s dur=${len.toFixed(1)}s tamanho=${(size / 1024).toFixed(0)}KB`);
-    chunks.push({ path: outPath, offset, length: len });
-  }
-  log(`dividido em ${chunks.length} chunk(s)`);
-  return chunks;
-}
-
-// --------------------------- OpenRouter ---------------------------
-function buildPrompt(participants: string[], prevTail: Utterance[] = []): string {
-  const speakerSection = participants.length
-    ? `Os participantes desta reunião são EXATAMENTE: ${participants.join(', ')}.
-- Use SEMPRE o nome exato de um deles no campo "speaker".
-- Só use "Desconhecido" quando realmente não conseguir atribuir a fala a nenhum deles.
-- NUNCA invente outros nomes nem rótulos como "Pessoa 1".`
-    : `Se houver vozes distintas, use "Pessoa 1", "Pessoa 2", etc, mantendo consistência dentro deste áudio.`;
-  // Cauda do chunk anterior: sem isso cada chunk era uma chamada sem memória e
-  // os rótulos de speaker não tinham relação entre chunks.
-  const contextSection = prevTail.length
-    ? `\nCONTEXTO (NÃO transcrever — apenas referência): este áudio é a CONTINUAÇÃO da mesma reunião. Últimas falas do trecho anterior:\n${prevTail
-        .map((u) => `${u.speaker}: ${u.text}`)
-        .join('\n')}\nUse os MESMOS rótulos de speaker para as mesmas vozes.\n`
-    : '';
-  return `Você é um transcritor de áudio. Vai receber um áudio de uma reunião empresarial em português brasileiro.
-${contextSection}
-REGRAS ABSOLUTAS - TRANSCRIÇÃO LITERAL:
-- Transcreva EXATAMENTE o que foi dito. Palavra por palavra.
-- NÃO invente conteúdo. Se não houver fala num trecho, NÃO gere utterance.
-- NÃO parafraseie. NÃO resuma. NÃO complete frases inacabadas.
-- NÃO corrija gramática nem fluência - preserve gaguejos, "é, é", "tipo assim", etc.
-- NÃO traduza. Mantenha o português brasileiro como falado.
-- Se houver silêncio ou ruído sem fala, retorne lista vazia em vez de inventar.
-
-Divisão em utterances:
-- Cada utterance = 1-2 frases curtas de UM speaker.
-- Quando o speaker muda, nova utterance.
-
-REGRAS CRÍTICAS sobre timestamps:
-- "start" DEVE ser estritamente crescente entre utterances consecutivas.
-- NUNCA repita o mesmo timestamp em utterances diferentes.
-- "end" DEVE ser >= "start" da própria utterance e <= "start" da próxima.
-- Timestamps em segundos relativos ao início DESTE áudio (começa em 0).
-
-Para o campo "speaker":
-${speakerSection}
-- Se for só uma voz, mantenha sempre o mesmo speaker.
-
-Retorne APENAS um objeto JSON no formato:
-{"utterances": [{"speaker": "...", "text": "...", "start": 0.0, "end": 2.5}, ...]}
-
-Se o áudio estiver mudo, com ruído sem fala ou sem conteúdo transcrevível, retorne {"utterances": []}.`;
-}
-
-// Com participantes conhecidos, `speaker` vira enum (nomes + "Desconhecido"):
-// o modelo fica IMPEDIDO de inventar rótulos novos ("Pessoa 3", nomes errados).
-function buildTranscriptionSchema(participants: string[]) {
-  const speaker = participants.length
-    ? { type: 'string', enum: [...participants, 'Desconhecido'] }
-    : { type: 'string' };
-  return {
-    type: 'object',
-    properties: {
-      utterances: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            speaker,
-            text: { type: 'string' },
-            start: { type: 'number' },
-            end: { type: 'number' },
-          },
-          required: ['speaker', 'text', 'start', 'end'],
-          additionalProperties: false,
-        },
-      },
-    },
-    required: ['utterances'],
-    additionalProperties: false,
-  };
-}
-
-function parseTranscriptionContent(content: unknown): { utterances?: unknown[] } {
-  if (typeof content !== 'string') {
-    return (content as { utterances?: unknown[] }) ?? {};
-  }
-  const s = content.trim();
-  const tryParse = (text: string) => {
-    try {
-      return JSON.parse(text);
-    } catch {
-      return undefined;
+// --------------------------- Provider ---------------------------
+function createProvider(): TranscriptionProvider {
+  if (TRANSCRIPTION_PROVIDER === 'gemini') {
+    if (!OPENROUTER_API_KEY) {
+      console.error('TRANSCRIPTION_PROVIDER=gemini exige OPENROUTER_API_KEY');
+      process.exit(1);
     }
-  };
-  let parsed = tryParse(s);
-  if (parsed) return parsed;
-  const block = s.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
-  if (block) {
-    parsed = tryParse(block[1]);
-    if (parsed) return parsed;
+    return createGeminiProvider({
+      apiKey: OPENROUTER_API_KEY,
+      model: OPENROUTER_MODEL,
+      timeoutMs: OPENROUTER_TIMEOUT_MS,
+      chunkSeconds: CHUNK_SECONDS,
+    });
   }
-  const first = s.indexOf('{');
-  const last = s.lastIndexOf('}');
-  if (first >= 0 && last > first) {
-    parsed = tryParse(s.slice(first, last + 1));
-    if (parsed) return parsed;
-  }
-  // SALVAMENTO: quando o JSON vem truncado (finish=length em chunk denso) ou
-  // levemente malformado, extrai os objetos de utterance completos que der, em
-  // vez de jogar o chunk inteiro fora. Recupera quase tudo de trechos densos.
-  const salvaged: unknown[] = [];
-  const re = /\{[^{}]*\}/g;
-  let mm: RegExpExecArray | null;
-  while ((mm = re.exec(s))) {
-    const o = tryParse(mm[0]);
-    if (o && typeof (o as { text?: unknown }).text === 'string') salvaged.push(o);
-  }
-  if (salvaged.length) return { utterances: salvaged };
-  throw new Error(`não foi possível parsear a transcrição; início: ${s.slice(0, 200)}`);
+  console.error(`TRANSCRIPTION_PROVIDER inválido: ${TRANSCRIPTION_PROVIDER} (use gemini)`);
+  process.exit(1);
 }
-
-// Detecta texto em loop ("é, é, é..." / "é um, é um..."): pouca variedade de
-// palavras indica alucinação do modelo, não fala real.
-function isRepetitiveText(text: string): boolean {
-  const words = text.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  if (words.length < 20) return false;
-  const unique = new Set(words.map((w) => w.replace(/[.,!?;:]+$/g, '')));
-  return unique.size / words.length < 0.15;
-}
-
-// Resultado de um chunk: falas já tipadas (timestamps relativos ao chunk) e se
-// o modelo entrou em loop de repetição (trecho colapsado, possivelmente
-// incompleto).
-interface ChunkResult {
-  utterances: Utterance[];
-  looped: boolean;
-}
-
-// Repetições removidas num chunk a partir das quais consideramos que o modelo
-// degenerou em loop (e não apenas repetiu uma frase de verdade).
-const LOOP_THRESHOLD = 5;
-
-async function transcribeChunkOnce(
-  audioB64: string,
-  participants: string[],
-  prevTail: Utterance[],
-  temperature = 0,
-): Promise<ChunkResult> {
-  const body = {
-    model: OPENROUTER_MODEL,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          { type: 'text', text: buildPrompt(participants, prevTail) },
-          { type: 'input_audio', input_audio: { data: audioB64, format: 'mp3' } },
-        ],
-      },
-    ],
-    response_format: {
-      type: 'json_schema',
-      json_schema: {
-        name: 'transcription',
-        strict: true,
-        schema: buildTranscriptionSchema(participants),
-      },
-    },
-    temperature,
-    // Alto o suficiente para um chunk denso de 5 min caber sem truncar (antes
-    // 8192 cortava trechos com muita fala). Se ainda truncar, o salvamento no
-    // parse recupera as utterances completas.
-    max_tokens: 16384,
-    reasoning: { exclude: true },
-  };
-  const resp = await fetchWithTimeout(
-    OPENROUTER_URL,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://meet.legacyexecutoria.com.br',
-        'X-Title': 'Legacy Meet - Transcription Worker',
-      },
-      body: JSON.stringify(body),
-    },
-    OPENROUTER_TIMEOUT_MS,
-  );
-  if (!resp.ok) {
-    throw new Error(`openrouter ${resp.status}: ${(await resp.text()).slice(0, 500)}`);
-  }
-  const data: any = await resp.json();
-  const usage = data.usage ?? {};
-  const completionTokens = Number(usage.completion_tokens ?? 0);
-  const choice = data.choices?.[0] ?? {};
-  const finishReason = choice.finish_reason;
-  log(
-    `openrouter usage prompt=${usage.prompt_tokens} completion=${completionTokens} finish=${finishReason}`,
-  );
-
-  // Resposta curta NÃO é erro: `{"utterances":[]}` é o modelo dizendo "sem fala
-  // aqui" (silêncio), resultado válido. Deixamos o parse decidir — se for ilegível,
-  // o catch do parse trata; se for vazio, aceitamos como chunk sem fala.
-  // finish=length NÃO é mais descarte automático: na maioria das vezes é um
-  // trecho DENSO de conversa cuja transcrição passou do max_tokens (não é
-  // alucinação). Seguimos para parsear/salvar o que veio; alucinação real
-  // (repetição) é barrada pelo filtro isRepetitiveText/pile-up abaixo.
-  if (finishReason === 'length') {
-    log(`chunk truncado no max_tokens (finish=length) - salvando o que foi transcrito`);
-  }
-  const content = choice.message?.content;
-  if (content == null) {
-    throw new Error(`openrouter sem content. raw: ${JSON.stringify(data).slice(0, 400)}`);
-  }
-  let parsed: { utterances?: unknown[] };
-  try {
-    parsed = parseTranscriptionContent(content);
-  } catch (e) {
-    // Conteúdo ilegível costuma ser alucinação/repetição; reprocessar o mesmo
-    // áudio repete o erro. Não insiste (poupa retries e créditos).
-    throw new NonRetryableChunkError(e instanceof Error ? e.message : 'conteúdo ilegível');
-  }
-  const raw = (parsed.utterances ?? []) as Array<Record<string, unknown>>;
-
-  // Descarta utterances em loop ("é, é, é..."): alucinação, não fala real.
-  const utterances = raw.filter((u) => !isRepetitiveText(String(u.text ?? '')));
-  if (raw.length && !utterances.length) {
-    throw new NonRetryableChunkError('todas as utterances eram repetição (alucinação)');
-  }
-
-  // Detecta "pile-up": muitas utterances com o mesmo start (alucinação massiva).
-  const counts = new Map<number, number>();
-  for (const u of utterances) {
-    const k = Math.round(Number(u.start ?? 0) * 100) / 100;
-    counts.set(k, (counts.get(k) ?? 0) + 1);
-  }
-  const maxPileup = counts.size ? Math.max(...counts.values()) : 0;
-  if (maxPileup >= PILEUP_THRESHOLD) {
-    throw new NonRetryableChunkError(
-      `pile-up de timestamps (${maxPileup} no mesmo start) - descartando chunk`,
-    );
-  }
-
-  // Loop de repetição: o modelo devolve a mesma frase dezenas de vezes, em
-  // falas curtas (cada uma passa no filtro acima). Colapsa para uma ocorrência;
-  // muitas remoções = o chunk degenerou (o chamador refaz sem contexto).
-  const typed: Utterance[] = utterances
-    .map((u) => ({
-      speaker: String(u.speaker ?? 'Desconhecido').trim(),
-      text: String(u.text ?? '').trim(),
-      start: Number(u.start ?? 0),
-      end: Number(u.end ?? u.start ?? 0),
-    }))
-    .filter((u) => u.text);
-  const { utterances: collapsed, removed } = collapseRepetitions(typed);
-  if (removed > 0) log(`repetições colapsadas no chunk: ${removed}`);
-  return { utterances: collapsed, looped: removed >= LOOP_THRESHOLD };
-}
-
-async function withRetries<T>(fn: () => Promise<T>): Promise<T> {
-  let lastErr: unknown;
-  for (let attempt = 1; attempt <= CHUNK_RETRY_ATTEMPTS; attempt++) {
-    try {
-      return await fn();
-    } catch (e) {
-      if (e instanceof NonRetryableChunkError) throw e;
-      lastErr = e;
-      if (attempt < CHUNK_RETRY_ATTEMPTS) {
-        log(`tentativa ${attempt}/${CHUNK_RETRY_ATTEMPTS} falhou: ${e} - retry em 5s`);
-        await sleep(5000);
-      }
-    }
-  }
-  throw lastErr;
-}
-
-async function transcribeChunk(
-  chunkPath: string,
-  participants: string[],
-  prevTail: Utterance[],
-): Promise<ChunkResult> {
-  const audioB64 = (await readFile(chunkPath)).toString('base64');
-  const first = await withRetries(() => transcribeChunkOnce(audioB64, participants, prevTail));
-  if (!first.looped) return first;
-
-  // O loop é não-determinístico: refaz UMA vez sem o contexto do chunk anterior
-  // (que pode ter primado o loop) e com um pouco de temperatura. Se voltar a
-  // loopar, fica com a versão colapsada (melhor do que perder o chunk).
-  log('chunk em loop de repetição — refazendo sem contexto');
-  try {
-    const retry = await withRetries(() => transcribeChunkOnce(audioB64, participants, [], 0.3));
-    if (!retry.looped) return retry;
-  } catch (e) {
-    log(`retry do chunk em loop falhou (${e}) — mantendo versão colapsada`);
-  }
-  return first;
-}
+const provider = createProvider();
 
 // --------------------------- S3 helpers ---------------------------
 interface RecordingObject {
@@ -563,6 +172,8 @@ function recordingIdFromKey(recordingKey: string): string {
   return path.basename(recordingKey).replace(/\.mp4$/i, '');
 }
 
+const sourceKey = (id: string) => `${SOURCE_PREFIX}${id}.mp4`;
+
 // Extrai o horário de INÍCIO da reunião do id "<sala>__<stamp>", onde stamp é o
 // ISO gerado no /api/record/start (quando alguém entrou) com [:.] trocados por -.
 // Ex.: "ecok-srde__2026-06-03T17-18-30-989Z" → 2026-06-03T17:18:30.989Z.
@@ -582,14 +193,16 @@ function manifestKey(id: string): string {
   return `${MANIFEST_PREFIX}${id}.json`;
 }
 
-async function manifestExists(id: string): Promise<boolean> {
+async function objectExists(key: string): Promise<boolean> {
   try {
-    await s3.send(new HeadObjectCommand({ Bucket: S3_BUCKET, Key: manifestKey(id) }));
+    await s3.send(new HeadObjectCommand({ Bucket: S3_BUCKET, Key: key }));
     return true;
   } catch {
     return false;
   }
 }
+
+const manifestExists = (id: string) => objectExists(manifestKey(id));
 
 // Um MP4 recém-modificado pode ainda estar sendo enviado pelo egress — processar
 // um arquivo parcial gera áudio corrompido e alucinação. Processa quando existe
@@ -598,18 +211,13 @@ async function manifestExists(id: string): Promise<boolean> {
 const EGRESS_MIN_AGE_SECONDS = Number(env.EGRESS_MIN_AGE_SECONDS ?? '120');
 
 async function isEgressReady(id: string, lastModified?: Date): Promise<boolean> {
-  try {
-    await s3.send(new HeadObjectCommand({ Bucket: S3_BUCKET, Key: `ready/${id}.json` }));
-    return true;
-  } catch {
-    // sem marker — decide pela idade do arquivo
-  }
+  if (await objectExists(`ready/${id}.json`)) return true;
   const ageSeconds = lastModified ? (Date.now() - lastModified.getTime()) / 1000 : Infinity;
   return ageSeconds >= EGRESS_MIN_AGE_SECONDS;
 }
 
 // Cap de tentativas por gravação: sem isso, uma gravação quebrada era retentada
-// a cada poll para sempre (queimando créditos do OpenRouter em loop).
+// a cada poll para sempre (queimando créditos em loop).
 const MAX_RECORDING_ATTEMPTS = Number(env.MAX_RECORDING_ATTEMPTS ?? '3');
 
 async function bumpAttempts(id: string): Promise<number> {
@@ -627,10 +235,13 @@ async function bumpAttempts(id: string): Promise<number> {
 
 // Manifesto mínimo de falha: a gravação aparece na listagem como "failed" (com o
 // botão "Transcrever novamente") em vez de sumir e ser retentada eternamente.
-async function writeFailedManifest(rec: RecordingObject, reason: string): Promise<void> {
-  const id = recordingIdFromKey(rec.key);
+async function writeFailedManifest(
+  id: string,
+  reason: string,
+  extra: { providerTranscriptId?: string; lastModified?: Date } = {},
+): Promise<void> {
   const roomName = id.split('__')[0];
-  const createdAt = (startTimeFromId(id) ?? rec.lastModified ?? new Date()).toISOString();
+  const createdAt = (startTimeFromId(id) ?? extra.lastModified ?? new Date()).toISOString();
   const meta = await getMeta(roomName);
   const manifest = {
     id,
@@ -639,18 +250,24 @@ async function writeFailedManifest(rec: RecordingObject, reason: string): Promis
     createdAt,
     durationSeconds: 0,
     storage: 's3' as const,
-    videoKey: rec.key,
+    videoKey: sourceKey(id),
     gdriveFileId: null,
     gdriveFolderId: null,
     transcriptTxtKey: transcriptKey(id, 'txt'),
     transcriptionStatus: 'failed' as const,
-    model: OPENROUTER_MODEL,
+    model: provider.name === 'gemini' ? OPENROUTER_MODEL : provider.name,
+    provider: provider.name,
+    providerTranscriptId: extra.providerTranscriptId,
+    workerVersion: WORKER_VERSION,
+    transcriptionError: reason,
     participants: meta?.participants ?? [],
     skippedChunks: [],
     skippedChunkDetails: [{ chunk: 0, offsetSeconds: 0, reason }],
     utterances: [],
   };
   await uploadText(manifestKey(id), JSON.stringify(manifest, null, 2), 'application/json');
+  await deleteJob(id).catch(() => {});
+  logJson('transcription_failed', { recordingId: id, provider: provider.name, reason });
 }
 
 async function downloadToFile(key: string, dst: string) {
@@ -677,22 +294,24 @@ async function getObjectTextOrNull(key: string): Promise<string | null> {
   }
 }
 
-async function listManifestIds(): Promise<string[]> {
+async function listKeys(prefix: string, ext: string): Promise<string[]> {
   const ids: string[] = [];
   let token: string | undefined;
   do {
     const res = await s3.send(
-      new ListObjectsV2Command({ Bucket: S3_BUCKET, Prefix: MANIFEST_PREFIX, ContinuationToken: token }),
+      new ListObjectsV2Command({ Bucket: S3_BUCKET, Prefix: prefix, ContinuationToken: token }),
     );
     for (const obj of res.Contents ?? []) {
-      if (obj.Key && obj.Key.endsWith('.json')) {
-        ids.push(obj.Key.slice(MANIFEST_PREFIX.length).replace(/\.json$/, ''));
+      if (obj.Key && obj.Key.endsWith(ext)) {
+        ids.push(obj.Key.slice(prefix.length).slice(0, -ext.length));
       }
     }
     token = res.IsTruncated ? res.NextContinuationToken : undefined;
   } while (token);
   return ids;
 }
+
+const listManifestIds = () => listKeys(MANIFEST_PREFIX, '.json');
 
 async function readManifest(id: string): Promise<any | null> {
   const txt = await getObjectTextOrNull(manifestKey(id));
@@ -719,6 +338,38 @@ async function getMeta(roomName: string): Promise<MeetingMeta | null> {
     return null;
   }
 }
+
+// Fonte de áudio da gravação: URL assinada do MinIO (provider baixa de fora)
+// ou download local (provider que precisa do arquivo, ex. ffmpeg).
+function makeAudioSource(key: string): AudioSource {
+  return {
+    label: 'mix',
+    signedUrl: () =>
+      getSignedUrl(s3, new GetObjectCommand({ Bucket: S3_BUCKET, Key: key }), {
+        expiresIn: SIGNED_URL_TTL_SECONDS,
+      }),
+    downloadTo: (dst) => downloadToFile(key, dst),
+  };
+}
+
+// --------------------------- Jobs assíncronos ---------------------------
+const jobKey = (id: string) => `${JOBS_PREFIX}${id}.json`;
+const doneMarkerKey = (jobId: string) => `${DONE_PREFIX}${jobId}.json`;
+
+async function readJob(id: string): Promise<PendingJob | null> {
+  const txt = await getObjectTextOrNull(jobKey(id));
+  if (txt == null) return null;
+  try {
+    return JSON.parse(txt) as PendingJob;
+  } catch {
+    return null;
+  }
+}
+
+const writeJob = (job: PendingJob) =>
+  uploadText(jobKey(job.recordingId), JSON.stringify(job, null, 2), 'application/json');
+
+const deleteJob = (id: string) => deleteObject(jobKey(id));
 
 function formatDateTimeBR(iso: string): string {
   // timeZone explícito (ICU embutido no Node) garante data/hora de São Paulo mesmo
@@ -758,6 +409,7 @@ async function archiveVideoToDrive(
   }
   if (!(await driveFindFileInFolder(token, `${id}.txt`, folderId, DRIVE_TIMEOUT_MS))) {
     const txtPath = path.join(tmpDir, 'transcricao.txt');
+    const { writeFile } = await import('node:fs/promises');
     await writeFile(txtPath, plainText, 'utf-8');
     await driveUploadFile(token, txtPath, `${id}.txt`, 'text/plain', folderId, DRIVE_TIMEOUT_MS);
   }
@@ -798,209 +450,306 @@ async function reconcileS3Recordings(): Promise<void> {
 }
 
 // --------------------------- Processamento ---------------------------
-async function processRecording(rec: RecordingObject) {
-  const key = rec.key;
-  const id = recordingIdFromKey(key);
+interface RecordingContext {
+  id: string;
+  key: string;
+  roomName: string;
+  createdAt: string;
+  title: string;
+  participants: string[];
+}
+
+async function loadContext(id: string, lastModified?: Date): Promise<RecordingContext> {
   const roomName = id.split('__')[0];
   // Início da reunião (do nome do arquivo). Cai no lastModified só se o id não
   // tiver o stamp esperado.
-  const createdAt = (startTimeFromId(id) ?? rec.lastModified ?? new Date()).toISOString();
-  log(`processando ${key} (id=${id})`);
+  const createdAt = (startTimeFromId(id) ?? lastModified ?? new Date()).toISOString();
+  const meta = await getMeta(roomName);
+  // Canonicaliza também na LEITURA: metas antigos podem ter o mesmo nome em
+  // variações ("MARIZA"/"Mariza") — cada variante extra divide a mesma voz em
+  // dois speakers.
+  const participants = mergeParticipants(
+    [],
+    meta?.participants?.length ? meta.participants : meta?.host ? [meta.host] : [],
+  );
+  return { id, key: sourceKey(id), roomName, createdAt, title: (meta?.title || '').trim(), participants };
+}
+
+async function fileExists(p: string): Promise<boolean> {
+  try {
+    await access(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Etapa final comum a todos os providers: normaliza as falas, grava o txt,
+ * arquiva no Drive (à prova de falha) e escreve o manifesto. Só depois do
+ * manifesto o .mp4 sai do MinIO — nunca entra em loop de reprocesso.
+ */
+async function finalizeRecording(
+  ctx: RecordingContext,
+  result: TranscriptionResult,
+  tmpDir: string,
+  startedAt: number,
+): Promise<void> {
+  const { id, key, roomName, createdAt, title, participants } = ctx;
+
+  // Normalização final: casa rótulos com nomes reais, ordena e funde falas
+  // consecutivas do mesmo speaker.
+  const finalUtts = normalizeUtterances(result.utterances, participants);
+  const skipped = result.skippedChunks;
+
+  const transcriptionFailed = finalUtts.length === 0 && skipped.length > 0;
+  if (transcriptionFailed) {
+    log(`transcrição falhou (chunks pulados: ${skipped.join(', ')}) — arquivando vídeo mesmo assim`);
+  }
+
+  // txt de referência no MinIO (regravado a partir das falas atuais).
+  const plainText = utterancesToPlainText(finalUtts);
+  await uploadText(transcriptKey(id, 'txt'), plainText, 'text/plain; charset=utf-8');
+
+  // Arquivamento no Drive à prova de falha: se falhar, cai em s3 (vídeo fica
+  // no MinIO) e MESMO ASSIM grava o manifesto — nunca entra em loop.
+  let storage: 's3' | 'gdrive' = 's3';
+  let gdriveFileId: string | null = null;
+  let gdriveFolderId: string | null = null;
+  let videoKey: string | null = key;
+
+  if (DRIVE_ENABLED) {
+    const folderName = `${formatDateTimeBR(createdAt)} - ${title || roomName}`;
+    try {
+      const videoPath = path.join(tmpDir, 'recording.mp4');
+      if (!(await fileExists(videoPath))) await downloadToFile(key, videoPath);
+      log(`arquivando no Google Drive em "${folderName}"`);
+      const token = await getDriveAccessToken(DRIVE_CFG, DRIVE_TIMEOUT_MS);
+      const res = await archiveVideoToDrive(token, videoPath, id, folderName, plainText, tmpDir);
+      gdriveFolderId = res.folderId;
+      gdriveFileId = res.fileId;
+      storage = 'gdrive';
+      videoKey = null;
+      log(`arquivado no Drive (pasta=${gdriveFolderId}, vídeo=${gdriveFileId})`);
+    } catch (e) {
+      log(`falha ao arquivar no Drive: ${e instanceof Error ? e.message : String(e)} — mantendo no MinIO (storage=s3)`);
+    }
+  }
+
+  const manifest = {
+    id,
+    title,
+    roomName,
+    createdAt,
+    durationSeconds: result.durationSeconds,
+    storage,
+    videoKey,
+    gdriveFileId,
+    gdriveFolderId,
+    transcriptTxtKey: transcriptKey(id, 'txt'),
+    transcriptionStatus: transcriptionFailed ? ('failed' as const) : ('complete' as const),
+    model: result.model,
+    // Rastreabilidade: quem transcreveu, com que modelo, com que versão do worker.
+    provider: provider.name,
+    providerTranscriptId: result.providerTranscriptId,
+    speechModel: result.model,
+    workerVersion: WORKER_VERSION,
+    audioDurationSeconds: result.audioDurationSeconds,
+    estimatedCostUsd: result.estimatedCostUsd,
+    participants,
+    skippedChunks: skipped,
+    skippedChunkDetails: result.skippedChunkDetails,
+    ...result.diagnostics,
+    utterances: finalUtts,
+  };
+  await uploadText(manifestKey(id), JSON.stringify(manifest, null, 2), 'application/json');
+
+  // Limpa os markers de controle (tentativas, "egress pronto", job assíncrono).
+  await deleteObject(`attempts/${id}.json`).catch(() => {});
+  await deleteObject(`ready/${id}.json`).catch(() => {});
+  await deleteJob(id).catch(() => {});
+  if (result.providerTranscriptId) {
+    await deleteObject(doneMarkerKey(result.providerTranscriptId)).catch(() => {});
+  }
+
+  // Só remove o .mp4 do MinIO DEPOIS do manifesto e SÓ se foi pro Drive.
+  if (storage === 'gdrive') {
+    await deleteObject(key);
+  }
+
+  logJson('transcription_completed', {
+    recordingId: id,
+    provider: provider.name,
+    transcriptId: result.providerTranscriptId ?? null,
+    model: result.model,
+    utterances: finalUtts.length,
+    durationSeconds: result.durationSeconds,
+    audioSeconds: result.audioDurationSeconds ?? null,
+    costUsd: result.estimatedCostUsd ?? null,
+    elapsedMs: Date.now() - startedAt,
+    storage,
+    skippedChunks: skipped.length,
+  });
+  log(
+    `concluído ${id} — ${finalUtts.length} utterances, storage=${storage}${
+      skipped.length ? ` (chunks pulados: ${skipped.join(', ')})` : ''
+    }`,
+  );
+}
+
+async function processRecording(rec: RecordingObject) {
+  const id = recordingIdFromKey(rec.key);
+  const startedAt = Date.now();
+  log(`processando ${rec.key} (id=${id}) via ${provider.name}`);
 
   const tmp = await mkdtemp(path.join(tmpdir(), 'transcribe-'));
   try {
-    const videoPath = path.join(tmp, 'recording.mp4');
-    const audioPath = path.join(tmp, 'audio.mp3');
-    const chunkDir = path.join(tmp, 'chunks');
-    await mkdir(chunkDir, { recursive: true });
-
-    const meta = await getMeta(roomName);
-    // Canonicaliza também na LEITURA: metas antigos podem ter o mesmo nome em
-    // variações ("MARIZA"/"Mariza") — cada variante extra no enum divide a
-    // mesma voz em dois speakers.
-    const participants = mergeParticipants(
-      [],
-      meta?.participants?.length ? meta.participants : meta?.host ? [meta.host] : [],
-    );
-    const title = (meta?.title || '').trim();
-    if (participants.length) log(`participantes: ${participants.join(', ')}`);
-
-    await downloadToFile(key, videoPath);
-    await extractAudio(videoPath, audioPath);
-    const duration = await getAudioDuration(audioPath);
-    const durationSeconds = Math.round(duration);
-    // Mapa de silêncio/fala da gravação inteira: guia os cortes dos chunks E é
-    // o guardrail contra alucinação em trechos sem fala.
-    const silences = await detectSilences(audioPath);
-    const speech: Segment[] = speechSegments(duration, silences);
-    const speechTotal = speech.reduce((acc, s) => acc + (s.end - s.start), 0);
-    log(`fala detectada: ${speechTotal.toFixed(0)}s de ${durationSeconds}s (${silences.length} silêncios)`);
-    const chunks = await splitAudio(audioPath, chunkDir, CHUNK_SECONDS, duration, silences);
-    let silentChunks = 0;
-    let droppedSilent = 0;
+    const ctx = await loadContext(id, rec.lastModified);
+    if (ctx.participants.length) log(`participantes: ${ctx.participants.join(', ')}`);
 
     // Reuso de backlog: se já existe transcrição (txt) no MinIO de um run
     // anterior, reconstrói as falas dela em vez de re-transcrever (economiza
     // créditos). Gravação nova não tem txt → transcreve normalmente.
     const existingTxt = await getObjectTextOrNull(transcriptKey(id, 'txt'));
-    const allUtts: Utterance[] = [];
-    const skipped: number[] = [];
-    // Motivo de cada chunk pulado — fica no manifesto para debug ("por que a
-    // transcrição ficou incompleta"), já que os logs somem com o tempo.
-    const skippedDetails: Array<{ chunk: number; offsetSeconds: number; reason: string }> = [];
-
     if (existingTxt && existingTxt.trim()) {
       const reused = parsePlainTextToUtterances(existingTxt);
-      allUtts.push(...reused);
       log(`reaproveitando transcrição existente do MinIO — ${reused.length} utterance(s)`);
-    } else {
-      // Cauda do chunk anterior enviada como contexto do próximo — mantém os
-      // rótulos de speaker consistentes ao longo da reunião inteira.
-      let prevTail: Utterance[] = [];
-      for (let i = 0; i < chunks.length; i++) {
-        const { path: chunkPath, offset, length } = chunks[i];
-        // Chunk sem fala (só silêncio/ruído): nem vai para a IA — é onde ela
-        // mais inventa conteúdo, e não custa nada pular.
-        const chunkSpeech = speechOverlap(offset, offset + length, speech);
-        if (chunkSpeech < MIN_SPEECH_SECONDS_PER_CHUNK) {
-          silentChunks += 1;
-          log(`chunk ${i + 1}/${chunks.length} sem fala (${chunkSpeech.toFixed(1)}s) — pulado`);
-          continue;
-        }
-        log(`chunk ${i + 1}/${chunks.length} (offset=${offset}s, fala=${chunkSpeech.toFixed(0)}s)`);
-        let result: ChunkResult;
-        try {
-          result = await transcribeChunk(chunkPath, participants, prevTail);
-        } catch (e) {
-          const reason = e instanceof Error ? e.message : String(e);
-          log(`chunk ${i + 1} pulado: ${reason}`);
-          skipped.push(i + 1);
-          skippedDetails.push({ chunk: i + 1, offsetSeconds: offset, reason });
-          continue;
-        }
-        const chunkUtts: Utterance[] = result.utterances
-          .map((u) => ({
-            speaker: u.speaker,
-            text: u.text,
-            start: u.start + offset,
-            end: Math.max(u.end, u.start) + offset,
-          }))
-          // Guardrail: fala "transcrita" onde o áudio estava em silêncio é
-          // alucinação. Janela com folga de ±1,5s (timestamps do modelo são
-          // aproximados); descarta se quase nada dela cai em trecho de fala.
-          .filter((u) => {
-            const a = u.start - SPEECH_PAD_SECONDS;
-            const b = Math.max(u.end, u.start + 1) + SPEECH_PAD_SECONDS;
-            const ratio = speechOverlap(a, b, speech) / (b - a);
-            if (ratio < MIN_SPEECH_RATIO) {
-              droppedSilent += 1;
-              log(`  descartada (silêncio no áudio) [${u.start.toFixed(0)}s] ${u.speaker}: ${u.text.slice(0, 60)}`);
-              return false;
-            }
-            return true;
-          });
-        allUtts.push(...chunkUtts);
-        if (result.looped) {
-          // Fica registrado como trecho possivelmente incompleto (a UI oferece
-          // "Transcrever novamente") e NÃO alimenta o contexto do próximo chunk
-          // — era isso que propagava o loop através da fronteira dos 5 min.
-          skipped.push(i + 1);
-          skippedDetails.push({
-            chunk: i + 1,
-            offsetSeconds: offset,
-            reason: 'loop de repetição do modelo — trecho colapsado, pode estar incompleto',
-          });
-          prevTail = [];
-        } else if (chunkUtts.length) {
-          prevTail = chunkUtts.slice(-10);
-        }
-        log(`chunk ${i + 1} → ${chunkUtts.length} utterance(s)${result.looped ? ' (loop)' : ''}`);
-      }
+      const videoPath = path.join(tmp, 'recording.mp4');
+      await downloadToFile(rec.key, videoPath);
+      const durationSeconds = Math.round(await getAudioDuration(videoPath).catch(() => 0));
+      await finalizeRecording(
+        ctx,
+        {
+          utterances: reused,
+          durationSeconds,
+          model: 'reuso-txt',
+          skippedChunks: [],
+          skippedChunkDetails: [],
+          diagnostics: {},
+        },
+        tmp,
+        startedAt,
+      );
+      return;
     }
 
-    // Normalização final: casa rótulos com nomes reais, ordena e funde falas
-    // consecutivas do mesmo speaker (vale para transcrição nova e txt reusado).
-    const finalUtts = normalizeUtterances(allUtts, participants);
-
-    const transcriptionFailed = finalUtts.length === 0 && skipped.length > 0;
-    if (transcriptionFailed) {
-      log(`transcrição falhou (chunks pulados: ${skipped.join(', ')}) — arquivando vídeo mesmo assim`);
-    }
-
-    // txt de referência no MinIO (regravado a partir das falas atuais).
-    const plainText = utterancesToPlainText(finalUtts);
-    await uploadText(transcriptKey(id, 'txt'), plainText, 'text/plain; charset=utf-8');
-
-    // Arquivamento no Drive à prova de falha: se falhar, cai em s3 (vídeo fica
-    // no MinIO) e MESMO ASSIM grava o manifesto — nunca entra em loop.
-    let storage: 's3' | 'gdrive' = 's3';
-    let gdriveFileId: string | null = null;
-    let gdriveFolderId: string | null = null;
-    let videoKey: string | null = key;
-
-    if (DRIVE_ENABLED) {
-      const folderName = `${formatDateTimeBR(createdAt)} - ${title || roomName}`;
-      try {
-        log(`arquivando no Google Drive em "${folderName}"`);
-        const token = await getDriveAccessToken(DRIVE_CFG, DRIVE_TIMEOUT_MS);
-        const res = await archiveVideoToDrive(token, videoPath, id, folderName, plainText, tmp);
-        gdriveFolderId = res.folderId;
-        gdriveFileId = res.fileId;
-        storage = 'gdrive';
-        videoKey = null;
-        log(`arquivado no Drive (pasta=${gdriveFolderId}, vídeo=${gdriveFileId})`);
-      } catch (e) {
-        log(`falha ao arquivar no Drive: ${e instanceof Error ? e.message : String(e)} — mantendo no MinIO (storage=s3)`);
-      }
-    }
-
-    const manifest = {
+    const outcome = await provider.submit({
       id,
-      title,
-      roomName,
-      createdAt,
-      durationSeconds,
-      storage,
-      videoKey,
-      gdriveFileId,
-      gdriveFolderId,
-      transcriptTxtKey: transcriptKey(id, 'txt'),
-      transcriptionStatus: transcriptionFailed ? ('failed' as const) : ('complete' as const),
-      model: OPENROUTER_MODEL,
-      participants,
-      skippedChunks: skipped,
-      skippedChunkDetails: skippedDetails,
-      // Diagnóstico do guardrail de silêncio.
-      speechSeconds: Math.round(speechTotal),
-      silentChunks,
-      droppedSilentUtterances: droppedSilent,
-      utterances: finalUtts,
-    };
-    await uploadText(manifestKey(id), JSON.stringify(manifest, null, 2), 'application/json');
+      roomName: ctx.roomName,
+      participants: ctx.participants,
+      tmpDir: tmp,
+      sources: [makeAudioSource(rec.key)],
+    });
 
-    // Limpa os markers de controle (contagem de tentativas e "egress pronto").
-    await deleteObject(`attempts/${id}.json`).catch(() => {});
-    await deleteObject(`ready/${id}.json`).catch(() => {});
-
-    // Só remove o .mp4 do MinIO DEPOIS do manifesto e SÓ se foi pro Drive.
-    if (storage === 'gdrive') {
-      await deleteObject(key);
+    if (outcome.kind === 'completed') {
+      await finalizeRecording(ctx, outcome.result, tmp, startedAt);
+    } else if (outcome.kind === 'pending') {
+      // Provider assíncrono: registra o job e volta a acompanhar nos próximos
+      // ciclos. O job persistido evita resubmeter (e pagar de novo) se o worker
+      // reiniciar no meio da espera.
+      await writeJob({
+        recordingId: id,
+        jobId: outcome.jobId,
+        submittedAt: new Date().toISOString(),
+        lastCheckedAt: null,
+        checks: 0,
+      });
+      logJson('transcription_submitted', {
+        recordingId: id,
+        provider: provider.name,
+        transcriptId: outcome.jobId,
+      });
+    } else if (outcome.retryable) {
+      throw new Error(outcome.reason);
+    } else {
+      await writeFailedManifest(id, outcome.reason, { lastModified: rec.lastModified });
     }
-
-    log(
-      `concluído ${id} — ${finalUtts.length} utterances, storage=${storage}${
-        skipped.length ? ` (chunks pulados: ${skipped.join(', ')})` : ''
-      }`,
-    );
   } finally {
     await rm(tmp, { recursive: true, force: true });
   }
 }
 
+// Acompanha os jobs assíncronos: marker do webhook (imediato) ou polling na API
+// (fallback). Estourou o prazo → failed (o vídeo continua no MinIO; "Transcrever
+// novamente" reprocessa).
+async function processPendingJobs(): Promise<boolean> {
+  let didWork = false;
+  for (const id of await listKeys(JOBS_PREFIX, '.json')) {
+    if (shuttingDown) break;
+    const job = await readJob(id);
+    if (!job) continue;
+    if (await manifestExists(id)) {
+      // Já finalizada por outro caminho — job órfão.
+      await deleteJob(id).catch(() => {});
+      continue;
+    }
+
+    const waitedMs = Date.now() - new Date(job.submittedAt).getTime();
+    if (waitedMs > JOB_MAX_WAIT_MINUTES * 60_000) {
+      logJson('transcription_timeout', { recordingId: id, transcriptId: job.jobId, waitedMs });
+      await writeFailedManifest(id, `sem resposta do provider em ${JOB_MAX_WAIT_MINUTES} min`, {
+        providerTranscriptId: job.jobId,
+      });
+      continue;
+    }
+
+    const doneMarker = await objectExists(doneMarkerKey(job.jobId));
+    let outcome;
+    try {
+      outcome = await provider.poll(job, { doneMarker });
+    } catch (e) {
+      log(`poll de ${id} falhou: ${e instanceof Error ? e.message : String(e)}`);
+      continue;
+    }
+
+    if (outcome.kind === 'pending') {
+      if (outcome.checked) {
+        await writeJob({ ...job, lastCheckedAt: new Date().toISOString(), checks: job.checks + 1 });
+      }
+      continue;
+    }
+
+    didWork = true;
+    if (outcome.kind === 'error') {
+      if (outcome.retryable) {
+        // Volta para a fila de gravações (o .mp4 continua em com-transcricao/),
+        // respeitando o cap de tentativas para não ficar em loop.
+        log(`job ${id} descartado (${outcome.reason}) — gravação volta para a fila`);
+        await deleteJob(id).catch(() => {});
+        const attempts = await bumpAttempts(id);
+        if (attempts >= MAX_RECORDING_ATTEMPTS) {
+          await writeFailedManifest(id, outcome.reason, { providerTranscriptId: job.jobId });
+        }
+      } else {
+        await writeFailedManifest(id, outcome.reason, { providerTranscriptId: job.jobId });
+      }
+      continue;
+    }
+
+    const startedAt = new Date(job.submittedAt).getTime();
+    const tmp = await mkdtemp(path.join(tmpdir(), 'transcribe-'));
+    try {
+      const ctx = await loadContext(id);
+      await finalizeRecording(ctx, outcome.result, tmp, startedAt);
+    } catch (e) {
+      log(`falha ao finalizar ${id}: ${e instanceof Error ? e.message : String(e)}`);
+      const attempts = await bumpAttempts(id);
+      if (attempts >= MAX_RECORDING_ATTEMPTS) {
+        await writeFailedManifest(id, e instanceof Error ? e.message : String(e), {
+          providerTranscriptId: job.jobId,
+        });
+      }
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
+    }
+  }
+  return didWork;
+}
+
 async function main() {
   log(
-    `worker de transcrição iniciado — modelo=${OPENROUTER_MODEL} bucket=${S3_BUCKET} ` +
-      `prefixo=${SOURCE_PREFIX} poll=${POLL_INTERVAL_SECONDS}s chunk=${CHUNK_SECONDS}s ` +
+    `worker de transcrição iniciado — provider=${provider.name} versão=${WORKER_VERSION} ` +
+      `bucket=${S3_BUCKET} prefixo=${SOURCE_PREFIX} poll=${POLL_INTERVAL_SECONDS}s ` +
       `drive=${DRIVE_ENABLED ? 'on' : 'off'}`,
   );
   while (!shuttingDown) {
@@ -1011,6 +760,8 @@ async function main() {
         if (shuttingDown) break;
         const id = recordingIdFromKey(rec.key);
         if (await manifestExists(id)) continue;
+        // Já submetida a um provider assíncrono: quem cuida é processPendingJobs.
+        if (await readJob(id)) continue;
         if (!(await isEgressReady(id, rec.lastModified))) {
           log(`aguardando egress finalizar ${rec.key} (arquivo modificado há pouco)`);
           continue;
@@ -1024,7 +775,9 @@ async function main() {
             const attempts = await bumpAttempts(id);
             if (attempts >= MAX_RECORDING_ATTEMPTS) {
               log(`${id} falhou ${attempts}x — marcando como failed para parar o loop de retries`);
-              await writeFailedManifest(rec, e instanceof Error ? e.message : String(e));
+              await writeFailedManifest(id, e instanceof Error ? e.message : String(e), {
+                lastModified: rec.lastModified,
+              });
             }
           } catch (e2) {
             log(`falha ao registrar tentativa de ${id}: ${e2}`);
@@ -1035,6 +788,7 @@ async function main() {
           await sleep(POLL_INTERVAL_SECONDS * 1000);
         }
       }
+      if (!shuttingDown && (await processPendingJobs())) processedAny = true;
       if (!shuttingDown) await reconcileS3Recordings();
       if (!processedAny) await sleep(POLL_INTERVAL_SECONDS * 1000);
     } catch (e) {
