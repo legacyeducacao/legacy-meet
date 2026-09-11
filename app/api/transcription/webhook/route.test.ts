@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const writeJson = vi.fn(async () => {});
-vi.mock('@/lib/recordings', () => ({ writeJson: (...args: unknown[]) => writeJson(...args) }));
+import { POST } from './route';
 
-const { POST } = await import('./route');
+// vi.mock é içado acima dos imports; o handler real recebe este mock.
+const writeJson = vi.hoisted(() => vi.fn<(key: string, obj: unknown) => Promise<void>>(async () => {}));
+vi.mock('@/lib/recordings', () => ({ writeJson }));
 
 function makeReq(opts: { secret?: string; body?: unknown; rawBody?: string; recordingId?: string }) {
   const url = new URL('https://meet.example/api/transcription/webhook');
@@ -58,7 +59,7 @@ describe('POST /api/transcription/webhook', () => {
     );
     expect(res.status).toBe(200);
     expect(writeJson).toHaveBeenCalledTimes(1);
-    const [key, value] = writeJson.mock.calls[0] as unknown as [string, Record<string, unknown>];
+    const [key, value] = writeJson.mock.calls[0] as [string, Record<string, unknown>];
     expect(key).toBe('asr-done/abc-123.json');
     expect(value).toMatchObject({ status: 'completed', recordingId: 'sala__2026-09-11T10-00-00-000Z' });
     expect(typeof value.at).toBe('string');

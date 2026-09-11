@@ -67,6 +67,8 @@ import { createGeminiProvider } from './providers/gemini';
 import { createAssemblyAIProvider } from './providers/assemblyai';
 import { AssemblyAIClient, DEFAULT_SPEECH_MODEL } from './lib/assemblyai';
 import { loadKeytermsFile } from './lib/keyterms';
+import { applySpeakerMap, mapSpeakers, type SpeakerMap } from './lib/speakerMap';
+import { openRouterJson } from './lib/openrouter';
 
 // ----------------------------- Config -----------------------------
 const env = process.env;
@@ -109,6 +111,11 @@ const ASSEMBLYAI_POLL_MAX_SECONDS = Number(env.ASSEMBLYAI_POLL_MAX_SECONDS ?? '3
 const ASSEMBLYAI_WEBHOOK_SECRET = env.ASSEMBLYAI_WEBHOOK_SECRET;
 const APP_BASE_URL = env.APP_BASE_URL;
 const KEYTERMS_FILE = env.KEYTERMS_FILE ?? path.resolve(process.cwd(), 'config/keyterms.json');
+// Mapeamento rótulo (A/B/C) → nome via LLM (OpenRouter/Gemini). Abaixo desta
+// confiança o rótulo genérico fica ("Falante A") em vez de chutar.
+const SPEAKER_MAP_MIN_CONFIDENCE = Number(env.SPEAKER_MAP_MIN_CONFIDENCE ?? '0.7');
+const SPEAKER_MAP_MODEL = env.SPEAKER_MAP_MODEL ?? OPENROUTER_MODEL;
+const SPEAKER_MAP_TIMEOUT_MS = Number(env.SPEAKER_MAP_TIMEOUT_MS ?? '60000');
 
 // Google Drive (opcional): se configurado, arquiva o vídeo no Drive e remove do MinIO.
 const GOOGLE_OAUTH_CLIENT_ID = env.GOOGLE_OAUTH_CLIENT_ID;
@@ -552,9 +559,20 @@ async function finalizeRecording(
 ): Promise<void> {
   const { id, key, roomName, createdAt, title, participants } = ctx;
 
+  // Providers de ASR devolvem rótulos genéricos (A, B, C): mapeia para os
+  // participantes conhecidos com o LLM antes de normalizar.
+  let utterances = result.utterances;
+  let speakerMap: SpeakerMap | undefined;
+  if (provider.name !== 'gemini' && utterances.length) {
+    const mapped = await resolveSpeakerMap(id, utterances, participants);
+    speakerMap = mapped.map;
+    utterances = applySpeakerMap(utterances, mapped.map);
+    log(`falantes (${mapped.source}): ${Object.entries(mapped.map).map(([l, n]) => `${l}→${n}`).join(', ')}`);
+  }
+
   // Normalização final: casa rótulos com nomes reais, ordena e funde falas
   // consecutivas do mesmo speaker.
-  const finalUtts = normalizeUtterances(result.utterances, participants);
+  const finalUtts = normalizeUtterances(utterances, participants);
   const skipped = result.skippedChunks;
 
   const transcriptionFailed = finalUtts.length === 0 && skipped.length > 0;
@@ -611,6 +629,7 @@ async function finalizeRecording(
     workerVersion: WORKER_VERSION,
     audioDurationSeconds: result.audioDurationSeconds,
     estimatedCostUsd: result.estimatedCostUsd,
+    speakerMap,
     participants,
     skippedChunks: skipped,
     skippedChunkDetails: result.skippedChunkDetails,
@@ -650,6 +669,28 @@ async function finalizeRecording(
       skipped.length ? ` (chunks pulados: ${skipped.join(', ')})` : ''
     }`,
   );
+}
+
+// Sem OPENROUTER_API_KEY o mapeamento é pulado (rótulos genéricos) — a
+// transcrição em si não depende do LLM.
+async function resolveSpeakerMap(id: string, utterances: Utterance[], participants: string[]) {
+  const startedAt = Date.now();
+  const r = await mapSpeakers(utterances, participants, {
+    minConfidence: SPEAKER_MAP_MIN_CONFIDENCE,
+    llm: async ({ prompt, schema }) => {
+      if (!OPENROUTER_API_KEY) throw new Error('OPENROUTER_API_KEY ausente — mapeamento de falantes pulado');
+      return openRouterJson({
+        apiKey: OPENROUTER_API_KEY,
+        model: SPEAKER_MAP_MODEL,
+        prompt,
+        schema,
+        schemaName: 'speaker_map',
+        timeoutMs: SPEAKER_MAP_TIMEOUT_MS,
+      });
+    },
+  });
+  logJson('speaker_map', { recordingId: id, source: r.source, map: r.map, elapsedMs: Date.now() - startedAt });
+  return r;
 }
 
 async function processRecording(rec: RecordingObject) {
