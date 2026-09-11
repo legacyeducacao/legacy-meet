@@ -3,7 +3,7 @@
 import * as React from 'react';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
-import { Calendar, ClipboardList, Home, Users, Video } from 'lucide-react';
+import { Activity, Calendar, ClipboardList, Home, Users, Video } from 'lucide-react';
 import AppLayout, { type NavSection } from '@/components/patterns/AppLayout';
 import { ThemeToggle } from '@/components/ThemeToggle';
 
@@ -22,6 +22,7 @@ const ROUTES: Route[] = [
   { key: 'gravacoes', href: '/gravacoes', label: 'Gravações', icon: <Video size={19} /> },
   { key: 'nps', href: '/nps', label: 'NPS', icon: <ClipboardList size={19} /> },
   { key: 'usuarios', href: '/admin/usuarios', label: 'Usuários', icon: <Users size={19} /> },
+  { key: 'diagnostico', href: '/admin/diagnostico', label: 'Diagnóstico', icon: <Activity size={19} /> },
 ];
 
 /**
@@ -44,7 +45,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const canNps = !!me && (me.isAdmin || me.sector === 'executoria' || me.sector === 'ambos');
   const visible = ROUTES.filter((r) => {
     if (r.key === 'nps') return canNps;
-    if (r.key === 'usuarios') return !!me?.isAdmin;
+    if (r.key === 'usuarios' || r.key === 'diagnostico') return !!me?.isAdmin;
     return true;
   });
 
@@ -54,7 +55,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         key: r.key,
         label: r.label,
         icon: r.icon,
-        showInBottomNav: r.key !== 'usuarios',
+        showInBottomNav: r.key !== 'usuarios' && r.key !== 'diagnostico',
       })),
     },
   ];

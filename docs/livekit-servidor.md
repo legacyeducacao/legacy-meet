@@ -185,7 +185,10 @@ ICE em uso e envia `protocol` (`udp`/`tcp`), `candidateType` (`host`/`srflx`/`re
 `roundTripTimeMs` e `degraded`. Endereços IP não são enviados. Se `degraded` vier `true`
 para todo mundo, a mídia está em TCP/TURN e o problema é firewall, não internet do
 usuário. Fica no log do app (`"telemetry":true`) e em `telemetry/<dia>/` no
-MinIO; `GET /api/telemetry?date=YYYY-MM-DD` lista (admin).
+MinIO. Para consultar, entre no app como admin e abra **Diagnóstico** no menu lateral
+(`/admin/diagnostico`): a tela escolhe o dia, resume o caminho da mídia com um veredito em
+português, mostra quedas e erros de dispositivo e lista os eventos. A API crua continua em
+`GET /api/telemetry?date=YYYY-MM-DD`.
 
 Com uma semana de dados dá para separar "rede do usuário" (rtt alto, 3G, `poor`
 recorrente para uma pessoa) de "servidor" (todo mundo reconectando ao mesmo tempo).

@@ -52,8 +52,13 @@ export async function storeTelemetry(record: TelemetryRecord): Promise<void> {
   await writeJson(telemetryKey(record), record);
 }
 
+/** Teto de eventos lidos por dia: as chaves têm o horário no nome, então os
+ *  mais recentes ficam no fim da listagem. Evita centenas de GETs no MinIO. */
+export const MAX_TELEMETRY_PER_DAY = 1500;
+
 export async function listTelemetry(date: string): Promise<TelemetryRecord[]> {
   const keys = await listJsonKeys(`${TELEMETRY_PREFIX}${date}/`);
-  const items = await Promise.all(keys.map((k) => readJson<TelemetryRecord>(k)));
+  const recent = keys.slice(-MAX_TELEMETRY_PER_DAY);
+  const items = await Promise.all(recent.map((k) => readJson<TelemetryRecord>(k)));
   return items.filter((r): r is TelemetryRecord => !!r).sort((a, b) => a.at.localeCompare(b.at));
 }
