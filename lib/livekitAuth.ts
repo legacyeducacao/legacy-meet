@@ -27,8 +27,12 @@ function verifyLivekitPayload(token: string | undefined, roomName: string): Live
   if (parts.length !== 3) return null;
   const [h, p, sig] = parts;
   const expected = crypto.createHmac('sha256', secret).update(`${h}.${p}`).digest('base64url');
-  if (sig.length !== expected.length) return null;
-  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
+  // Compara BYTES: uma assinatura forjada com caracteres multibyte passava no
+  // tamanho em caracteres e fazia timingSafeEqual lançar (500 em vez de 401).
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return null;
+  if (!crypto.timingSafeEqual(a, b)) return null;
   try {
     const payload = JSON.parse(Buffer.from(p, 'base64url').toString('utf8')) as LivekitPayload;
     if (payload.exp && Date.now() / 1000 > payload.exp) return null;

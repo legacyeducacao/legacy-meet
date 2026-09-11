@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { toast } from '@/components/ui/custom-toast';
-import { decodePassphrase, isLowPowerDevice } from '@/lib/client-utils';
+import { isLowPowerDevice } from '@/lib/client-utils';
 import { DebugMode } from '@/lib/Debug';
 import { KeyboardShortcuts } from '@/lib/KeyboardShortcuts';
 import { RecordingIndicator } from '@/lib/RecordingIndicator';
@@ -13,6 +13,7 @@ import { LegacyVideoConference } from '@/lib/LegacyVideoConference';
 import { HostLobbyPanel } from '@/lib/HostLobbyPanel';
 import { NoiseFilterBoot } from '@/lib/NoiseFilterBoot';
 import {
+  DefaultReconnectPolicy,
   DisconnectReason,
   ExternalE2EEKeyProvider,
   RoomOptions,
@@ -191,7 +192,9 @@ function VideoConferenceComponent(props: {
     hostKey: string;
   };
 }) {
-  const keyProvider = new ExternalE2EEKeyProvider();
+  // Uma instância só: o Room guarda o provider da primeira renderização e é
+  // nele que a chave precisa ser definida.
+  const keyProvider = React.useMemo(() => new ExternalE2EEKeyProvider(), []);
   const { worker, e2eePassphrase } = useSetupE2EE();
   const e2eeEnabled = !!(e2eePassphrase && worker);
 
@@ -243,8 +246,14 @@ function VideoConferenceComponent(props: {
       // monitor realmente mostra; nos demais casos economiza banda de descida.
       adaptiveStream: { pixelDensity: 'screen' },
       dynacast: true,
-      e2ee: keyProvider && worker && e2eeEnabled ? { keyProvider, worker } : undefined,
+      e2ee: e2eeEnabled && worker ? { keyProvider, worker } : undefined,
       singlePeerConnection: props.options.singlePeerConnection,
+      // Reconexão automática mais longa: a política padrão do SDK desiste em
+      // ~30 s, pouco para 4G/Wi-Fi ruim. ~2,5 min antes de cair no overlay
+      // "Conexão perdida" (o token vale 12 h; a reunião continua no servidor).
+      reconnectPolicy: new DefaultReconnectPolicy([
+        0, 300, 1200, 2700, 4800, ...Array.from({ length: 20 }, () => 7000),
+      ]),
     };
   }, [props.userChoices, props.options.hq, props.options.codec]);
 
@@ -253,24 +262,22 @@ function VideoConferenceComponent(props: {
   React.useEffect(() => {
     if (e2eeEnabled) {
       keyProvider
-        .setKey(decodePassphrase(e2eePassphrase))
-        .then(() => {
-          room.setE2EEEnabled(true).catch((e) => {
-            if (e instanceof DeviceUnsupportedError) {
-              alert(
-                `Você está tentando entrar em uma reunião criptografada, mas seu navegador não tem suporte. Atualize-o para a versão mais recente e tente novamente.`,
-              );
-              console.error(e);
-            } else {
-              throw e;
-            }
-          });
+        .setKey(e2eePassphrase)
+        .then(() => room.setE2EEEnabled(true))
+        .catch((e) => {
+          console.error(e);
+          toast.error(
+            e instanceof DeviceUnsupportedError
+              ? 'Esta reunião é criptografada e seu navegador não tem suporte. Atualize-o e tente de novo.'
+              : 'Falha ao ativar a criptografia da reunião.',
+            { duration: 10000 },
+          );
         })
-        .then(() => setE2eeSetupComplete(true));
+        .finally(() => setE2eeSetupComplete(true));
     } else {
       setE2eeSetupComplete(true);
     }
-  }, [e2eeEnabled, room, e2eePassphrase]);
+  }, [e2eeEnabled, room, e2eePassphrase, keyProvider]);
 
   const connectOptions = React.useMemo((): RoomConnectOptions => {
     return {
@@ -367,37 +374,8 @@ function VideoConferenceComponent(props: {
     isHost,
   ]);
 
-  React.useEffect(() => {
-    room.on(RoomEvent.Disconnected, handleOnLeave);
-    room.on(RoomEvent.Reconnecting, handleReconnecting);
-    room.on(RoomEvent.Reconnected, handleReconnected);
-    room.on(RoomEvent.Connected, clearConnectionLost);
-    room.on(RoomEvent.EncryptionError, handleEncryptionError);
-    room.on(RoomEvent.MediaDevicesError, handleMediaError);
-    room.on(RoomEvent.ConnectionQualityChanged, handleQualityChanged);
-    room.on(RoomEvent.Connected, handleConnected);
-    room.on(RoomEvent.ParticipantConnected, collectParticipants);
-    room.on(RoomEvent.ParticipantPermissionsChanged, handlePermissions);
-
-    if (e2eeSetupComplete) {
-      connectRoom().catch((error) => {
-        handleError(error);
-        setConnectionLost('failed');
-      });
-    }
-    return () => {
-      room.off(RoomEvent.Disconnected, handleOnLeave);
-      room.off(RoomEvent.Reconnecting, handleReconnecting);
-      room.off(RoomEvent.Reconnected, handleReconnected);
-      room.off(RoomEvent.Connected, clearConnectionLost);
-      room.off(RoomEvent.EncryptionError, handleEncryptionError);
-      room.off(RoomEvent.MediaDevicesError, handleMediaError);
-      room.off(RoomEvent.ConnectionQualityChanged, handleQualityChanged);
-      room.off(RoomEvent.Connected, handleConnected);
-      room.off(RoomEvent.ParticipantConnected, collectParticipants);
-      room.off(RoomEvent.ParticipantPermissionsChanged, handlePermissions);
-    };
-  }, [e2eeSetupComplete, room, props.connectionDetails, props.userChoices]);
+  // Listeners do Room: registrados abaixo, depois de todos os handlers (ver
+  // useRoomListeners), lendo sempre a versão mais recente de cada um.
 
   // Liga câmera/microfone somente quando admitido (host: imediatamente; convidado:
   // após o host autorizar). Convidado limpa o atributo de sala de espera ao entrar.
@@ -620,6 +598,83 @@ function VideoConferenceComponent(props: {
       `Ocorreu um erro inesperado de criptografia, verifique o console para mais detalhes: ${error.message}`,
     );
   }, []);
+
+  // Os handlers acima fecham sobre estado que muda durante a reunião (isCohost,
+  // connectionLost…). Registrar o listener uma vez com a função da primeira
+  // renderização fazia, por exemplo, o co-anfitrião promovido ver o NPS ao
+  // sair. Um ref com a versão mais recente resolve sem re-registrar listeners.
+  const latest = React.useRef({
+    handleOnLeave,
+    handleReconnecting,
+    handleReconnected,
+    clearConnectionLost,
+    handleEncryptionError,
+    handleMediaError,
+    handleQualityChanged,
+    handleConnected,
+    collectParticipants,
+    handlePermissions,
+    connectRoom,
+    handleError,
+  });
+  latest.current = {
+    handleOnLeave,
+    handleReconnecting,
+    handleReconnected,
+    clearConnectionLost,
+    handleEncryptionError,
+    handleMediaError,
+    handleQualityChanged,
+    handleConnected,
+    collectParticipants,
+    handlePermissions,
+    connectRoom,
+    handleError,
+  };
+
+  React.useEffect(() => {
+    const L = latest;
+    const onDisconnected = (reason?: DisconnectReason) => L.current.handleOnLeave(reason);
+    const onReconnecting = () => L.current.handleReconnecting();
+    const onReconnected = () => L.current.handleReconnected();
+    const onConnected = () => {
+      L.current.clearConnectionLost();
+      L.current.handleConnected();
+    };
+    const onEncryptionError = (e: Error) => L.current.handleEncryptionError(e);
+    const onMediaError = (e: Error) => L.current.handleMediaError(e);
+    const onQuality = (q: string, p: { isLocal?: boolean }) => L.current.handleQualityChanged(q, p);
+    const onParticipantConnected = () => L.current.collectParticipants();
+    const onPermissions = () => L.current.handlePermissions();
+
+    room.on(RoomEvent.Disconnected, onDisconnected);
+    room.on(RoomEvent.Reconnecting, onReconnecting);
+    room.on(RoomEvent.Reconnected, onReconnected);
+    room.on(RoomEvent.Connected, onConnected);
+    room.on(RoomEvent.EncryptionError, onEncryptionError);
+    room.on(RoomEvent.MediaDevicesError, onMediaError);
+    room.on(RoomEvent.ConnectionQualityChanged, onQuality);
+    room.on(RoomEvent.ParticipantConnected, onParticipantConnected);
+    room.on(RoomEvent.ParticipantPermissionsChanged, onPermissions);
+
+    if (e2eeSetupComplete) {
+      L.current.connectRoom().catch((error) => {
+        L.current.handleError(error);
+        setConnectionLost('failed');
+      });
+    }
+    return () => {
+      room.off(RoomEvent.Disconnected, onDisconnected);
+      room.off(RoomEvent.Reconnecting, onReconnecting);
+      room.off(RoomEvent.Reconnected, onReconnected);
+      room.off(RoomEvent.Connected, onConnected);
+      room.off(RoomEvent.EncryptionError, onEncryptionError);
+      room.off(RoomEvent.MediaDevicesError, onMediaError);
+      room.off(RoomEvent.ConnectionQualityChanged, onQuality);
+      room.off(RoomEvent.ParticipantConnected, onParticipantConnected);
+      room.off(RoomEvent.ParticipantPermissionsChanged, onPermissions);
+    };
+  }, [e2eeSetupComplete, room]);
 
   React.useEffect(() => {
     if (lowPowerMode) {

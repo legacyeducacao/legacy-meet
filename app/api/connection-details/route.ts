@@ -16,6 +16,17 @@ const API_SECRET = process.env.LIVEKIT_API_SECRET;
 const LIVEKIT_URL = process.env.LIVEKIT_URL;
 
 const COOKIE_KEY = 'random-participant-postfix';
+const ROOM_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;
+const hostCookieName = (roomName: string) => `lm-host-${roomName}`;
+// 12h, alinhado ao TTL do token. SameSite=None: o Meet roda embutido no CRM
+// (iframe de outro site) e cookies Strict/Lax não são enviados nesse contexto.
+const COOKIE_OPTS = {
+  httpOnly: true,
+  secure: true,
+  sameSite: 'none' as const,
+  path: '/',
+  maxAge: 12 * 60 * 60,
+};
 
 export async function GET(request: NextRequest) {
   try {
@@ -33,16 +44,25 @@ export async function GET(request: NextRequest) {
       throw new Error('Invalid region');
     }
 
-    if (typeof roomName !== 'string') {
-      return new NextResponse('Missing required query parameter: roomName', { status: 400 });
+    if (typeof roomName !== 'string' || !ROOM_NAME_RE.test(roomName)) {
+      return new NextResponse('Missing or invalid query parameter: roomName', { status: 400 });
     }
     if (participantName === null) {
       return new NextResponse('Missing required query parameter: participantName', { status: 400 });
     }
 
     // Host = link de anfitrião assinado (hostKey) OU membro interno logado (MASTER/EXECUTOR).
-    const hostKey = request.nextUrl.searchParams.get('hostKey');
-    let isHost = verifyHostKey(roomName, hostKey);
+    // A chave `h` é apagada da URL pelo cliente (para não vazar ao copiar o
+    // link); sem este cookie, um F5 ou a reconexão do host sem login (CRM)
+    // virava convidado e ele ficava preso na própria sala de espera.
+    const hostKeyFromUrl = request.nextUrl.searchParams.get('hostKey');
+    const hostKeyFromCookie = request.cookies.get(hostCookieName(roomName))?.value;
+    const hostKeyUsed = verifyHostKey(roomName, hostKeyFromUrl)
+      ? hostKeyFromUrl
+      : verifyHostKey(roomName, hostKeyFromCookie)
+        ? hostKeyFromCookie
+        : null;
+    let isHost = !!hostKeyUsed;
     if (!isHost) {
       const user = await getCurrentUser();
       isHost = !!user && user.isStaff;
@@ -70,12 +90,10 @@ export async function GET(request: NextRequest) {
       participantName: participantName,
       isHost,
     };
-    return new NextResponse(JSON.stringify(data), {
-      headers: {
-        'Content-Type': 'application/json',
-        'Set-Cookie': `${COOKIE_KEY}=${randomParticipantPostfix}; Path=/; HttpOnly; SameSite=Strict; Secure; Expires=${getCookieExpirationTime()}`,
-      },
-    });
+    const res = NextResponse.json(data);
+    res.cookies.set(COOKIE_KEY, randomParticipantPostfix, COOKIE_OPTS);
+    if (hostKeyUsed) res.cookies.set(hostCookieName(roomName), hostKeyUsed, COOKIE_OPTS);
+    return res;
   } catch (error) {
     if (error instanceof Error) {
       return new NextResponse(error.message, { status: 500 });
@@ -120,10 +138,3 @@ function createParticipantToken(userInfo: AccessTokenOptions, roomName: string, 
   return at.toJwt();
 }
 
-function getCookieExpirationTime(): string {
-  // Alinhado ao TTL do token (12h): se o cookie expirar antes, um reload no meio
-  // de uma reunião longa troca a identidade (nome__postfix) e quebra a sessão.
-  const now = new Date();
-  now.setTime(now.getTime() + 12 * 60 * 60 * 1000);
-  return now.toUTCString();
-}
