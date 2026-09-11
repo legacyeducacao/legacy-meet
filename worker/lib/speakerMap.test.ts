@@ -69,6 +69,20 @@ describe('validateMapping', () => {
     ).toEqual({ A: 'Falante A', B: 'Ana Souza' });
   });
 
+  it('rótulo repetido na resposta: vale a entrada de maior confiança', () => {
+    expect(
+      validateMapping(
+        [
+          { label: 'A', name: 'Ana Souza', confidence: 0.9 },
+          { label: 'A', name: 'Bruno Lima', confidence: 0.8 },
+        ],
+        ['A', 'B'],
+        participants,
+        0.7,
+      ),
+    ).toEqual({ A: 'Ana Souza', B: 'Falante B' });
+  });
+
   it('casa o nome ignorando caixa/acento e rótulos ausentes ficam genéricos', () => {
     expect(
       validateMapping([{ label: 'A', name: 'ana souza', confidence: 0.9 }], ['A', 'B'], participants, 0.7),

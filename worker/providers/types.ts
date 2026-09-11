@@ -38,6 +38,8 @@ export interface SkippedChunk {
 export interface TranscriptionResult {
   /** Falas em SEGUNDOS, com rótulos crus do provider (nomes, "A"/"B", …). */
   utterances: Utterance[];
+  /** true quando `speaker` é rótulo genérico de diarização (A, B, C) a mapear para nomes. */
+  rawSpeakerLabels: boolean;
   durationSeconds: number;
   /** Modelo de fala usado (ex.: google/gemini-2.5-flash, universal-3-5-pro). */
   model: string;

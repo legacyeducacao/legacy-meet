@@ -501,6 +501,7 @@ async function transcribeRecording(input: TranscriptionInput): Promise<Transcrip
     kind: 'completed',
     result: {
       utterances: allUtts,
+      rawSpeakerLabels: false,
       durationSeconds,
       model: OPENROUTER_MODEL,
       skippedChunks: skipped,

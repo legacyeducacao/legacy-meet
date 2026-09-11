@@ -187,10 +187,35 @@ describe('assemblyai provider — poll', () => {
 
   it('status error vira falha definitiva com o motivo', async () => {
     const client = fakeClient({
-      get: vi.fn(async () => ({ id: 't-1', status: 'error' as const, error: 'Download error' })),
+      get: vi.fn(async () => ({ id: 't-1', status: 'error' as const, error: 'Audio file too short' })),
     });
     const { provider } = makeProvider(client);
     const out = await provider.poll(job(), { doneMarker: true });
-    expect(out).toEqual({ kind: 'error', reason: 'Download error', retryable: false });
+    expect(out).toEqual({ kind: 'error', reason: 'Audio file too short', retryable: false });
+  });
+
+  it('erro de download da URL é retryável (próxima tentativa usa upload)', async () => {
+    const client = fakeClient({
+      get: vi.fn(async () => ({
+        id: 't-1',
+        status: 'error' as const,
+        error: 'Download error, unable to download https://minio/x.mp4. Please make sure the file exists and is accessible from the internet.',
+      })),
+    });
+    const { provider } = makeProvider(client);
+    const out = await provider.poll(job(), { doneMarker: true });
+    expect(out).toMatchObject({ kind: 'error', retryable: true });
+  });
+
+  it('429 esgotado na submissão é retryável, não falha definitiva', async () => {
+    const { AssemblyAIError } = await import('../lib/assemblyai');
+    const { provider } = makeProvider(
+      fakeClient({
+        submit: vi.fn(async () => {
+          throw new AssemblyAIError('assemblyai 429: rate limit', 429);
+        }),
+      }),
+    );
+    expect(await provider.submit(makeInput())).toMatchObject({ kind: 'error', retryable: true });
   });
 });

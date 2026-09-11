@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { writeJson } from '@/lib/recordings';
 
@@ -6,6 +7,12 @@ export const dynamic = 'force-dynamic';
 const WEBHOOK_SECRET_HEADER = 'x-legacy-webhook-secret';
 // Prefixo onde o worker procura o aviso de "transcrição pronta" (env DONE_PREFIX no worker).
 const DONE_PREFIX = process.env.TRANSCRIPTION_DONE_PREFIX ?? 'asr-done/';
+
+function safeEqual(a: string, b: string): boolean {
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return ba.length === bb.length && timingSafeEqual(ba, bb);
+}
 
 interface WebhookBody {
   transcript_id?: string;
@@ -27,7 +34,7 @@ export async function POST(req: NextRequest) {
   if (!secret) {
     return new NextResponse('ASSEMBLYAI_WEBHOOK_SECRET não configurado', { status: 503 });
   }
-  if (req.headers.get(WEBHOOK_SECRET_HEADER) !== secret) {
+  if (!safeEqual(req.headers.get(WEBHOOK_SECRET_HEADER) ?? '', secret)) {
     return new NextResponse('não autorizado', { status: 401 });
   }
 

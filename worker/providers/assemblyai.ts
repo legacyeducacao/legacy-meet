@@ -107,7 +107,8 @@ export function createAssemblyAIProvider(cfg: AssemblyAIProviderConfig): Transcr
     } catch (e) {
       // 4xx = chave, parâmetro ou URL rejeitados na hora: não adianta insistir
       // sem intervenção. Rede/5xx esgotados: vale nova tentativa no próximo ciclo.
-      const definitive = e instanceof AssemblyAIError && e.status >= 400 && e.status < 500;
+      const definitive =
+        e instanceof AssemblyAIError && e.status >= 400 && e.status < 500 && e.status !== 429;
       return { kind: 'error', reason: `submissão: ${errMsg(e)}`, retryable: !definitive };
     }
   }
@@ -127,7 +128,11 @@ export function createAssemblyAIProvider(cfg: AssemblyAIProviderConfig): Transcr
       return { kind: 'pending', jobId: job.jobId, checked: true };
     }
     if (t.status === 'error') {
-      return { kind: 'error', reason: t.error || 'erro sem detalhe na AssemblyAI', retryable: false };
+      const reason = t.error || 'erro sem detalhe na AssemblyAI';
+      // Falha ao baixar a URL assinada (MinIO inacessível de fora, URL expirada
+      // na fila): retryável — a gravação volta para a fila e a próxima tentativa
+      // sobe o áudio pelo endpoint de upload. Outros erros são definitivos.
+      return { kind: 'error', reason, retryable: isDownloadError(reason) };
     }
     const audioSeconds = Number(t.audio_duration ?? 0);
     const utterances = parseAssemblyUtterances(t.utterances);
@@ -136,6 +141,7 @@ export function createAssemblyAIProvider(cfg: AssemblyAIProviderConfig): Transcr
       kind: 'completed',
       result: {
         utterances,
+        rawSpeakerLabels: true,
         durationSeconds: Math.round(audioSeconds),
         model,
         providerTranscriptId: t.id,
@@ -160,3 +166,6 @@ export function createAssemblyAIProvider(cfg: AssemblyAIProviderConfig): Transcr
 }
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+export const isDownloadError = (reason: string) =>
+  /download|unable to (fetch|retrieve|access)|audio_url|not accessible/i.test(reason);

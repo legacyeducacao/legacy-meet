@@ -79,6 +79,7 @@ documentado, só mais lento.
 | `ASSEMBLYAI_TIMEOUT_MS` | não | `60000` | Timeout por chamada à API |
 | `ASSEMBLYAI_RATE_USD_PER_HOUR` | não | tabela pública | Tarifa fixa para o custo estimado |
 | `SIGNED_URL_TTL_SECONDS` | não | `43200` | Validade da URL assinada entregue à AssemblyAI |
+| `TRANSCRIPTION_DONE_PREFIX` | não | `asr-done/` | Prefixo do marker do webhook (mesmo valor no app) |
 | `KEYTERMS_FILE` | não | `config/keyterms.json` | Vocabulário (`keyterms_prompt`) |
 | `SPEAKER_MAP_MIN_CONFIDENCE` | não | `0.7` | Confiança mínima para trocar "Falante A" por um nome |
 | `SPEAKER_MAP_MODEL` | não | `OPENROUTER_MODEL` | Modelo do mapeamento de falantes |

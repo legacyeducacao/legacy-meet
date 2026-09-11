@@ -65,7 +65,7 @@ import type {
 } from './providers/types';
 import { createGeminiProvider } from './providers/gemini';
 import { createAssemblyAIProvider } from './providers/assemblyai';
-import { AssemblyAIClient, DEFAULT_SPEECH_MODEL } from './lib/assemblyai';
+import { AssemblyAIClient, AssemblyAIError, DEFAULT_SPEECH_MODEL } from './lib/assemblyai';
 import { loadKeytermsFile } from './lib/keyterms';
 import { applySpeakerMap, mapSpeakers, type SpeakerMap } from './lib/speakerMap';
 import { openRouterJson } from './lib/openrouter';
@@ -88,7 +88,7 @@ const OUTPUT_PREFIX = env.OUTPUT_PREFIX ?? 'transcricoes/';
 const MANIFEST_PREFIX = env.MANIFEST_PREFIX ?? 'manifests/';
 // Jobs assíncronos (providers que respondem depois) e markers do webhook.
 const JOBS_PREFIX = env.JOBS_PREFIX ?? 'asr-jobs/';
-const DONE_PREFIX = env.DONE_PREFIX ?? 'asr-done/';
+const DONE_PREFIX = env.TRANSCRIPTION_DONE_PREFIX ?? 'asr-done/';
 // Prazo máximo para um job assíncrono responder antes de virar "failed".
 const JOB_MAX_WAIT_MINUTES = Number(env.ASSEMBLYAI_MAX_WAIT_MINUTES ?? '180');
 // Validade da URL assinada entregue ao provider (precisa cobrir fila + download).
@@ -329,6 +329,9 @@ async function writeFailedManifest(
   };
   await uploadText(manifestKey(id), JSON.stringify(manifest, null, 2), 'application/json');
   await deleteJob(id).catch(() => {});
+  if (extra.providerTranscriptId) {
+    await deleteObject(doneMarkerKey(extra.providerTranscriptId)).catch(() => {});
+  }
   logJson('transcription_failed', { recordingId: id, provider: provider.name, reason });
 }
 
@@ -563,7 +566,7 @@ async function finalizeRecording(
   // participantes conhecidos com o LLM antes de normalizar.
   let utterances = result.utterances;
   let speakerMap: SpeakerMap | undefined;
-  if (provider.name !== 'gemini' && utterances.length) {
+  if (result.rawSpeakerLabels && utterances.length) {
     const mapped = await resolveSpeakerMap(id, utterances, participants);
     speakerMap = mapped.map;
     utterances = applySpeakerMap(utterances, mapped.map);
@@ -712,11 +715,13 @@ async function processRecording(rec: RecordingObject) {
       log(`reaproveitando transcrição existente do MinIO — ${reused.length} utterance(s)`);
       const videoPath = path.join(tmp, 'recording.mp4');
       await downloadToFile(rec.key, videoPath);
-      const durationSeconds = Math.round(await getAudioDuration(videoPath).catch(() => 0));
+      const durationSeconds = Math.round(await getAudioDuration(videoPath));
       await finalizeRecording(
         ctx,
         {
           utterances: reused,
+          // Speakers do txt já são nomes (ou "Desconhecido"): nada a mapear.
+          rawSpeakerLabels: false,
           durationSeconds,
           model: 'reuso-txt',
           skippedChunks: [],
@@ -781,8 +786,12 @@ async function processPendingJobs(): Promise<boolean> {
       continue;
     }
 
+    // Marker do webhook vence o prazo: se a AssemblyAI terminou enquanto o
+    // worker esteve fora, o resultado (já pago) é aproveitado em vez de virar
+    // timeout.
+    const doneMarker = await objectExists(doneMarkerKey(job.jobId));
     const waitedMs = Date.now() - new Date(job.submittedAt).getTime();
-    if (waitedMs > JOB_MAX_WAIT_MINUTES * 60_000) {
+    if (!doneMarker && waitedMs > JOB_MAX_WAIT_MINUTES * 60_000) {
       logJson('transcription_timeout', { recordingId: id, transcriptId: job.jobId, waitedMs });
       await writeFailedManifest(id, `sem resposta do provider em ${JOB_MAX_WAIT_MINUTES} min`, {
         providerTranscriptId: job.jobId,
@@ -790,12 +799,19 @@ async function processPendingJobs(): Promise<boolean> {
       continue;
     }
 
-    const doneMarker = await objectExists(doneMarkerKey(job.jobId));
     let outcome;
     try {
       outcome = await provider.poll(job, { doneMarker });
     } catch (e) {
-      log(`poll de ${id} falhou: ${e instanceof Error ? e.message : String(e)}`);
+      const msg = e instanceof Error ? e.message : String(e);
+      log(`poll de ${id} falhou: ${msg}`);
+      // 4xx (chave revogada, transcrição inexistente) não muda sozinho: falha
+      // definitiva. Rede/5xx: registra a consulta para o backoff valer.
+      if (e instanceof AssemblyAIError && e.status >= 400 && e.status < 500 && e.status !== 429) {
+        await writeFailedManifest(id, `consulta do job: ${msg}`, { providerTranscriptId: job.jobId });
+      } else {
+        await writeJob({ ...job, lastCheckedAt: new Date().toISOString(), checks: job.checks + 1 });
+      }
       continue;
     }
 
@@ -813,6 +829,7 @@ async function processPendingJobs(): Promise<boolean> {
         // respeitando o cap de tentativas para não ficar em loop.
         log(`job ${id} descartado (${outcome.reason}) — gravação volta para a fila`);
         await deleteJob(id).catch(() => {});
+        await deleteObject(doneMarkerKey(job.jobId)).catch(() => {});
         const attempts = await bumpAttempts(id);
         if (attempts >= MAX_RECORDING_ATTEMPTS) {
           await writeFailedManifest(id, outcome.reason, { providerTranscriptId: job.jobId });

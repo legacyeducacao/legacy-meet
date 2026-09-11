@@ -130,6 +130,8 @@ export interface AssemblyAIClientOptions {
   apiKey: string;
   baseUrl?: string;
   timeoutMs?: number;
+  /** Timeout do upload de áudio (arquivos grandes em link lento). Default 10 min. */
+  uploadTimeoutMs?: number;
   retryAttempts?: number;
   retryBaseMs?: number;
   fetchImpl?: (url: string, init: RequestInit) => Promise<Response>;
@@ -151,8 +153,9 @@ export class AssemblyAIClient {
     };
   }
 
-  private async request<T>(path: string, init: RequestInit): Promise<T> {
-    const { apiKey, baseUrl, timeoutMs, fetchImpl, sleep, retryAttempts, retryBaseMs, onRetry } = this.opts;
+  private async request<T>(path: string, init: RequestInit, timeoutOverrideMs?: number): Promise<T> {
+    const { apiKey, baseUrl, fetchImpl, sleep, retryAttempts, retryBaseMs, onRetry } = this.opts;
+    const timeoutMs = timeoutOverrideMs ?? this.opts.timeoutMs;
     return withBackoff(
       async () => {
         const resp = await fetchWithTimeout(
@@ -210,11 +213,15 @@ export class AssemblyAIClient {
   }
 
   async upload(data: Buffer | Uint8Array): Promise<string> {
-    const r = await this.request<{ upload_url: string }>('/v2/upload', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/octet-stream' },
-      body: data as unknown as RequestInit['body'],
-    });
+    const r = await this.request<{ upload_url: string }>(
+      '/v2/upload',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: data as unknown as RequestInit['body'],
+      },
+      this.opts.uploadTimeoutMs ?? 600_000,
+    );
     if (!r.upload_url) throw new AssemblyAIError('upload sem upload_url', 0);
     return r.upload_url;
   }

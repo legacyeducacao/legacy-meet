@@ -95,12 +95,20 @@ export function validateMapping(
   minConfidence: number,
 ): SpeakerMap {
   const byNorm = new Map(participants.map((p) => [norm(p), p]));
-  const best = new Map<string, { label: string; confidence: number }>();
+  // Primeiro uma entrada por rótulo (maior confiança); só então um rótulo por
+  // nome. Sem isso, um rótulo repetido na resposta podia receber o nome de
+  // menor confiança.
+  const perLabel = new Map<string, { name: string; confidence: number }>();
   for (const e of entries ?? []) {
     const label = String(e?.label ?? '').trim();
     const name = byNorm.get(norm(String(e?.name ?? '')));
     const confidence = Number(e?.confidence ?? 0);
     if (!labels.includes(label) || !name || !(confidence >= minConfidence)) continue;
+    const cur = perLabel.get(label);
+    if (!cur || confidence > cur.confidence) perLabel.set(label, { name, confidence });
+  }
+  const best = new Map<string, { label: string; confidence: number }>();
+  for (const [label, { name, confidence }] of perLabel) {
     const cur = best.get(name);
     if (!cur || confidence > cur.confidence) best.set(name, { label, confidence });
   }
