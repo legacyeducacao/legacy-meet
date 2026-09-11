@@ -29,6 +29,7 @@ import {
 import { useRouter } from 'next/navigation';
 import { useSetupE2EE } from '@/lib/useSetupE2EE';
 import { useLowCPUOptimizer } from '@/lib/usePerfomanceOptimiser';
+import { reportClientEvent, serializeError, setTelemetryContext } from '@/lib/telemetry';
 
 const CONN_DETAILS_ENDPOINT =
   process.env.NEXT_PUBLIC_CONN_DETAILS_ENDPOINT ?? '/api/connection-details';
@@ -97,7 +98,10 @@ export function PageClientImpl(props: {
     const connectionDetailsData = await connectionDetailsResp.json();
     setConnectionDetails(connectionDetailsData);
   }, [props.roomName, props.region, props.hostKey]);
-  const handlePreJoinError = React.useCallback((e: any) => console.error(e), []);
+  const handlePreJoinError = React.useCallback((e: any) => {
+    console.error(e);
+    reportClientEvent('prejoin_error', { room: props.roomName, error: serializeError(e) });
+  }, [props.roomName]);
 
   return (
     <main data-lk-theme="default" style={{ height: '100%' }}>
@@ -251,6 +255,13 @@ function VideoConferenceComponent(props: {
   // somente quando o host autoriza (o servidor concede canPublish/canSubscribe).
   const isHost = props.connectionDetails.isHost;
   const [admitted, setAdmitted] = React.useState(isHost);
+  React.useEffect(() => {
+    setTelemetryContext({
+      room: props.connectionDetails.roomName,
+      identity: props.connectionDetails.participantName,
+      isHost,
+    });
+  }, [props.connectionDetails, isHost]);
   const handlePermissions = React.useCallback(() => {
     if (room.localParticipant.permissions?.canPublish) {
       setAdmitted(true);
@@ -332,6 +343,7 @@ function VideoConferenceComponent(props: {
     room.on(RoomEvent.Connected, clearConnectionLost);
     room.on(RoomEvent.EncryptionError, handleEncryptionError);
     room.on(RoomEvent.MediaDevicesError, handleMediaError);
+    room.on(RoomEvent.ConnectionQualityChanged, handleQualityChanged);
     room.on(RoomEvent.Connected, handleConnected);
     room.on(RoomEvent.ParticipantConnected, collectParticipants);
     room.on(RoomEvent.ParticipantPermissionsChanged, handlePermissions);
@@ -349,6 +361,7 @@ function VideoConferenceComponent(props: {
       room.off(RoomEvent.Connected, clearConnectionLost);
       room.off(RoomEvent.EncryptionError, handleEncryptionError);
       room.off(RoomEvent.MediaDevicesError, handleMediaError);
+      room.off(RoomEvent.ConnectionQualityChanged, handleQualityChanged);
       room.off(RoomEvent.Connected, handleConnected);
       room.off(RoomEvent.ParticipantConnected, collectParticipants);
       room.off(RoomEvent.ParticipantPermissionsChanged, handlePermissions);
@@ -371,6 +384,7 @@ function VideoConferenceComponent(props: {
             await room.localParticipant.setCameraEnabled(true);
           } catch (error) {
             console.error('Falha ao habilitar a câmera (2 tentativas):', error);
+            reportClientEvent('device_enable_failed', { source: 'camera', error: serializeError(error) });
             toast.error(
               'Não foi possível iniciar a câmera (pode estar em uso por outro app). Você entrou sem vídeo — ative a câmera pela barra quando estiver livre.',
               { duration: 6000 },
@@ -382,6 +396,7 @@ function VideoConferenceComponent(props: {
     if (props.userChoices.audioEnabled) {
       room.localParticipant.setMicrophoneEnabled(true).catch((error) => {
         console.error('Falha ao habilitar o microfone:', error);
+        reportClientEvent('device_enable_failed', { source: 'microphone', error: serializeError(error) });
       });
     }
     if (!isHost) {
@@ -461,6 +476,9 @@ function VideoConferenceComponent(props: {
         reason === DisconnectReason.PARTICIPANT_REMOVED ||
         reason === DisconnectReason.ROOM_DELETED ||
         reason === DisconnectReason.DUPLICATE_IDENTITY;
+      reportClientEvent(voluntary ? 'disconnected' : 'reconnect_gave_up', {
+        reason: reason != null ? DisconnectReason[reason] : 'none',
+      });
       if (voluntary) {
         goToThanks();
       } else {
@@ -472,9 +490,14 @@ function VideoConferenceComponent(props: {
 
   // Feedback visual da reconexão automática do SDK.
   const reconnectingToastId = React.useRef<string | number | null>(null);
+  const reconnectingSinceRef = React.useRef<number | null>(null);
   const handleReconnecting = React.useCallback(() => {
     if (!reconnectingToastId.current) {
       reconnectingToastId.current = toast.loading('Conexão instável — reconectando…');
+    }
+    if (reconnectingSinceRef.current === null) {
+      reconnectingSinceRef.current = Date.now();
+      reportClientEvent('reconnecting');
     }
   }, []);
   const handleReconnected = React.useCallback(() => {
@@ -482,8 +505,22 @@ function VideoConferenceComponent(props: {
       toast.dismiss(reconnectingToastId.current);
       reconnectingToastId.current = null;
     }
+    const since = reconnectingSinceRef.current;
+    reconnectingSinceRef.current = null;
+    reportClientEvent('reconnected', { outageMs: since ? Date.now() - since : null });
     toast.success('Conexão restabelecida');
   }, []);
+  // Qualidade da conexão LOCAL caindo para "ruim"/"perdida" é a evidência mais
+  // direta de rede fraca — registra com o que o navegador sabe da rede.
+  const lastQualityRef = React.useRef<string>('');
+  const handleQualityChanged = React.useCallback(
+    (quality: string, participant: { isLocal?: boolean }) => {
+      if (!participant?.isLocal || quality === lastQualityRef.current) return;
+      lastQualityRef.current = quality;
+      if (quality === 'poor' || quality === 'lost') reportClientEvent('connection_quality', { quality });
+    },
+    [],
+  );
 
   // Conexão: as tentativas em rede ruim ficam por conta do SDK
   // (connectOptions.maxRetries) — uma única camada de retry.
@@ -519,6 +556,7 @@ function VideoConferenceComponent(props: {
   const handleError = React.useCallback((error: Error) => {
     // Usado na falha de CONEXÃO com a sala — avisa sem popup nativo bloqueante.
     console.error(error);
+    reportClientEvent('connect_failed', { error: serializeError(error) });
     toast.error('Não foi possível conectar à reunião. Verifique sua conexão e tente novamente.');
   }, []);
   // Erros de dispositivo de mídia (ex.: "Timeout starting video source") já são
@@ -526,6 +564,7 @@ function VideoConferenceComponent(props: {
   // registramos no console, sem alert disruptivo.
   const handleMediaError = React.useCallback((error: Error) => {
     console.error('Erro de dispositivo de mídia:', error);
+    reportClientEvent('media_error', { error: serializeError(error) });
   }, []);
   const handleEncryptionError = React.useCallback((error: Error) => {
     console.error(error);

@@ -175,6 +175,20 @@ export interface MeetingMeta {
 /** Janela em que nomes já registrados na sala contam como "desta sessão". */
 export const PARTICIPANTS_SESSION_WINDOW_MS = 10 * 60 * 1000;
 
+/** Chaves `.json` sob um prefixo (paginado). Usado pela telemetria. */
+export async function listJsonKeys(prefix: string): Promise<string[]> {
+  const keys: string[] = [];
+  let token: string | undefined;
+  do {
+    const res = await s3().send(
+      new ListObjectsV2Command({ Bucket: S3_BUCKET, Prefix: prefix, ContinuationToken: token }),
+    );
+    for (const obj of res.Contents ?? []) if (obj.Key?.endsWith('.json')) keys.push(obj.Key);
+    token = res.IsTruncated ? res.NextContinuationToken : undefined;
+  } while (token);
+  return keys;
+}
+
 export async function readJson<T = unknown>(key: string): Promise<T | null> {
   const text = await getObjectText(key);
   if (text == null) return null;
