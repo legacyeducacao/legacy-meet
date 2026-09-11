@@ -33,10 +33,19 @@ import { useLowCPUOptimizer } from '@/lib/usePerfomanceOptimiser';
 import { reportClientEvent, serializeError, setTelemetryContext } from '@/lib/telemetry';
 import { describeMediaError, iframePermissionProblem } from '@/lib/mediaErrors';
 import { isCohostIdentity } from '@/lib/cohosts';
+import {
+  extractSelectedCandidate,
+  firstStatsReport,
+  isDegradedTransport,
+  type RoomLike,
+} from '@/lib/connectionStats';
 
 const CONN_DETAILS_ENDPOINT =
   process.env.NEXT_PUBLIC_CONN_DETAILS_ENDPOINT ?? '/api/connection-details';
 const SHOW_SETTINGS_MENU = process.env.NEXT_PUBLIC_SHOW_SETTINGS_MENU == 'true';
+// Tempo até amostrar o caminho da mídia: o ICE fecha em poucos segundos, e
+// esperar um pouco evita medir durante a negociação.
+const ICE_STATS_DELAY_MS = 15000;
 
 export function PageClientImpl(props: {
   roomName: string;
@@ -433,6 +442,29 @@ function VideoConferenceComponent(props: {
       })();
     }
   }, [admitted, room, props.userChoices.videoEnabled, props.userChoices.audioEnabled]);
+
+  // Caminho real da mídia (UDP direto, TCP ou via TURN). Uma amostra por
+  // sessão, alguns segundos depois de conectar, quando o ICE já escolheu a
+  // rota. É o dado que responde "a culpa é da internet do usuário ou de uma
+  // porta UDP fechada no servidor?" sem pedir a ninguém que abra o
+  // chrome://webrtc-internals.
+  React.useEffect(() => {
+    if (!admitted) return;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const candidate = extractSelectedCandidate(await firstStatsReport(room as unknown as RoomLike));
+        if (cancelled || !candidate) return;
+        reportClientEvent('ice_transport', { ...candidate, degraded: isDegradedTransport(candidate) });
+      } catch {
+        // diagnóstico nunca atrapalha a chamada
+      }
+    }, ICE_STATS_DELAY_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [admitted, room]);
 
   const lowPowerMode = useLowCPUOptimizer(room);
 

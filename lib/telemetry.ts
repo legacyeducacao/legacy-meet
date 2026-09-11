@@ -19,6 +19,7 @@ export type TelemetryEvent =
   | 'media_error'
   | 'device_enable_failed'
   | 'connection_quality'
+  | 'ice_transport'
   | 'iframe_permissions_blocked'
   | 'connection_details_failed';
 

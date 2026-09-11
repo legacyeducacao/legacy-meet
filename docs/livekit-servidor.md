@@ -177,7 +177,14 @@ participante.
 queda), `reconnect_gave_up`, `connect_failed`, `connection_quality` (poor/lost),
 `media_error`, `device_enable_failed`, `prejoin_error`, `iframe_permissions_blocked`,
 com navegador, núcleos, tipo de rede (`effectiveType`, `rtt`, `downlink`) e se está
-embutido em iframe. Fica no log do app (`"telemetry":true`) e em `telemetry/<dia>/` no
+embutido em iframe.
+
+O evento **`ice_transport`** responde sozinho a pergunta da "checagem de 2 minutos",
+para todos os usuários em vez de um: 15 s após entrar, o cliente lê o par de candidatos
+ICE em uso e envia `protocol` (`udp`/`tcp`), `candidateType` (`host`/`srflx`/`relay`),
+`roundTripTimeMs` e `degraded`. Endereços IP não são enviados. Se `degraded` vier `true`
+para todo mundo, a mídia está em TCP/TURN e o problema é firewall, não internet do
+usuário. Fica no log do app (`"telemetry":true`) e em `telemetry/<dia>/` no
 MinIO; `GET /api/telemetry?date=YYYY-MM-DD` lista (admin).
 
 Com uma semana de dados dá para separar "rede do usuário" (rtt alto, 3G, `poor`
