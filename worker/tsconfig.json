@@ -16,6 +16,8 @@
   },
   "include": [
     "transcribe.ts",
+    "version.ts",
+    "lib/**/*.ts",
     "providers/**/*.ts",
     "scripts/**/*.ts"
   ]
