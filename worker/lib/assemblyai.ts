@@ -83,7 +83,11 @@ export function buildTranscriptParams(input: BuildParamsInput): TranscriptParams
     sentiment_analysis: input.addons?.sentiment ?? false,
     entity_detection: input.addons?.entities ?? false,
   };
-  if (input.maxSpeakers && input.maxSpeakers >= 1) {
+  // Teto de falantes só com 2+ participantes CONHECIDOS. A lista vem de
+  // registro best-effort: com um único nome registrado (caso real: só o host),
+  // max_speakers_expected=1 fazia a diarização fundir a reunião inteira num
+  // falante só. Melhor deixar o modelo decidir do que impor um teto errado.
+  if (input.maxSpeakers && input.maxSpeakers >= 2) {
     params.speaker_options = { max_speakers_expected: input.maxSpeakers };
   }
   if (input.keyterms.length) params.keyterms_prompt = input.keyterms;

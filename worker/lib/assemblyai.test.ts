@@ -16,6 +16,20 @@ function makeClient(fetchImpl: (url: string, init: RequestInit) => Promise<Respo
 }
 
 describe('buildTranscriptParams', () => {
+  it('NÃO manda teto de falantes com um único participante conhecido', () => {
+    // Regressão real: meta só com o host → max_speakers_expected=1 → a
+    // AssemblyAI fundiu a reunião inteira num único falante.
+    const body = buildTranscriptParams({
+      audioUrl: 'https://minio/x.mp4',
+      speechModel: 'universal-3-5-pro',
+      languageCode: 'pt',
+      keyterms: [],
+      maxSpeakers: 1,
+    });
+    expect(body.speaker_options).toBeUndefined();
+    expect(body.speaker_labels).toBe(true);
+  });
+
   it('monta o corpo com modelo, pt fixo, diarização e keyterms', () => {
     const body = buildTranscriptParams({
       audioUrl: 'https://minio/x.mp4?sig=1',

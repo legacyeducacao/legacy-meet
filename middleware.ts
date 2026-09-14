@@ -6,6 +6,10 @@ const PUBLIC_PREFIXES = ['/login', '/rooms', '/obrigado'];
 const PUBLIC_API_PREFIXES = [
   '/api/connection-details', '/api/room/', '/api/meetings', '/api/record/', '/api/auth/',
   '/api/nps/context', '/api/nps/submit', '/api/telemetry',
+  // Webhooks de máquinas (LiveKit e AssemblyAI) não têm sessão Supabase — cada
+  // rota valida a própria assinatura/secret. Bloqueados aqui, o registro de
+  // participantes, o ciclo live→ended e os markers de transcrição param.
+  '/api/livekit/webhook', '/api/transcription/webhook',
 ];
 
 function isPublic(path: string) {
