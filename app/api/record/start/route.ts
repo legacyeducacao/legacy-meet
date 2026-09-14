@@ -139,6 +139,9 @@ export async function GET(req: NextRequest) {
       await writeJson(metaKey(roomName), {
         title: title || dbTitle || existing.title || '',
         host: host || dbHost || existing.host || '',
+        // Empresa cliente (tenant) do banco: elenco de fallback da transcrição
+        // quando o nome digitado pelo convidado não chega ao servidor.
+        client: (owner?.clientName ?? '').trim() || existing.client || '',
         createdAt: new Date().toISOString(),
         // Dedup canônico: nome digitado e nome do banco costumam ser a MESMA
         // pessoa com grafia diferente ("MARIZA" vs "Mariza").

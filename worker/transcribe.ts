@@ -397,6 +397,8 @@ async function readManifest(id: string): Promise<any | null> {
 interface MeetingMeta {
   title?: string;
   host?: string;
+  /** Empresa cliente (tenant) — elenco de fallback quando faltam nomes. */
+  client?: string;
   participants?: string[];
 }
 
@@ -541,10 +543,13 @@ async function loadContext(id: string, lastModified?: Date): Promise<RecordingCo
   // Canonicaliza também na LEITURA: metas antigos podem ter o mesmo nome em
   // variações ("MARIZA"/"Mariza") — cada variante extra divide a mesma voz em
   // dois speakers.
-  const participants = mergeParticipants(
-    [],
-    meta?.participants?.length ? meta.participants : meta?.host ? [meta.host] : [],
-  );
+  const roster = meta?.participants?.length ? meta.participants : meta?.host ? [meta.host] : [];
+  // Com menos de 2 nomes registrados (convidado não capturado), a empresa
+  // cliente do banco entra no elenco — habilita o teto de 2 falantes e o
+  // fechamento por eliminação (host pelo papel, cliente por exclusão).
+  const withClient =
+    roster.length < 2 && meta?.client?.trim() ? [...roster, meta.client.trim()] : roster;
+  const participants = mergeParticipants([], withClient);
   return {
     id,
     key: sourceKey(id),

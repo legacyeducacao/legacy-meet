@@ -166,6 +166,8 @@ export const metaKey = (roomName: string) => `${META_PREFIX}${roomName}.json`;
 export interface MeetingMeta {
   title?: string;
   host?: string;
+  /** Empresa cliente (tenant) — elenco de fallback para a transcrição. */
+  client?: string;
   createdAt?: string;
   participants?: string[];
   /** Última escrita em `participants` — distingue a sessão atual de uma antiga na mesma sala. */
@@ -227,6 +229,8 @@ export type RoomOwner = {
   sector: string | null;
   /** Título cadastrado da reunião (agenda ou ao iniciar). Fonte da verdade do nome. */
   title: string | null;
+  /** Nome da empresa cliente (tenant) — elenco de fallback da transcrição. */
+  clientName: string | null;
   /** Reunião marcada como no-show na Agenda (cliente não compareceu). */
   noShow: boolean;
 };
@@ -244,7 +248,7 @@ export async function getRoomOwners(roomNames: string[]): Promise<Map<string, Ro
       admin
         .from('meetings')
         .select(
-          'room_name, title, host_id, status, users:host_id(name), meet_meeting_sector(sector)',
+          'room_name, title, host_id, status, users:host_id(name), client_tenants:tenant_id(name), meet_meeting_sector(sector)',
         )
         .in('room_name', batch),
     ),
@@ -260,12 +264,14 @@ export async function getRoomOwners(roomNames: string[]): Promise<Map<string, Ro
     host_id: string | null;
     status?: string | null;
     users?: { name?: string | null } | null;
+    client_tenants?: { name?: string | null } | null;
     meet_meeting_sector?: { sector?: string | null } | null;
   }>) {
     out.set(m.room_name, {
       roomName: m.room_name,
       hostId: m.host_id,
       hostName: m.users?.name ?? null,
+      clientName: m.client_tenants?.name?.trim() || null,
       sector: m.meet_meeting_sector?.sector ?? null,
       title: m.title?.trim() || null,
       noShow: m.status === 'no_show',
