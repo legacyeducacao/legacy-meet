@@ -40,12 +40,27 @@ export function sampleForMapping(utts: Utterance[], opts: SampleOptions = DEFAUL
     }));
 }
 
-export function buildSpeakerMapPrompt(participants: string[], sample: Utterance[]): string {
+export function buildSpeakerMapPrompt(
+  participants: string[],
+  sample: Utterance[],
+  host?: string,
+): string {
   const lines = sample.map((u) => `[${u.speaker}] ${u.text}`).join('\n');
+  // O nome do condutor quase nunca é DITO na conversa (ninguém o chama pelo
+  // nome) — sem a evidência de papel, o modelo corretamente devolvia
+  // "desconhecido" para ele. O papel de anfitrião É evidência válida.
+  const hostSection = host?.trim()
+    ? `\nO ANFITRIÃO (condutor da reunião) é: ${host.trim()}.
+- A voz que CONDUZ a reunião — dá boas-vindas, explica, apresenta a tela, faz as
+  perguntas e orienta os próximos passos — é normalmente a do anfitrião. Use esse
+  papel como evidência válida para mapeá-lo, mesmo que o nome dele não seja dito.
+- As demais vozes são de convidados/clientes (outros nomes da lista).\n`
+    : '';
   return `Você recebe o início da transcrição de uma reunião empresarial em português do Brasil.
 As vozes foram separadas automaticamente e receberam rótulos genéricos (A, B, C...).
 
 Participantes conhecidos da reunião: ${participants.join(', ')}.
+${hostSection}
 
 Sua tarefa: dizer qual participante corresponde a cada rótulo, usando APENAS evidências do texto
 (quem se apresenta, como os outros chamam a pessoa, papel na conversa). Regras:
@@ -157,6 +172,24 @@ export function validateMapping(
       used.add(key);
     }
   }
+
+  // ELIMINAÇÃO (determinística, sem LLM): nº de vozes igual ao nº de
+  // participantes e resta exatamente UM par sem correspondência → a voz
+  // restante só pode ser do participante restante. Caso típico: executor
+  // mapeado pelo papel de anfitrião e o cliente (cujo nome nunca é dito)
+  // preenchido por exclusão.
+  if (labels.length === participants.length) {
+    const usedNames = new Set(
+      Object.values(map)
+        .filter((n) => !n.startsWith('Falante '))
+        .map((n) => norm(n)),
+    );
+    const freeLabels = labels.filter((l) => map[l].startsWith('Falante '));
+    const freeParts = participants.filter((p) => !usedNames.has(norm(p)));
+    if (freeLabels.length === 1 && freeParts.length === 1) {
+      map[freeLabels[0]] = freeParts[0];
+    }
+  }
   return map;
 }
 
@@ -174,6 +207,8 @@ export interface MapSpeakersOptions {
   llm: (req: LlmRequest) => Promise<string>;
   minConfidence: number;
   sample?: SampleOptions;
+  /** Anfitrião/condutor — evidência de papel para mapear a voz que conduz. */
+  host?: string;
 }
 
 export interface MapSpeakersResult {
@@ -213,7 +248,7 @@ export async function mapSpeakers(
   const sample = sampleForMapping(utts, opts.sample ?? DEFAULT_SAMPLE);
   try {
     const content = await opts.llm({
-      prompt: buildSpeakerMapPrompt(participants, sample),
+      prompt: buildSpeakerMapPrompt(participants, sample, opts.host),
       schema: buildSpeakerMapSchema(participants),
     });
     const parsed = parseJsonLoose(content);

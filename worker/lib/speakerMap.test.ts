@@ -55,7 +55,7 @@ describe('validateMapping', () => {
     ).toEqual({ A: 'Falante A', B: 'Falante B', C: 'Falante C' });
   });
 
-  it('mesmo nome em dois rótulos: fica só o de maior confiança', () => {
+  it('mesmo nome em dois rótulos: fica o de maior confiança e o outro fecha por eliminação', () => {
     expect(
       validateMapping(
         [
@@ -66,7 +66,7 @@ describe('validateMapping', () => {
         participants,
         0.7,
       ),
-    ).toEqual({ A: 'Falante A', B: 'Ana Souza' });
+    ).toEqual({ A: 'Bruno Lima', B: 'Ana Souza' });
   });
 
   it('rótulo repetido na resposta: vale a entrada de maior confiança', () => {
@@ -80,13 +80,13 @@ describe('validateMapping', () => {
         participants,
         0.7,
       ),
-    ).toEqual({ A: 'Ana Souza', B: 'Falante B' });
+    ).toEqual({ A: 'Ana Souza', B: 'Bruno Lima' });
   });
 
-  it('casa o nome ignorando caixa/acento e rótulos ausentes ficam genéricos', () => {
+  it('casa o nome ignorando caixa/acento e o rótulo restante fecha por eliminação', () => {
     expect(
       validateMapping([{ label: 'A', name: 'ana souza', confidence: 0.9 }], ['A', 'B'], participants, 0.7),
-    ).toEqual({ A: 'Ana Souza', B: 'Falante B' });
+    ).toEqual({ A: 'Ana Souza', B: 'Bruno Lima' });
   });
 });
 
@@ -215,6 +215,52 @@ describe('validateMapping com nomes inferidos do texto', () => {
       [{ label: 'B', name: 'desconhecido', inferredName: 'Pedro', confidence: 0.9 }],
       labels,
       parts,
+      0.7,
+    );
+    expect(map.B).toBe('Falante B');
+  });
+});
+
+describe('buildSpeakerMapPrompt com anfitrião', () => {
+  it('inclui o papel de anfitrião como evidência', () => {
+    const p = buildSpeakerMapPrompt(['Guilherme Araújo', 'Trigo'], utts.slice(0, 2), 'Guilherme Araújo');
+    expect(p).toContain('ANFITRIÃO');
+    expect(p).toContain('Guilherme Araújo');
+  });
+
+  it('sem anfitrião, não menciona o papel', () => {
+    const p = buildSpeakerMapPrompt(['Ana Souza'], utts.slice(0, 1));
+    expect(p).not.toContain('ANFITRIÃO');
+  });
+});
+
+describe('validateMapping por eliminação', () => {
+  it('com nº de vozes == nº de participantes, o último par fecha sozinho', () => {
+    const map = validateMapping(
+      [{ label: 'A', name: 'Guilherme Araújo', confidence: 0.9 }],
+      ['A', 'B'],
+      ['Guilherme Araújo', 'Trigo'],
+      0.7,
+    );
+    expect(map).toEqual({ A: 'Guilherme Araújo', B: 'Trigo' });
+  });
+
+  it('não aplica eliminação quando sobra mais de um par', () => {
+    const map = validateMapping(
+      [{ label: 'A', name: 'Guilherme Araújo', confidence: 0.9 }],
+      ['A', 'B', 'C'],
+      ['Guilherme Araújo', 'Trigo', 'Maria'],
+      0.7,
+    );
+    expect(map.B).toBe('Falante B');
+    expect(map.C).toBe('Falante C');
+  });
+
+  it('não aplica eliminação com contagens diferentes', () => {
+    const map = validateMapping(
+      [{ label: 'A', name: 'Guilherme Araújo', confidence: 0.9 }],
+      ['A', 'B', 'C'],
+      ['Guilherme Araújo', 'Trigo'],
       0.7,
     );
     expect(map.B).toBe('Falante B');

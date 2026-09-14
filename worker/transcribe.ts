@@ -528,6 +528,8 @@ interface RecordingContext {
   createdAt: string;
   title: string;
   participants: string[];
+  /** Anfitrião/condutor da reunião — evidência de papel para o mapeamento de falantes. */
+  host: string;
 }
 
 async function loadContext(id: string, lastModified?: Date): Promise<RecordingContext> {
@@ -543,7 +545,15 @@ async function loadContext(id: string, lastModified?: Date): Promise<RecordingCo
     [],
     meta?.participants?.length ? meta.participants : meta?.host ? [meta.host] : [],
   );
-  return { id, key: sourceKey(id), roomName, createdAt, title: (meta?.title || '').trim(), participants };
+  return {
+    id,
+    key: sourceKey(id),
+    roomName,
+    createdAt,
+    title: (meta?.title || '').trim(),
+    participants,
+    host: (meta?.host || '').trim(),
+  };
 }
 
 async function fileExists(p: string): Promise<boolean> {
@@ -566,14 +576,14 @@ async function finalizeRecording(
   tmpDir: string,
   startedAt: number,
 ): Promise<void> {
-  const { id, key, roomName, createdAt, title, participants } = ctx;
+  const { id, key, roomName, createdAt, title, participants, host } = ctx;
 
   // Providers de ASR devolvem rótulos genéricos (A, B, C): mapeia para os
   // participantes conhecidos com o LLM antes de normalizar.
   let utterances = result.utterances;
   let speakerMap: SpeakerMap | undefined;
   if (result.rawSpeakerLabels && utterances.length) {
-    const mapped = await resolveSpeakerMap(id, utterances, participants);
+    const mapped = await resolveSpeakerMap(id, utterances, participants, host);
     speakerMap = mapped.map;
     utterances = applySpeakerMap(utterances, mapped.map);
     log(`falantes (${mapped.source}): ${Object.entries(mapped.map).map(([l, n]) => `${l}→${n}`).join(', ')}`);
@@ -682,10 +692,16 @@ async function finalizeRecording(
 
 // Sem chave para o LLM o mapeamento é pulado (rótulos genéricos) — a
 // transcrição em si não depende dele.
-async function resolveSpeakerMap(id: string, utterances: Utterance[], participants: string[]) {
+async function resolveSpeakerMap(
+  id: string,
+  utterances: Utterance[],
+  participants: string[],
+  host?: string,
+) {
   const startedAt = Date.now();
   const r = await mapSpeakers(utterances, participants, {
     minConfidence: SPEAKER_MAP_MIN_CONFIDENCE,
+    host,
     llm: async ({ prompt, schema }) => {
       const common = { model: SPEAKER_MAP_MODEL, prompt, schema, schemaName: 'speaker_map', timeoutMs: SPEAKER_MAP_TIMEOUT_MS };
       if (SPEAKER_MAP_VIA === 'assemblyai') {
