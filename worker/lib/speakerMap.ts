@@ -13,6 +13,8 @@ import { genericSpeakerName } from './utterances';
 export interface MappingEntry {
   label: string;
   name: string;
+  /** Nome EVIDENTE no texto quando o rótulo não corresponde a ninguém da lista. */
+  inferredName?: string;
   confidence: number;
 }
 
@@ -50,13 +52,16 @@ Sua tarefa: dizer qual participante corresponde a cada rótulo, usando APENAS ev
 - Use exatamente um dos nomes da lista de participantes, ou "desconhecido" se não houver evidência.
 - Um mesmo participante NÃO pode corresponder a dois rótulos.
 - "confidence" entre 0 e 1: use valores baixos quando for suposição. Na dúvida, "desconhecido".
-- NÃO invente nomes fora da lista.
+- Em "name", NÃO invente nomes fora da lista.
+- "inferredName": quando "name" for "desconhecido" mas o nome REAL da pessoa ficar
+  evidente no texto (ela se apresenta ou é chamada pelo nome), escreva esse nome
+  EXATAMENTE como aparece no texto. Sem evidência literal no texto, deixe "".
 
 Transcrição (início):
 ${lines}
 
 Responda APENAS com JSON no formato:
-{"mapping": [{"label": "A", "name": "<nome da lista ou desconhecido>", "confidence": 0.0}]}`;
+{"mapping": [{"label": "A", "name": "<nome da lista ou desconhecido>", "inferredName": "<nome evidente no texto ou vazio>", "confidence": 0.0}]}`;
 }
 
 export function buildSpeakerMapSchema(participants: string[]) {
@@ -70,9 +75,10 @@ export function buildSpeakerMapSchema(participants: string[]) {
           properties: {
             label: { type: 'string' },
             name: { type: 'string', enum: [...participants, 'desconhecido'] },
+            inferredName: { type: 'string' },
             confidence: { type: 'number' },
           },
-          required: ['label', 'name', 'confidence'],
+          required: ['label', 'name', 'inferredName', 'confidence'],
           additionalProperties: false,
         },
       },
@@ -88,11 +94,16 @@ const genericMap = (labels: string[]): SpeakerMap =>
 // Valida a resposta do LLM: nome precisa estar na lista (comparação sem
 // caixa/acento), confiança acima do mínimo e cada nome em no máximo um rótulo
 // (fica o de maior confiança). O que não passa mantém o rótulo genérico.
+// Texto normalizado para busca de nomes: sem acentos/caixa e pontuação vira espaço.
+const searchable = (s: string) => ` ${norm(s).replace(/[^\p{L}\p{N}]+/gu, ' ').trim()} `;
+
 export function validateMapping(
   entries: MappingEntry[],
   labels: string[],
   participants: string[],
   minConfidence: number,
+  /** Texto da amostra enviada ao LLM — valida nomes inferidos (sem ele, são ignorados). */
+  sampleText = '',
 ): SpeakerMap {
   const byNorm = new Map(participants.map((p) => [norm(p), p]));
   // Primeiro uma entrada por rótulo (maior confiança); só então um rótulo por
@@ -114,6 +125,33 @@ export function validateMapping(
   }
   const map = genericMap(labels);
   for (const [name, { label }] of best) map[label] = name;
+
+  // Nomes INFERIDOS do texto: para rótulos que sobraram sem participante (lista
+  // incompleta — ex.: convidado não registrado), aceita o nome que o LLM
+  // apontou SOMENTE se ele aparece literalmente na amostra (trava contra
+  // invenção), com confiança mínima e sem duplicar um nome já usado.
+  if (sampleText) {
+    const haystack = searchable(sampleText);
+    const used = new Set(
+      Object.values(map)
+        .filter((n) => !n.startsWith('Falante '))
+        .map((n) => norm(n)),
+    );
+    for (const e of entries ?? []) {
+      const label = String(e?.label ?? '').trim();
+      const inferred = String(e?.inferredName ?? '').trim();
+      const confidence = Number(e?.confidence ?? 0);
+      if (!labels.includes(label) || !inferred || !(confidence >= minConfidence)) continue;
+      if (!map[label]?.startsWith('Falante ')) continue; // rótulo já tem nome
+      if (!haystack.includes(` ${searchable(inferred).trim()} `)) continue;
+      // Se o inferido é um participante da lista, usa a grafia da lista.
+      const display = byNorm.get(norm(inferred)) ?? inferred;
+      const key = norm(display);
+      if (used.has(key)) continue;
+      map[label] = display;
+      used.add(key);
+    }
+  }
   return map;
 }
 
@@ -175,7 +213,11 @@ export async function mapSpeakers(
     });
     const parsed = parseJsonLoose(content);
     if (!parsed || !Array.isArray(parsed.mapping)) return { map: genericMap(labels), source: 'fallback' };
-    return { map: validateMapping(parsed.mapping, labels, participants, opts.minConfidence), source: 'llm' };
+    const sampleText = sample.map((u) => u.text).join(' ');
+    return {
+      map: validateMapping(parsed.mapping, labels, participants, opts.minConfidence, sampleText),
+      source: 'llm',
+    };
   } catch {
     return { map: genericMap(labels), source: 'fallback' };
   }

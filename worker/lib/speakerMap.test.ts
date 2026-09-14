@@ -153,3 +153,70 @@ describe('buildSpeakerMapPrompt', () => {
     expect(p).toMatch(/desconhecido/);
   });
 });
+
+describe('validateMapping com nomes inferidos do texto', () => {
+  const labels = ['A', 'B'];
+  const parts = ['Guilherme Araújo'];
+  const sampleText = 'Bom dia, Pedro! A Sofia tá aí também. Tudo bem?';
+
+  it('aceita inferredName presente no texto para rótulo sem participante', () => {
+    const map = validateMapping(
+      [
+        { label: 'A', name: 'Guilherme Araújo', confidence: 0.9 },
+        { label: 'B', name: 'desconhecido', inferredName: 'Pedro', confidence: 0.85 },
+      ],
+      labels,
+      parts,
+      0.7,
+      sampleText,
+    );
+    expect(map).toEqual({ A: 'Guilherme Araújo', B: 'Pedro' });
+  });
+
+  it('rejeita inferredName que não aparece no texto', () => {
+    const map = validateMapping(
+      [{ label: 'B', name: 'desconhecido', inferredName: 'Roberto', confidence: 0.9 }],
+      labels,
+      parts,
+      0.7,
+      sampleText,
+    );
+    expect(map.B).toBe('Falante B');
+  });
+
+  it('inferredName igual a um participante usa o nome da lista', () => {
+    const map = validateMapping(
+      [{ label: 'B', name: 'desconhecido', inferredName: 'guilherme araujo', confidence: 0.9 }],
+      labels,
+      parts,
+      0.7,
+      'aí o guilherme araujo falou com a gente',
+    );
+    expect(map.B).toBe('Guilherme Araújo');
+  });
+
+  it('não duplica um nome já usado por outro rótulo', () => {
+    const map = validateMapping(
+      [
+        { label: 'A', name: 'desconhecido', inferredName: 'Pedro', confidence: 0.9 },
+        { label: 'B', name: 'desconhecido', inferredName: 'pedro', confidence: 0.8 },
+      ],
+      labels,
+      parts,
+      0.7,
+      sampleText,
+    );
+    expect(map.A).toBe('Pedro');
+    expect(map.B).toBe('Falante B');
+  });
+
+  it('sem sampleText, inferredName é ignorado', () => {
+    const map = validateMapping(
+      [{ label: 'B', name: 'desconhecido', inferredName: 'Pedro', confidence: 0.9 }],
+      labels,
+      parts,
+      0.7,
+    );
+    expect(map.B).toBe('Falante B');
+  });
+});
