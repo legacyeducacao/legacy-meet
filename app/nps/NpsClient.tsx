@@ -5,6 +5,8 @@ import {
   BarChart,
   Bar,
   Cell,
+  LineChart,
+  Line,
   PieChart,
   Pie,
   Tooltip,
@@ -22,34 +24,35 @@ import {
   ThumbsUp,
   ChevronLeft,
   ChevronRight,
+  Search,
+  TrendingUp,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { AppShell } from '@/components/AppShell';
 import { PageHeader } from '@/components/patterns/PageHeader';
 import { EmptyState } from '@/components/patterns/EmptyState';
 import { cn } from '@/lib/utils';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface NpsResponse {
-  id: string;
-  meetingId: string | null;
-  title: string | null;
-  clientName: string | null;
-  createdAt: string;
-  score: number;
-  comment: string | null;
-  respondentName: string | null;
-  hostName: string | null;
-  hostId: string | null;
-}
+import {
+  applyNpsFilters,
+  categoryOf,
+  emptyNpsFilters,
+  isCategorySelected,
+  presetRange,
+  toggleCategory,
+  toggleScore,
+  trendByMonth,
+  type DatePreset,
+  type NpsCategory,
+  type NpsFilters,
+  type NpsResponse,
+} from './npsFilters';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -70,26 +73,41 @@ function formatDate(iso: string): string {
   }
 }
 
-function category(score: number): 'promotor' | 'neutro' | 'detrator' {
-  if (score >= 9) return 'promotor';
-  if (score >= 7) return 'neutro';
-  return 'detrator';
-}
-
 // CSS variable color tokens
 const COLOR_PROMOTOR = 'hsl(var(--chart-3))'; // green
 const COLOR_NEUTRO = 'hsl(var(--chart-4))';   // amber
 const COLOR_DETRATOR = 'hsl(var(--chart-5))'; // red
+const COLOR_TREND = 'hsl(var(--chart-1))';
+
+const CATEGORY_CHIPS: { cat: NpsCategory; label: string; activeClass: string }[] = [
+  { cat: 'detrator', label: 'Detratores (0–6)', activeClass: 'bg-red-100 text-red-800 border-red-300' },
+  { cat: 'neutro', label: 'Neutros (7–8)', activeClass: 'bg-amber-100 text-amber-800 border-amber-300' },
+  { cat: 'promotor', label: 'Promotores (9–10)', activeClass: 'bg-green-100 text-green-800 border-green-300' },
+];
+
+const DATE_PRESETS: { key: DatePreset; label: string }[] = [
+  { key: '7d', label: '7 dias' },
+  { key: '30d', label: '30 dias' },
+  { key: 'month', label: 'Este mês' },
+  { key: 'quarter', label: 'Trimestre' },
+];
+
+const TOOLTIP_STYLE = {
+  background: 'hsl(var(--background))',
+  border: '1px solid hsl(var(--border))',
+  borderRadius: 8,
+  fontSize: 12,
+};
 
 function barColor(score: number): string {
-  const cat = category(score);
+  const cat = categoryOf(score);
   if (cat === 'promotor') return COLOR_PROMOTOR;
   if (cat === 'neutro') return COLOR_NEUTRO;
   return COLOR_DETRATOR;
 }
 
 function scoreBadgeClass(score: number): string {
-  const cat = category(score);
+  const cat = categoryOf(score);
   if (cat === 'promotor') return 'bg-green-100 text-green-800 border-green-200';
   if (cat === 'neutro') return 'bg-amber-100 text-amber-800 border-amber-200';
   return 'bg-red-100 text-red-800 border-red-200';
@@ -142,10 +160,8 @@ export function NpsClient({ isAdmin }: { isAdmin: boolean }) {
   const [error, setError] = useState('');
 
   // --- Filters ---
-  const [companyFilter, setCompanyFilter] = useState('');
-  const [hostFilter, setHostFilter] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [filters, setFilters] = useState<NpsFilters>(emptyNpsFilters);
+  const patch = (p: Partial<NpsFilters>) => setFilters((f) => ({ ...f, ...p }));
 
   // --- Pagination ---
   const [page, setPage] = useState(1);
@@ -175,7 +191,7 @@ export function NpsClient({ isAdmin }: { isAdmin: boolean }) {
   // Reset page whenever any filter changes
   useEffect(() => {
     setPage(1);
-  }, [companyFilter, hostFilter, dateFrom, dateTo]);
+  }, [filters]);
 
   // --- Derived data for filter dropdowns ---
   const companies = useMemo(
@@ -191,18 +207,22 @@ export function NpsClient({ isAdmin }: { isAdmin: boolean }) {
   );
 
   // --- Filtered set ---
-  const filtered = useMemo(() => {
-    return responses.filter((r) => {
-      if (companyFilter && r.clientName !== companyFilter) return false;
-      if (hostFilter && r.hostName !== hostFilter) return false;
-      const day = r.createdAt.slice(0, 10);
-      if (dateFrom && day < dateFrom) return false;
-      if (dateTo && day > dateTo) return false;
-      return true;
-    });
-  }, [responses, companyFilter, hostFilter, dateFrom, dateTo]);
+  const filtered = useMemo(() => applyNpsFilters(responses, filters), [responses, filters]);
 
-  const hasActiveFilter = companyFilter !== '' || hostFilter !== '' || dateFrom !== '' || dateTo !== '';
+  const hasActiveFilter = useMemo(() => {
+    const e = emptyNpsFilters();
+    return (Object.keys(e) as (keyof NpsFilters)[]).some((k) =>
+      k === 'scores' ? filters.scores.length > 0 : filters[k] !== e[k],
+    );
+  }, [filters]);
+
+  const activePreset = useMemo<DatePreset | null>(() => {
+    const found = DATE_PRESETS.find(({ key }) => {
+      const r = presetRange(key);
+      return r.from === filters.dateFrom && r.to === filters.dateTo;
+    });
+    return found?.key ?? null;
+  }, [filters.dateFrom, filters.dateTo]);
 
   // --- KPI computations ---
   const kpis = useMemo(() => {
@@ -233,11 +253,14 @@ export function NpsClient({ isAdmin }: { isAdmin: boolean }) {
     const neutros = filtered.filter((r) => r.score >= 7 && r.score <= 8).length;
     const detratores = filtered.filter((r) => r.score <= 6).length;
     return [
-      { name: 'Promotores', value: promotores, color: COLOR_PROMOTOR },
-      { name: 'Neutros', value: neutros, color: COLOR_NEUTRO },
-      { name: 'Detratores', value: detratores, color: COLOR_DETRATOR },
+      { name: 'Promotores', value: promotores, color: COLOR_PROMOTOR, cat: 'promotor' as NpsCategory },
+      { name: 'Neutros', value: neutros, color: COLOR_NEUTRO, cat: 'neutro' as NpsCategory },
+      { name: 'Detratores', value: detratores, color: COLOR_DETRATOR, cat: 'detrator' as NpsCategory },
     ];
   }, [filtered]);
+
+  // --- Trend (NPS por mês) ---
+  const trendData = useMemo(() => trendByMonth(filtered), [filtered]);
 
   // --- Pagination ---
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -258,65 +281,154 @@ export function NpsClient({ isAdmin }: { isAdmin: boolean }) {
       />
 
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3">
-        {/* Company filter */}
-        <SearchableSelect
-          value={companyFilter}
-          onValueChange={setCompanyFilter}
-          options={companies.map((c) => ({ value: c, label: c }))}
-          placeholder="Todas as empresas"
-          searchPlaceholder="Buscar empresa…"
-          emptyText="Nenhuma empresa."
-          clearable
-          className="h-10 w-52"
-        />
-
-        {/* Host filter — admin only, and only if ≥2 hosts */}
-        {isAdmin && hosts.length >= 2 && (
+      <div className="flex flex-col gap-3">
+        {/* Linha 1: dimensões e período */}
+        <div className="flex flex-wrap items-center gap-3">
           <SearchableSelect
-            value={hostFilter}
-            onValueChange={setHostFilter}
-            options={hosts.map((h) => ({ value: h, label: h }))}
-            placeholder="Todos os usuários"
-            searchPlaceholder="Buscar usuário…"
-            emptyText="Nenhum usuário."
+            value={filters.company}
+            onValueChange={(v) => patch({ company: v })}
+            options={companies.map((c) => ({ value: c, label: c }))}
+            placeholder="Todas as empresas"
+            searchPlaceholder="Buscar empresa…"
+            emptyText="Nenhuma empresa."
             clearable
             className="h-10 w-52"
           />
-        )}
 
-        {/* Date range */}
-        <Input
-          type="date"
-          value={dateFrom}
-          onChange={(e) => setDateFrom(e.target.value)}
-          className="w-40 h-10"
-          aria-label="Data inicial"
-        />
-        <Input
-          type="date"
-          value={dateTo}
-          onChange={(e) => setDateTo(e.target.value)}
-          className="w-40 h-10"
-          aria-label="Data final"
-        />
+          {/* Host filter — admin only, and only if ≥2 hosts */}
+          {isAdmin && hosts.length >= 2 && (
+            <SearchableSelect
+              value={filters.host}
+              onValueChange={(v) => patch({ host: v })}
+              options={hosts.map((h) => ({ value: h, label: h }))}
+              placeholder="Todos os usuários"
+              searchPlaceholder="Buscar usuário…"
+              emptyText="Nenhum usuário."
+              clearable
+              className="h-10 w-52"
+            />
+          )}
 
-        {/* Clear button */}
-        {hasActiveFilter && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-10"
-            onClick={() => {
-              setCompanyFilter('');
-              setHostFilter('');
-              setDateFrom('');
-              setDateTo('');
-            }}
-          >
-            Limpar
-          </Button>
-        )}
+          <Input
+            type="date"
+            value={filters.dateFrom}
+            onChange={(e) => patch({ dateFrom: e.target.value })}
+            className="w-40 h-10"
+            aria-label="Data inicial"
+          />
+          <Input
+            type="date"
+            value={filters.dateTo}
+            onChange={(e) => patch({ dateTo: e.target.value })}
+            className="w-40 h-10"
+            aria-label="Data final"
+          />
+
+          <div className="flex items-center gap-1" role="group" aria-label="Períodos rápidos">
+            {DATE_PRESETS.map(({ key, label }) => (
+              <Button
+                key={key}
+                type="button"
+                variant={activePreset === key ? 'default' : 'outline'}
+                size="sm"
+                className="h-8"
+                aria-pressed={activePreset === key}
+                onClick={() => {
+                  if (activePreset === key) patch({ dateFrom: '', dateTo: '' });
+                  else {
+                    const r = presetRange(key);
+                    patch({ dateFrom: r.from, dateTo: r.to });
+                  }
+                }}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        {/* Linha 2: nota, comentário e busca */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Categoria">
+            {CATEGORY_CHIPS.map(({ cat, label, activeClass }) => {
+              const active = isCategorySelected(filters.scores, cat);
+              return (
+                <button
+                  key={cat}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => patch({ scores: toggleCategory(filters.scores, cat) })}
+                  className={cn(
+                    'h-8 rounded-full border px-3 text-xs font-medium transition-colors',
+                    active
+                      ? activeClass
+                      : 'border-border bg-background text-muted-foreground hover:bg-muted',
+                  )}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center gap-1" role="group" aria-label="Nota">
+            <span className="mr-1 text-xs text-muted-foreground">Nota</span>
+            {Array.from({ length: 11 }, (_, n) => {
+              const active = filters.scores.includes(n);
+              return (
+                <button
+                  key={n}
+                  type="button"
+                  aria-pressed={active}
+                  aria-label={`Nota ${n}`}
+                  onClick={() => patch({ scores: toggleScore(filters.scores, n) })}
+                  className={cn(
+                    'h-8 w-8 rounded-md border text-xs font-semibold transition-colors',
+                    active
+                      ? scoreBadgeClass(n)
+                      : 'border-border bg-background text-muted-foreground hover:bg-muted',
+                  )}
+                >
+                  {n}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Switch
+              id="nps-only-comment"
+              checked={filters.onlyWithComment}
+              onCheckedChange={(v) => patch({ onlyWithComment: v === true })}
+            />
+            <Label htmlFor="nps-only-comment" className="text-xs text-muted-foreground">
+              Somente com observações
+            </Label>
+          </div>
+
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              type="search"
+              value={filters.search}
+              onChange={(e) => patch({ search: e.target.value })}
+              placeholder="Buscar em observações, respondente, reunião…"
+              aria-label="Buscar"
+              className="h-10 w-72 pl-8"
+            />
+          </div>
+
+          {hasActiveFilter && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-10"
+              onClick={() => setFilters(emptyNpsFilters())}
+            >
+              Limpar
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* KPI Cards */}
@@ -369,6 +481,7 @@ export function NpsClient({ isAdmin }: { isAdmin: boolean }) {
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
                 Distribuição de notas (0–10)
+                <span className="ml-2 font-normal">· clique para filtrar</span>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -389,18 +502,25 @@ export function NpsClient({ isAdmin }: { isAdmin: boolean }) {
                   />
                   <Tooltip
                     cursor={{ fill: 'hsl(var(--muted))' }}
-                    contentStyle={{
-                      background: 'hsl(var(--background))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: 8,
-                      fontSize: 12,
-                    }}
+                    contentStyle={TOOLTIP_STYLE}
                     formatter={(value) => [value, 'respostas']}
                     labelFormatter={(label) => `Nota ${label}`}
                   />
-                  <Bar dataKey="total" radius={[4, 4, 0, 0]}>
+                  <Bar
+                    dataKey="total"
+                    radius={[4, 4, 0, 0]}
+                    cursor="pointer"
+                    onClick={(_, index) => {
+                      const nota = barData[index]?.nota;
+                      if (typeof nota === 'number') patch({ scores: toggleScore(filters.scores, nota) });
+                    }}
+                  >
                     {barData.map((entry) => (
-                      <Cell key={`cell-${entry.nota}`} fill={barColor(entry.nota)} />
+                      <Cell
+                        key={`cell-${entry.nota}`}
+                        fill={barColor(entry.nota)}
+                        fillOpacity={filters.scores.length === 0 || filters.scores.includes(entry.nota) ? 1 : 0.3}
+                      />
                     ))}
                   </Bar>
                 </BarChart>
@@ -413,6 +533,7 @@ export function NpsClient({ isAdmin }: { isAdmin: boolean }) {
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
                 Detratores / Neutros / Promotores
+                <span className="ml-2 font-normal">· clique para filtrar</span>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -428,18 +549,22 @@ export function NpsClient({ isAdmin }: { isAdmin: boolean }) {
                     dataKey="value"
                     label={({ name, value }) => (value > 0 ? `${value}` : '')}
                     labelLine={false}
+                    cursor="pointer"
+                    onClick={(_, index) => {
+                      const cat = pieData[index]?.cat;
+                      if (cat) patch({ scores: toggleCategory(filters.scores, cat) });
+                    }}
                   >
                     {pieData.map((entry) => (
-                      <Cell key={entry.name} fill={entry.color} />
+                      <Cell
+                        key={entry.name}
+                        fill={entry.color}
+                        fillOpacity={filters.scores.length === 0 || isCategorySelected(filters.scores, entry.cat) ? 1 : 0.3}
+                      />
                     ))}
                   </Pie>
                   <Tooltip
-                    contentStyle={{
-                      background: 'hsl(var(--background))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: 8,
-                      fontSize: 12,
-                    }}
+                    contentStyle={TOOLTIP_STYLE}
                     formatter={(value, name) => [value, name]}
                   />
                   <Legend
@@ -456,6 +581,55 @@ export function NpsClient({ isAdmin }: { isAdmin: boolean }) {
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {/* Trend chart — NPS por mês */}
+      {!loading && !error && trendData.length > 0 && (
+        <Card className="rounded-xl">
+          <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Evolução do NPS por mês
+            </CardTitle>
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={240}>
+              <LineChart data={trendData} margin={{ top: 8, right: 16, left: -16, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  domain={[-100, 100]}
+                  ticks={[-100, -50, 0, 50, 100]}
+                  tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip
+                  cursor={{ stroke: 'hsl(var(--border))' }}
+                  contentStyle={TOOLTIP_STYLE}
+                  formatter={(value, _name, item) => {
+                    const p = item?.payload as { media?: number; total?: number } | undefined;
+                    return [`${value} · média ${p?.media ?? '—'} · ${p?.total ?? 0} respostas`, 'NPS'];
+                  }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="nps"
+                  stroke={COLOR_TREND}
+                  strokeWidth={2}
+                  dot={{ r: 4, fill: COLOR_TREND, strokeWidth: 0 }}
+                  activeDot={{ r: 6 }}
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
       )}
 
       {/* Loading state — list skeletons */}
