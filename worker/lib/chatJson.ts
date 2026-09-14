@@ -10,7 +10,10 @@ import { RetryableError, withBackoff } from './retry';
 
 export const ASSEMBLYAI_LLM_URL = 'https://llm-gateway.assemblyai.com/v1/chat/completions';
 export const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
-export const DEFAULT_ASSEMBLYAI_LLM_MODEL = 'gemini-2.5-flash-lite';
+// Flash "cheio", não o lite: o mapeamento de falantes exige raciocínio sobre
+// vocativos (caso real: o lite atribuiu à Sofia a voz que diz "a Sofia tá aí
+// também"). O prompt é pequeno — a diferença de custo é de centavos.
+export const DEFAULT_ASSEMBLYAI_LLM_MODEL = 'gemini-2.5-flash';
 
 export interface ChatJsonRequest {
   url: string;

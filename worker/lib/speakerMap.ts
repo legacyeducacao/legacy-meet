@@ -49,6 +49,11 @@ Participantes conhecidos da reunião: ${participants.join(', ')}.
 
 Sua tarefa: dizer qual participante corresponde a cada rótulo, usando APENAS evidências do texto
 (quem se apresenta, como os outros chamam a pessoa, papel na conversa). Regras:
+- ATENÇÃO a vocativos: quem CUMPRIMENTA ou chama alguém pelo nome NÃO é essa pessoa.
+  Ex.: a voz que diz "Bom dia, Pedro!" NÃO é Pedro; a voz que diz "a Sofia tá aí também" NÃO é Sofia.
+- Quem se apresenta ("eu sou X", "aqui é o X", "meu nome é X") É essa pessoa.
+- Uma pessoa raramente fala o próprio nome na terceira pessoa; nomes ditos por uma voz
+  normalmente identificam OUTRAS vozes.
 - Use exatamente um dos nomes da lista de participantes, ou "desconhecido" se não houver evidência.
 - Um mesmo participante NÃO pode corresponder a dois rótulos.
 - "confidence" entre 0 e 1: use valores baixos quando for suposição. Na dúvida, "desconhecido".
