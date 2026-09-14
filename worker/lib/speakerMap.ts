@@ -28,11 +28,15 @@ export interface SampleOptions {
 
 export const DEFAULT_SAMPLE: SampleOptions = { maxSeconds: 600, maxUtterances: 80, maxChars: 200 };
 
-// Primeiros minutos da reunião: é onde as pessoas se apresentam e se chamam
-// pelo nome. Limita quantidade e tamanho para o prompt ficar barato.
+// Primeiros minutos DE CONVERSA: é onde as pessoas se apresentam e se chamam
+// pelo nome. A janela conta a partir da PRIMEIRA fala, não do início do
+// arquivo — gravação que começa com longa espera em silêncio (caso real:
+// 10+ min aguardando alguém entrar) gerava amostra VAZIA e o mapeamento
+// inteiro falhava. Limita quantidade e tamanho para o prompt ficar barato.
 export function sampleForMapping(utts: Utterance[], opts: SampleOptions = DEFAULT_SAMPLE): Utterance[] {
+  const firstStart = utts.length ? Math.min(...utts.map((u) => u.start)) : 0;
   return utts
-    .filter((u) => u.start <= opts.maxSeconds)
+    .filter((u) => u.start - firstStart <= opts.maxSeconds)
     .slice(0, opts.maxUtterances)
     .map((u) => ({
       ...u,
@@ -44,6 +48,7 @@ export function buildSpeakerMapPrompt(
   participants: string[],
   sample: Utterance[],
   host?: string,
+  labels?: string[],
 ): string {
   const lines = sample.map((u) => `[${u.speaker}] ${u.text}`).join('\n');
   // O nome do condutor quase nunca é DITO na conversa (ninguém o chama pelo
@@ -60,7 +65,7 @@ export function buildSpeakerMapPrompt(
 As vozes foram separadas automaticamente e receberam rótulos genéricos (A, B, C...).
 
 Participantes conhecidos da reunião: ${participants.join(', ')}.
-${hostSection}
+${labels?.length ? `Rótulos a mapear: ${labels.join(', ')}. Responda com EXATAMENTE uma entrada para CADA um desses rótulos (nunca uma lista vazia).\n` : ''}${hostSection}
 
 Sua tarefa: dizer qual participante corresponde a cada rótulo, usando APENAS evidências do texto
 (quem se apresenta, como os outros chamam a pessoa, papel na conversa). Regras:
@@ -248,7 +253,7 @@ export async function mapSpeakers(
   const sample = sampleForMapping(utts, opts.sample ?? DEFAULT_SAMPLE);
   try {
     const content = await opts.llm({
-      prompt: buildSpeakerMapPrompt(participants, sample, opts.host),
+      prompt: buildSpeakerMapPrompt(participants, sample, opts.host, labels),
       schema: buildSpeakerMapSchema(participants),
     });
     const parsed = parseJsonLoose(content);

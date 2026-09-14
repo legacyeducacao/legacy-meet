@@ -266,3 +266,24 @@ describe('validateMapping por eliminação', () => {
     expect(map.B).toBe('Falante B');
   });
 });
+
+describe('buildSpeakerMapPrompt com rótulos explícitos', () => {
+  it('lista os rótulos e exige uma entrada para cada', () => {
+    const p = buildSpeakerMapPrompt(['Ana Souza'], utts.slice(0, 1), undefined, ['A', 'B']);
+    expect(p).toContain('Rótulos a mapear: A, B');
+    expect(p).toContain('CADA um desses rótulos');
+  });
+});
+
+describe('sampleForMapping com início atrasado', () => {
+  it('conta a janela a partir da PRIMEIRA fala, não do início do arquivo', () => {
+    const late: Utterance[] = [
+      { speaker: 'A', text: 'Fala, Rafa, bom dia!', start: 700, end: 705 },
+      { speaker: 'B', text: 'Tudo certo, cara.', start: 706, end: 708 },
+      { speaker: 'A', text: 'Muito depois.', start: 1400, end: 1401 },
+    ];
+    const s = sampleForMapping(late);
+    expect(s).toHaveLength(2); // 700 e 706 entram; 1400 (>600s após a 1ª) não
+    expect(s[0].text).toContain('Rafa');
+  });
+});
