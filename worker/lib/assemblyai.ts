@@ -87,8 +87,12 @@ export function buildTranscriptParams(input: BuildParamsInput): TranscriptParams
   // registro best-effort: com um único nome registrado (caso real: só o host),
   // max_speakers_expected=1 fazia a diarização fundir a reunião inteira num
   // falante só. Melhor deixar o modelo decidir do que impor um teto errado.
+  // Piso de 2 junto com o teto: só o teto não basta — caso real (Perfort),
+  // reunião de 49 min com max=2 saiu inteira como UM falante, duas vezes.
+  // Com 2+ participantes registrados na sala, exigir pelo menos 2 vozes é
+  // seguro; min maior que 2 não, porque participante calado dividiria uma voz.
   if (input.maxSpeakers && input.maxSpeakers >= 2) {
-    params.speaker_options = { max_speakers_expected: input.maxSpeakers };
+    params.speaker_options = { min_speakers_expected: 2, max_speakers_expected: input.maxSpeakers };
   }
   if (input.keyterms.length) params.keyterms_prompt = input.keyterms;
   if (input.webhook) {
