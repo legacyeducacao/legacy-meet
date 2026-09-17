@@ -77,7 +77,8 @@ describe('assemblyai provider — submit', () => {
     expect(params.language_code).toBe('pt');
     expect(params.language_detection).toBe(false);
     expect(params.speaker_labels).toBe(true);
-    expect(params.speaker_options).toEqual({ max_speakers_expected: 2 });
+    // Piso + teto (regressão Perfort: só o teto deixou a diarização devolver 1 falante).
+    expect(params.speaker_options).toEqual({ min_speakers_expected: 2, max_speakers_expected: 2 });
     expect(params.keyterms_prompt).toEqual(['Legacy Plan', 'Ana Souza', 'Bruno Lima']);
     expect(params.webhook_url).toBe(
       'https://app/api/transcription/webhook?recordingId=sala__2026-09-11T10-00-00-000Z',

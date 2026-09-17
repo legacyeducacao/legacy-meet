@@ -45,7 +45,7 @@ describe('buildTranscriptParams', () => {
       language_code: 'pt',
       language_detection: false,
       speaker_labels: true,
-      speaker_options: { max_speakers_expected: 3 },
+      speaker_options: { min_speakers_expected: 2, max_speakers_expected: 3 },
       punctuate: true,
       format_text: true,
       keyterms_prompt: ['Legacy Plan'],
