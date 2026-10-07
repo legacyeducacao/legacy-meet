@@ -492,6 +492,72 @@ function VideoConferenceComponent(props: {
     return () => window.removeEventListener('pagehide', onPageHide);
   }, [participantsUrl, collectParticipants]);
 
+  // Linha do tempo de QUEM FALA (ActiveSpeakersChanged): enviada ao servidor
+  // para a transcrição identificar cada voz por medição (sobreposição dos
+  // intervalos de fala com a diarização) em vez de palpite do LLM. Só o
+  // anfitrião reporta — um relator basta e ele está sempre presente quando há
+  // gravação. Timestamps no relógio local; o servidor corrige pela defasagem.
+  React.useEffect(() => {
+    if (!isHost) return;
+    const speakersUrl = `/api/record/speakers?roomName=${encodeURIComponent(room.name)}&token=${encodeURIComponent(participantToken)}`;
+    const open = new Map<string, number>(); // nome → início do trecho atual (ms)
+    let closed: { name: string; start: number; end: number }[] = [];
+
+    const onChange = (speakers: { name?: string; identity?: string }[]) => {
+      const now = Date.now();
+      const current = new Set(
+        speakers
+          .filter((p) => !(p.identity ?? '').startsWith('EG_')) // bot do egress
+          .map((p) => (p.name ?? p.identity ?? '').trim())
+          .filter(Boolean),
+      );
+      for (const n of current) if (!open.has(n)) open.set(n, now);
+      for (const [n, start] of open) {
+        if (!current.has(n)) {
+          closed.push({ name: n, start, end: now });
+          open.delete(n);
+        }
+      }
+    };
+
+    const flush = (useBeacon: boolean) => {
+      const now = Date.now();
+      const batch = closed;
+      closed = [];
+      // Fala longa ainda em curso: envia o trecho até agora e reabre — a
+      // cobertura fica contínua mesmo com monólogos maiores que o intervalo.
+      for (const [n, start] of open) {
+        if (now - start > 500) {
+          batch.push({ name: n, start, end: now });
+          open.set(n, now);
+        }
+      }
+      if (!batch.length) return;
+      const payload = JSON.stringify({ sentAt: Date.now(), events: batch });
+      if (useBeacon && typeof navigator.sendBeacon === 'function') {
+        navigator.sendBeacon(speakersUrl, new Blob([payload], { type: 'application/json' }));
+      } else {
+        fetch(speakersUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload,
+          keepalive: true,
+        }).catch(() => {});
+      }
+    };
+
+    room.on(RoomEvent.ActiveSpeakersChanged, onChange);
+    const timer = setInterval(() => flush(false), 15_000);
+    const onPageHide = () => flush(true);
+    window.addEventListener('pagehide', onPageHide);
+    return () => {
+      room.off(RoomEvent.ActiveSpeakersChanged, onChange);
+      clearInterval(timer);
+      window.removeEventListener('pagehide', onPageHide);
+      flush(true); // navegação client-side desmonta sem pagehide
+    };
+  }, [room, isHost, participantToken]);
+
   const router = useRouter();
 
   // Envia os nomes dos participantes para o meta sidecar (identificação de speakers)

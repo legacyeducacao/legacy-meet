@@ -59,6 +59,19 @@ export async function POST(req: NextRequest) {
           .eq('status', 'live');
         if (error) console.error('webhook livekit room_finished:', error.message);
       }
+    } else if (event.event === 'egress_started' || event.event === 'egress_updated') {
+      // Instante EXATO em que a gravação começou a ser escrita — âncora da
+      // linha do tempo para cruzar a atividade de voz com a diarização.
+      // egress_updated cobre o caso de o started chegar sem startedAt ainda.
+      const filename = event.egressInfo?.fileResults?.[0]?.filename ?? '';
+      const m = filename.match(/([^/\\]+)\.mp4$/i);
+      const startedNs = event.egressInfo?.startedAt ?? 0n;
+      if (m && startedNs > 0n) {
+        const key = `egress-start/${m[1]}.json`;
+        if (!(await readJson(key))) {
+          await writeJson(key, { startedAtMs: Number(BigInt(startedNs) / 1_000_000n) });
+        }
+      }
     } else if (event.event === 'egress_ended') {
       const filename = event.egressInfo?.fileResults?.[0]?.filename ?? '';
       const m = filename.match(/([^/\\]+)\.mp4$/i);

@@ -56,9 +56,15 @@ export function buildSpeakerMapPrompt(
   // "desconhecido" para ele. O papel de anfitrião É evidência válida.
   const hostSection = host?.trim()
     ? `\nO ANFITRIÃO (condutor da reunião) é: ${host.trim()}.
-- A voz que CONDUZ a reunião — dá boas-vindas, explica, apresenta a tela, faz as
-  perguntas e orienta os próximos passos — é normalmente a do anfitrião. Use esse
-  papel como evidência válida para mapeá-lo, mesmo que o nome dele não seja dito.
+- A voz que CONDUZ a reunião — explica a metodologia, comanda a agenda, cobra
+  tarefas/aulas, apresenta a tela e orienta os próximos passos — é normalmente a
+  do anfitrião. Use esse papel como evidência válida para mapeá-lo, mesmo que o
+  nome dele não seja dito.
+- CUIDADO: NÃO assuma que a primeira voz a falar ou a cumprimentar ("bom dia,
+  tudo bem?") é o anfitrião — com frequência é o cliente que entra primeiro e
+  cumprimenta. Papel se reconhece pelo CONTEÚDO: quem fala do próprio negócio,
+  da própria loja/unidade/equipe ("meus funcionários", "minha operação") é o
+  cliente, não o anfitrião.
 - As demais vozes são de convidados/clientes (outros nomes da lista).\n`
     : '';
   return `Você recebe o início da transcrição de uma reunião empresarial em português do Brasil.
@@ -178,22 +184,31 @@ export function validateMapping(
     }
   }
 
-  // ELIMINAÇÃO (determinística, sem LLM): nº de vozes igual ao nº de
-  // participantes e resta exatamente UM par sem correspondência → a voz
-  // restante só pode ser do participante restante. Caso típico: executor
-  // mapeado pelo papel de anfitrião e o cliente (cujo nome nunca é dito)
-  // preenchido por exclusão.
-  if (labels.length === participants.length) {
-    const usedNames = new Set(
-      Object.values(map)
-        .filter((n) => !n.startsWith('Falante '))
-        .map((n) => norm(n)),
-    );
-    const freeLabels = labels.filter((l) => map[l].startsWith('Falante '));
-    const freeParts = participants.filter((p) => !usedNames.has(norm(p)));
-    if (freeLabels.length === 1 && freeParts.length === 1) {
-      map[freeLabels[0]] = freeParts[0];
-    }
+  return fillByElimination(map, labels, participants);
+}
+
+/**
+ * ELIMINAÇÃO (determinística, sem LLM): nº de vozes igual ao nº de
+ * participantes e resta exatamente UM par sem correspondência → a voz
+ * restante só pode ser do participante restante. Caso típico: executor
+ * mapeado pelo papel de anfitrião (ou pela atividade de voz) e o cliente
+ * (cujo nome nunca é dito) preenchido por exclusão.
+ */
+export function fillByElimination(
+  map: SpeakerMap,
+  labels: string[],
+  participants: string[],
+): SpeakerMap {
+  if (labels.length !== participants.length) return map;
+  const usedNames = new Set(
+    Object.values(map)
+      .filter((n) => !n.startsWith('Falante '))
+      .map((n) => norm(n)),
+  );
+  const freeLabels = labels.filter((l) => (map[l] ?? '').startsWith('Falante '));
+  const freeParts = participants.filter((p) => !usedNames.has(norm(p)));
+  if (freeLabels.length === 1 && freeParts.length === 1) {
+    return { ...map, [freeLabels[0]]: freeParts[0] };
   }
   return map;
 }

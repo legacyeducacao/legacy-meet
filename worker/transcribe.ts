@@ -67,7 +67,13 @@ import { createGeminiProvider } from './providers/gemini';
 import { createAssemblyAIProvider } from './providers/assemblyai';
 import { AssemblyAIClient, AssemblyAIError, DEFAULT_SPEECH_MODEL } from './lib/assemblyai';
 import { loadKeytermsFile } from './lib/keyterms';
-import { applySpeakerMap, mapSpeakers, type SpeakerMap } from './lib/speakerMap';
+import { applySpeakerMap, fillByElimination, mapSpeakers, type SpeakerMap } from './lib/speakerMap';
+import {
+  mapFromVoiceActivity,
+  mergeSpeakerMaps,
+  parseSpeakerEvents,
+} from './lib/speakerEvents';
+import { genericSpeakerName } from './lib/utterances';
 import { assemblyAiLlmJson, DEFAULT_ASSEMBLYAI_LLM_MODEL, openRouterJson } from './lib/chatJson';
 
 // ----------------------------- Config -----------------------------
@@ -89,6 +95,12 @@ const MANIFEST_PREFIX = env.MANIFEST_PREFIX ?? 'manifests/';
 // Jobs assíncronos (providers que respondem depois) e markers do webhook.
 const JOBS_PREFIX = env.JOBS_PREFIX ?? 'asr-jobs/';
 const DONE_PREFIX = env.TRANSCRIPTION_DONE_PREFIX ?? 'asr-done/';
+// Atividade de voz registrada pelo app (quem falava em cada instante) e o
+// instante exato de início do egress (webhook) — mapeamento determinístico.
+const SPEAKERS_PREFIX = env.SPEAKERS_PREFIX ?? 'speakers/';
+const EGRESS_START_PREFIX = env.EGRESS_START_PREFIX ?? 'egress-start/';
+const SPEAKER_EVENTS_MIN_SECONDS = Number(env.SPEAKER_EVENTS_MIN_SECONDS ?? '5');
+const SPEAKER_EVENTS_MIN_SHARE = Number(env.SPEAKER_EVENTS_MIN_SHARE ?? '0.65');
 // Prazo máximo para um job assíncrono responder antes de virar "failed".
 const JOB_MAX_WAIT_MINUTES = Number(env.ASSEMBLYAI_MAX_WAIT_MINUTES ?? '180');
 // Validade da URL assinada entregue ao provider (precisa cobrir fila + download).
@@ -588,7 +600,7 @@ async function finalizeRecording(
   let utterances = result.utterances;
   let speakerMap: SpeakerMap | undefined;
   if (result.rawSpeakerLabels && utterances.length) {
-    const mapped = await resolveSpeakerMap(id, utterances, participants, host);
+    const mapped = await resolveSpeakerMap(ctx, utterances);
     speakerMap = mapped.map;
     utterances = applySpeakerMap(utterances, mapped.map);
     log(`falantes (${mapped.source}): ${Object.entries(mapped.map).map(([l, n]) => `${l}→${n}`).join(', ')}`);
@@ -695,37 +707,83 @@ async function finalizeRecording(
   );
 }
 
-// Sem chave para o LLM o mapeamento é pulado (rótulos genéricos) — a
-// transcrição em si não depende dele.
+// Mapeamento de falantes em duas fontes, na ordem de confiança:
+// 1. ATIVIDADE DE VOZ (determinística): o app registra via LiveKit quem estava
+//    falando em cada instante; cruzar esses intervalos com os horários das
+//    falas diarizadas identifica cada rótulo por MEDIÇÃO, sem palpite.
+// 2. LLM (reserva): só para os rótulos que a medição não cobriu (ex.: reunião
+//    gravada antes do registro existir, ou participante sem microfone ativo
+//    detectado). Sem chave para o LLM essa reserva é pulada.
+// No final, eliminação determinística fecha o último par livre.
 async function resolveSpeakerMap(
-  id: string,
+  ctx: RecordingContext,
   utterances: Utterance[],
-  participants: string[],
-  host?: string,
-) {
+): Promise<{ map: SpeakerMap; source: string }> {
+  const { id, roomName, participants, host } = ctx;
   const startedAt = Date.now();
-  const r = await mapSpeakers(utterances, participants, {
-    minConfidence: SPEAKER_MAP_MIN_CONFIDENCE,
-    host,
-    llm: async ({ prompt, schema }) => {
-      const common = { model: SPEAKER_MAP_MODEL, prompt, schema, schemaName: 'speaker_map', timeoutMs: SPEAKER_MAP_TIMEOUT_MS };
-      if (SPEAKER_MAP_VIA === 'assemblyai') {
-        if (!ASSEMBLYAI_API_KEY) throw new Error('ASSEMBLYAI_API_KEY ausente — mapeamento de falantes pulado');
-        return assemblyAiLlmJson({ apiKey: ASSEMBLYAI_API_KEY, ...common });
-      }
-      if (!OPENROUTER_API_KEY) throw new Error('OPENROUTER_API_KEY ausente — mapeamento de falantes pulado');
-      return openRouterJson({ apiKey: OPENROUTER_API_KEY, ...common });
-    },
-  });
+  const labels = [...new Set(utterances.map((u) => u.speaker))];
+
+  let activityMap: SpeakerMap = {};
+  try {
+    const rawEvents = await getObjectTextOrNull(`${SPEAKERS_PREFIX}${roomName}.json`);
+    const events = parseSpeakerEvents(rawEvents ? JSON.parse(rawEvents) : null);
+    if (events.length) {
+      const startRaw = await getObjectTextOrNull(`${EGRESS_START_PREFIX}${id}.json`);
+      const startedAtMs = startRaw ? Number(JSON.parse(startRaw)?.startedAtMs) : NaN;
+      const recordingStartMs = Number.isFinite(startedAtMs)
+        ? startedAtMs
+        : Date.parse(ctx.createdAt);
+      const r = mapFromVoiceActivity(utterances, events, recordingStartMs, participants, {
+        minSeconds: SPEAKER_EVENTS_MIN_SECONDS,
+        minShare: SPEAKER_EVENTS_MIN_SHARE,
+      });
+      activityMap = r.map;
+      logJson('speaker_voice_activity', {
+        recordingId: id,
+        events: events.length,
+        recordingStartMs,
+        map: activityMap,
+        votes: r.votes,
+      });
+    }
+  } catch (e) {
+    log(`atividade de voz indisponível (${e instanceof Error ? e.message : e}) — seguindo com LLM`);
+  }
+
+  const unresolved = labels.filter((l) => !(l in activityMap));
+  let map: SpeakerMap;
+  let source: string;
+  if (!unresolved.length) {
+    map = activityMap;
+    source = 'voice-activity';
+  } else {
+    const r = await mapSpeakers(utterances, participants, {
+      minConfidence: SPEAKER_MAP_MIN_CONFIDENCE,
+      host,
+      llm: async ({ prompt, schema }) => {
+        const common = { model: SPEAKER_MAP_MODEL, prompt, schema, schemaName: 'speaker_map', timeoutMs: SPEAKER_MAP_TIMEOUT_MS };
+        if (SPEAKER_MAP_VIA === 'assemblyai') {
+          if (!ASSEMBLYAI_API_KEY) throw new Error('ASSEMBLYAI_API_KEY ausente — mapeamento de falantes pulado');
+          return assemblyAiLlmJson({ apiKey: ASSEMBLYAI_API_KEY, ...common });
+        }
+        if (!OPENROUTER_API_KEY) throw new Error('OPENROUTER_API_KEY ausente — mapeamento de falantes pulado');
+        return openRouterJson({ apiKey: OPENROUTER_API_KEY, ...common });
+      },
+    });
+    // A medição vence o palpite; a eliminação fecha o último par livre que a
+    // demoção de palpites contraditos possa ter aberto.
+    map = fillByElimination(mergeSpeakerMaps(activityMap, r.map, genericSpeakerName), labels, participants);
+    source = Object.keys(activityMap).length ? `voice-activity+${r.source}` : r.source;
+  }
   logJson('speaker_map', {
     recordingId: id,
     via: SPEAKER_MAP_VIA,
     model: SPEAKER_MAP_MODEL,
-    source: r.source,
-    map: r.map,
+    source,
+    map,
     elapsedMs: Date.now() - startedAt,
   });
-  return r;
+  return { map, source };
 }
 
 async function processRecording(rec: RecordingObject) {
