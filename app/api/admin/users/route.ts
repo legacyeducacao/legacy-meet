@@ -44,13 +44,22 @@ export async function POST(req: NextRequest) {
     return new NextResponse('email, password e name são obrigatórios', { status: 400 });
   const admin = createAdminSupabase();
   const { data: created, error } = await admin.auth.admin.createUser({
-    email: cleanEmail, password, email_confirm: true, user_metadata: { name: cleanName },
+    email: cleanEmail, password, email_confirm: true,
+    // role no metadata: o trigger do CRM em auth.users (handle_new_auth_user)
+    // cria a linha em public.users já com o papel certo. Sem ele, o e-mail de
+    // domínio Legacy caía no fallback CLIENT.
+    user_metadata: { name: cleanName, role: 'EXECUTOR' },
   });
   if (error || !created.user)
     return new NextResponse('Falha ao criar: ' + (error?.message ?? ''), { status: 400 });
+  // O trigger acima já pode ter inserido o usuário — upsert em vez de insert
+  // (o insert batia em users_pkey duplicada e derrubava o cadastro inteiro).
   const { error: e2 } = await admin
     .from('users')
-    .insert({ id: created.user.id, email: cleanEmail, name: cleanName, role: 'EXECUTOR' });
+    .upsert(
+      { id: created.user.id, email: cleanEmail, name: cleanName, role: 'EXECUTOR' },
+      { onConflict: 'id' },
+    );
   if (e2) {
     await admin.auth.admin.deleteUser(created.user.id).catch(() => {});
     return new NextResponse('Falha ao criar o perfil do usuário: ' + e2.message, { status: 500 });
