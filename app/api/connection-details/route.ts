@@ -1,4 +1,5 @@
 import { getCurrentUser } from '@/lib/auth';
+import { HOST_ATTRIBUTE } from '@/lib/cohosts';
 import { newSignedPostfix, verifySignedPostfix } from '@/lib/participantIdentity';
 import { getLiveKitURL } from '@/lib/getLiveKitURL';
 import { verifyHostKey } from '@/lib/hostLink';
@@ -136,6 +137,9 @@ function createParticipantToken(userInfo: AccessTokenOptions, roomName: string, 
         canUpdateOwnMetadata: false,
       };
   at.addGrant(grant);
+  // Marca o anfitrião para o watchdog de gravação reconhecê-lo na sala (o
+  // grant roomAdmin não aparece na lista de participantes do servidor).
+  if (isHost) at.attributes = { [HOST_ATTRIBUTE]: '1' };
   // Fecha a sala logo após o último participante sair, para a gravação (egress)
   // finalizar rápido e a transcrição começar quase em seguida.
   at.roomConfig = new RoomConfiguration({

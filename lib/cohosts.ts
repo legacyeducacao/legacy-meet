@@ -11,6 +11,15 @@ export interface RoomMeta {
   cohosts?: string[];
 }
 
+/**
+ * Atributo gravado no token do anfitrião (connection-details) para o servidor
+ * reconhecê-lo na lista de participantes. Serve SÓ para o watchdog manter a
+ * gravação viva enquanto ele está na sala — nunca para autorizar ações (um
+ * convidado admitido pode editar os próprios atributos; no máximo manteria a
+ * gravação até o teto de duração).
+ */
+export const HOST_ATTRIBUTE = 'lm.host';
+
 export function parseRoomMeta(metadata: string | null | undefined): RoomMeta {
   if (!metadata) return {};
   try {
