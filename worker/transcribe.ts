@@ -11,8 +11,8 @@
  * acompanha o job a cada ciclo (marker `asr-done/` escrito pelo webhook do app
  * ou polling na API) e finaliza quando o resultado chega.
  */
-import { createWriteStream, readFileSync } from 'node:fs';
-import { access, mkdtemp, rm } from 'node:fs/promises';
+import { createReadStream, createWriteStream, readFileSync } from 'node:fs';
+import { access, mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -47,6 +47,7 @@ import { parsePlainTextToUtterances, utterancesToPlainText, type Utterance } fro
 import { normalizeUtterances } from './lib/speakers';
 import { mergeParticipants } from './lib/participants';
 import { getAudioDuration } from './lib/ffmpeg';
+import { detectSilences, planTrim, probeDuration, trimMedia } from './lib/trim';
 import { log, logJson, sleep } from './lib/log';
 import {
   driveFindFileInFolder,
@@ -297,6 +298,12 @@ async function isEgressReady(id: string, lastModified?: Date): Promise<boolean> 
 // Cap de tentativas por gravação: sem isso, uma gravação quebrada era retentada
 // a cada poll para sempre (queimando créditos em loop).
 const MAX_RECORDING_ATTEMPTS = Number(env.MAX_RECORDING_ATTEMPTS ?? '3');
+// Gravação zumbi (sala esquecida aberta por horas): acima do limiar o worker
+// corta o silêncio do fim antes de transcrever e arquivar; o teto garante que
+// nada acima dele chega ao provider (a AssemblyAI recusa áudio longo demais).
+const TRIM_THRESHOLD_SECONDS = Number(env.TRIM_THRESHOLD_HOURS ?? '3') * 3600;
+const TRIM_MAX_SECONDS = Number(env.TRIM_MAX_HOURS ?? '5') * 3600;
+const TRIM_NOISE_DB = Number(env.SILENCE_NOISE_DB ?? '-35');
 
 async function readAttempts(id: string): Promise<number> {
   try {
@@ -645,12 +652,20 @@ async function finalizeRecording(
     }
   }
 
+  let trimInfo: { originalSeconds?: number; trimmedSeconds?: number } = {};
+  try {
+    trimInfo = JSON.parse((await getObjectTextOrNull(trimMarkerKey(id))) ?? '{}');
+  } catch {
+    // marker corrompido: só perde o diagnóstico
+  }
+
   const manifest = {
     id,
     title,
     roomName,
     createdAt,
     durationSeconds: result.durationSeconds,
+    ...(trimInfo.originalSeconds ? { originalDurationSeconds: trimInfo.originalSeconds } : {}),
     storage,
     videoKey,
     gdriveFileId,
@@ -677,6 +692,7 @@ async function finalizeRecording(
   // Limpa os markers de controle (tentativas, "egress pronto", job assíncrono).
   await deleteObject(`attempts/${id}.json`).catch(() => {});
   await deleteObject(`ready/${id}.json`).catch(() => {});
+  await deleteObject(trimMarkerKey(id)).catch(() => {});
   await deleteJob(id).catch(() => {});
   if (result.providerTranscriptId) {
     await deleteObject(doneMarkerKey(result.providerTranscriptId)).catch(() => {});
@@ -786,6 +802,44 @@ async function resolveSpeakerMap(
   return { map, source };
 }
 
+const trimMarkerKey = (id: string) => `trimmed/${id}.json`;
+
+// Gravação zumbi: corta o silêncio do fim ANTES de transcrever e arquivar. O
+// objeto da fila é substituído pela versão recortada — provider, Drive e
+// manifesto passam a ver só a reunião de fato. Lê por URL assinada (streaming),
+// sem baixar o vídeo inteiro; gravação de duração normal só custa um ffprobe.
+async function trimZombieRecording(key: string, id: string, tmpDir: string): Promise<void> {
+  const url = await getSignedUrl(s3, new GetObjectCommand({ Bucket: S3_BUCKET, Key: key }), {
+    expiresIn: 6 * 3600,
+  });
+  const duration = await probeDuration(url);
+  if (!(duration > TRIM_THRESHOLD_SECONDS)) return;
+  log(`${id}: gravação de ${Math.round(duration / 60)} min — procurando o fim da fala`);
+  const silences = await detectSilences(url, TRIM_NOISE_DB);
+  const cut = planTrim(duration, silences, {
+    thresholdSeconds: TRIM_THRESHOLD_SECONDS,
+    maxSeconds: TRIM_MAX_SECONDS,
+    tailPadSeconds: 60,
+    minSpeechSeconds: 1,
+  });
+  if (cut == null) return;
+  const out = path.join(tmpDir, 'trimmed.mp4');
+  await trimMedia(url, out, cut);
+  const { size } = await stat(out);
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: key,
+      Body: createReadStream(out),
+      ContentLength: size,
+      ContentType: 'video/mp4',
+    }),
+  );
+  const info = { originalSeconds: Math.round(duration), trimmedSeconds: Math.round(cut) };
+  await uploadText(trimMarkerKey(id), JSON.stringify(info), 'application/json');
+  logJson('recording_trimmed', { recordingId: id, ...info });
+}
+
 async function processRecording(rec: RecordingObject) {
   const id = recordingIdFromKey(rec.key);
   const startedAt = Date.now();
@@ -795,6 +849,13 @@ async function processRecording(rec: RecordingObject) {
   try {
     const ctx = await loadContext(id, rec.lastModified);
     if (ctx.participants.length) log(`participantes: ${ctx.participants.join(', ')}`);
+
+    try {
+      await trimZombieRecording(rec.key, id, tmp);
+    } catch (e) {
+      // Análise/corte é proteção extra: se falhar, segue com o arquivo inteiro.
+      log(`${id}: corte de silêncio final falhou (${e instanceof Error ? e.message : e}) — seguindo sem cortar`);
+    }
 
     // Reuso de backlog: se já existe transcrição (txt) no MinIO de um run
     // anterior, reconstrói as falas dela em vez de re-transcrever (economiza
