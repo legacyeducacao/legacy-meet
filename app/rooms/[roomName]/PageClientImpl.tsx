@@ -336,11 +336,14 @@ function VideoConferenceComponent(props: {
 
   // URL do registro de participantes com o token (o endpoint exige prova de
   // que quem chama está na sala). Usada no join, na saída e no pagehide.
+  // Nome da sala vem do connectionDetails: `room.name` é '' até o connect
+  // terminar, e estas URLs são montadas na montagem da página.
   const participantToken = props.connectionDetails.participantToken;
+  const roomName = props.connectionDetails.roomName;
   const participantsUrl = React.useMemo(
     () =>
-      `/api/record/participants?roomName=${encodeURIComponent(room.name)}&token=${encodeURIComponent(participantToken)}`,
-    [room, participantToken],
+      `/api/record/participants?roomName=${encodeURIComponent(roomName)}&token=${encodeURIComponent(participantToken)}`,
+    [roomName, participantToken],
   );
 
   // Coleta os nomes de quem participou (para identificar os speakers na transcrição)
@@ -499,7 +502,7 @@ function VideoConferenceComponent(props: {
   // gravação. Timestamps no relógio local; o servidor corrige pela defasagem.
   React.useEffect(() => {
     if (!isHost) return;
-    const speakersUrl = `/api/record/speakers?roomName=${encodeURIComponent(room.name)}&token=${encodeURIComponent(participantToken)}`;
+    const speakersUrl = `/api/record/speakers?roomName=${encodeURIComponent(roomName)}&token=${encodeURIComponent(participantToken)}`;
     const open = new Map<string, number>(); // nome → início do trecho atual (ms)
     let closed: { name: string; start: number; end: number }[] = [];
 
@@ -556,7 +559,7 @@ function VideoConferenceComponent(props: {
       window.removeEventListener('pagehide', onPageHide);
       flush(true); // navegação client-side desmonta sem pagehide
     };
-  }, [room, isHost, participantToken]);
+  }, [room, roomName, isHost, participantToken]);
 
   const router = useRouter();
 
