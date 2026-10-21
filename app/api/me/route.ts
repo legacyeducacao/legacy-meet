@@ -8,6 +8,7 @@ export async function GET() {
   if (!user) return NextResponse.json({ user: null });
   return NextResponse.json({
     user: {
+      id: user.id,
       name: user.name,
       isStaff: user.isStaff,
       isAdmin: user.isAdmin,

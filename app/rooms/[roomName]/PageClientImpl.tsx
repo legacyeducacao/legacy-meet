@@ -100,6 +100,28 @@ export function PageClientImpl(props: {
     }
   }, [props.roomName]);
 
+  // Colaborador que abriu o link sem estar logado entraria como convidado (sala
+  // de espera) — caso real: Closer esperando o SDR aprovar. Oferece o login,
+  // que volta para esta mesma sala já como anfitrião.
+  const [teamLoginHref, setTeamLoginHref] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (props.hostKey) return;
+    let cancelled = false;
+    // Sem sessão o middleware devolve a página de login (HTML), não JSON:
+    // resposta ilegível conta como "não logado".
+    fetch('/api/me')
+      .then((r) => (r.ok ? r.json().catch(() => null) : null))
+      .then((json) => {
+        if (cancelled || json?.user?.isStaff) return;
+        const next = window.location.pathname + window.location.search;
+        setTeamLoginHref(`/login?next=${encodeURIComponent(next)}`);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [props.hostKey]);
+
   // Nome é obrigatório para entrar (vale para host e convidado).
   const handleValidate = React.useCallback(
     (values: LocalUserChoices) => !!values.username && values.username.trim().length > 0,
@@ -168,6 +190,12 @@ export function PageClientImpl(props: {
               // parâmetro da URL; o convidado (link sem nome) digita o próprio.
               persistUserChoices={false}
             />
+            {teamLoginHref && (
+              <a className="prejoin-team-login" href={teamLoginHref}>
+                Sou da equipe Legacy: entrar com minha conta
+                <small>Você entra como anfitrião, sem sala de espera.</small>
+              </a>
+            )}
           </div>
         </div>
       ) : (

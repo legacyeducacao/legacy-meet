@@ -4,6 +4,7 @@ import * as React from 'react';
 import { createBrowserSupabase } from '@/lib/supabase/client';
 import LoginPage from '@/components/patterns/LoginPage';
 import { POST_LOGIN_PRELOADER_FLAG } from '@/components/patterns/PostLoginPreloader';
+import { safeNextPath } from '@/lib/safeNext';
 
 /**
  * Login no padrão do design system Legacy Plan, com o Supabase plugado.
@@ -24,12 +25,16 @@ export default function Login() {
           password,
         });
         if (error) throw new Error('E-mail ou senha inválidos.');
-        try {
-          sessionStorage.setItem(POST_LOGIN_PRELOADER_FLAG, '1');
-        } catch {
-          /* sem sessionStorage */
+        // Veio do botão "Sou da equipe Legacy" na sala: volta direto para ela.
+        const next = safeNextPath(new URLSearchParams(window.location.search).get('next'));
+        if (next === '/') {
+          try {
+            sessionStorage.setItem(POST_LOGIN_PRELOADER_FLAG, '1');
+          } catch {
+            /* sem sessionStorage */
+          }
         }
-        window.location.href = '/';
+        window.location.href = next;
       }}
       onForgotPassword={async (email) => {
         const supabase = createBrowserSupabase();
