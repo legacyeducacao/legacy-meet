@@ -32,7 +32,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="pt-BR" className={urbanist.variable} suppressHydrationWarning>
-      <body data-lk-theme="default" className={urbanist.className}>
+      {/* suppressHydrationWarning: extensões do navegador (Demoway, Grammarly…)
+          injetam atributos no <body> antes do React hidratar. Vale só para os
+          atributos deste elemento, não para os filhos. */}
+      <body data-lk-theme="default" className={urbanist.className} suppressHydrationWarning>
         {/* Aplica o tema escuro antes da hidratação (evita flash) */}
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
         <AppProviders />
