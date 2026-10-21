@@ -30,6 +30,7 @@ export async function GET() {
         metaHost: r.metaHost ?? null,
         sector: owner?.sector ?? null,
         noShow: owner?.noShow ?? false,
+        coHostIds: owner?.coHostIds ?? [],
         // Excluir é do dono ou admin (comercial vê tudo mas não apaga de colega).
         canDelete: user.isAdmin || (!!owner?.hostId && owner.hostId === user.id),
       };
@@ -43,8 +44,10 @@ export async function GET() {
       // Comercial vê TODAS as reuniões do comercial (qualquer host), menos executoria.
       scoped = enriched.filter((r) => r.sector === 'comercial');
     } else {
-      // Demais (executoria / ambos / sem setor): apenas as próprias.
-      scoped = enriched.filter((r) => r.hostId !== null && r.hostId === user.id);
+      // Demais (executoria / ambos / sem setor): as próprias e as em que é anfitrião adicional.
+      scoped = enriched.filter(
+        (r) => (r.hostId !== null && r.hostId === user.id) || r.coHostIds.includes(user.id),
+      );
     }
     return NextResponse.json(scoped);
   } catch (error) {

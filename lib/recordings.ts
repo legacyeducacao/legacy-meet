@@ -233,6 +233,8 @@ export type RoomOwner = {
   clientName: string | null;
   /** Reunião marcada como no-show na Agenda (cliente não compareceu). */
   noShow: boolean;
+  /** Anfitriões adicionais programados (ex.: o Closer marcado pelo SDR). */
+  coHostIds: string[];
 };
 
 export async function getRoomOwners(roomNames: string[]): Promise<Map<string, RoomOwner>> {
@@ -248,7 +250,7 @@ export async function getRoomOwners(roomNames: string[]): Promise<Map<string, Ro
       admin
         .from('meetings')
         .select(
-          'room_name, title, host_id, status, users:host_id(name), client_tenants:tenant_id(name), meet_meeting_sector(sector)',
+          'room_name, title, host_id, status, users:host_id(name), client_tenants:tenant_id(name), meet_meeting_sector(sector), meet_meeting_hosts(user_id)',
         )
         .in('room_name', batch),
     ),
@@ -266,6 +268,7 @@ export async function getRoomOwners(roomNames: string[]): Promise<Map<string, Ro
     users?: { name?: string | null } | null;
     client_tenants?: { name?: string | null } | null;
     meet_meeting_sector?: { sector?: string | null } | null;
+    meet_meeting_hosts?: { user_id: string }[] | null;
   }>) {
     out.set(m.room_name, {
       roomName: m.room_name,
@@ -275,6 +278,7 @@ export async function getRoomOwners(roomNames: string[]): Promise<Map<string, Ro
       sector: m.meet_meeting_sector?.sector ?? null,
       title: m.title?.trim() || null,
       noShow: m.status === 'no_show',
+      coHostIds: (m.meet_meeting_hosts ?? []).map((h) => h.user_id),
     });
   }
   return out;
@@ -290,7 +294,7 @@ export async function canAccessRecording(
   const owners = await getRoomOwners([roomName]);
   const o = owners.get(roomName);
   if (!o) return false;
-  if (o.hostId === user.id) return true;
+  if (o.hostId === user.id || o.coHostIds.includes(user.id)) return true;
   // Comercial vê (abre) todas as reuniões do comercial.
   if (user.sector === 'comercial' && o.sector === 'comercial') return true;
   return false;

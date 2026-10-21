@@ -4,6 +4,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 import { createCalendarEvent } from '@/lib/calendar';
 import { computeOccurrences, type Frequency } from '@/lib/recurrence';
+import { listTeamMembers, normalizeCoHostIds } from '@/lib/meetingHosts';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,6 +25,8 @@ export async function POST(req: NextRequest) {
     startAt?: string; // ISO (UTC)
     record?: boolean;
     transcribe?: boolean;
+    /** Outros anfitriões (ids de colaboradores) — ex.: o Closer da sessão. */
+    coHostIds?: string[];
     recurrence?: {
       frequency?: string;
       until?: string; // 'yyyy-mm-dd' (inclusive) — exclusivo com count
@@ -75,6 +78,9 @@ export async function POST(req: NextRequest) {
       : `${frequency};count=${occurrences.length}`;
   }
 
+  const team = await listTeamMembers();
+  const coHostIds = normalizeCoHostIds(body.coHostIds, new Set(team.map((m) => m.id)), user.id);
+
   const ids = occurrences.map(() => crypto.randomUUID());
   const roomNames = occurrences.map(() => `meet_${crypto.randomUUID()}`);
   const isSeries = occurrences.length > 1;
@@ -107,12 +113,23 @@ export async function POST(req: NextRequest) {
     return new NextResponse('Falha ao registrar o setor: ' + sectorError.message, { status: 500 });
   }
 
+  if (coHostIds.length) {
+    const { error: hostsError } = await admin
+      .from('meet_meeting_hosts')
+      .insert(ids.flatMap((meetingId) => coHostIds.map((userId) => ({ meeting_id: meetingId, user_id: userId }))));
+    if (hostsError) {
+      await admin.from('meetings').delete().in('id', ids);
+      return new NextResponse('Falha ao registrar os anfitriões: ' + hostsError.message, { status: 500 });
+    }
+  }
+
   // Google Agenda: um evento por ocorrência (com o link daquela sala), criados
   // em SEGUNDO PLANO — uma série de 52 não pode travar a resposta. Erros são
   // por ocorrência e não-fatais (a reunião continua agendada sem o evento).
   const attendees: string[] = [];
   try {
     if (user.email) attendees.push(user.email);
+    for (const m of team) if (coHostIds.includes(m.id) && m.email) attendees.push(m.email);
     if (sector === 'executoria') {
       const { data: tenant } = await admin
         .from('client_tenants')

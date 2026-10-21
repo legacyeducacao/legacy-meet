@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
+import { isMeetingHost } from '@/lib/meetingHosts';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 
 export const dynamic = 'force-dynamic';
 
 // Inicia uma reunião agendada: marca status=live e devolve o room_name.
-// Só o host dono (ou MASTER) pode iniciar.
+// Só o host dono, um anfitrião adicional ou admin pode iniciar.
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return new NextResponse('Não autorizado', { status: 401 });
@@ -20,7 +21,8 @@ export async function POST(req: NextRequest) {
     .eq('id', id)
     .maybeSingle();
   if (!meeting) return new NextResponse('Reunião não encontrada', { status: 404 });
-  if (!user.isAdmin && meeting.host_id !== user.id)
+  // Anfitrião adicional (ex.: o Closer marcado pelo SDR) também pode.
+  if (!user.isAdmin && !(await isMeetingHost({ id, host_id: meeting.host_id }, user.id)))
     return new NextResponse('Não autorizado', { status: 403 });
 
   // started_at marca que a reunião de fato aconteceu — é o que decide, no

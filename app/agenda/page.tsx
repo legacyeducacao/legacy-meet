@@ -49,6 +49,8 @@ import {
 const PAGE_SIZE = 6;
 
 type Client = { id: string; name: string };
+type TeamMember = { id: string; name: string };
+type CoHost = { id: string; name: string };
 type Scheduled = {
   id: string;
   title: string;
@@ -56,7 +58,9 @@ type Scheduled = {
   startAt: string;
   record: boolean;
   transcribe: boolean;
+  hostId: string | null;
   hostName: string | null;
+  coHosts?: CoHost[];
   clientName: string | null;
   sector: string | null;
   recurrenceParentId: string | null;
@@ -68,10 +72,14 @@ type HistoryItem = {
   startAt: string;
   status: 'ended' | 'no_show' | 'scheduled' | 'live';
   hostName: string | null;
+  coHosts?: CoHost[];
   clientName: string | null;
   sector: string | null;
   recurrenceParentId: string | null;
 };
+
+const coHostsLabel = (list?: CoHost[]) =>
+  list?.length ? `com ${list.map((h) => h.name).filter(Boolean).join(', ')}` : '';
 
 const HISTORY_STATUS_LABEL: Record<HistoryItem['status'], string> = {
   ended: 'Realizada',
@@ -116,6 +124,10 @@ export default function AgendaPage() {
   const [transcribe, setTranscribe] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // Outros anfitriões (ex.: o Closer que vai conduzir a sessão marcada pelo SDR).
+  const [team, setTeam] = useState<TeamMember[]>([]);
+  const [coHostIds, setCoHostIds] = useState<string[]>([]);
+  const [meId, setMeId] = useState<string | null>(null);
 
   // recorrência
   const [repeat, setRepeat] = useState<'none' | Frequency>('none');
@@ -283,16 +295,24 @@ export default function AgendaPage() {
       .then((json) => {
         const u = json?.user;
         if (u) {
+          setMeId(u.id ?? null);
           setMeIsAdmin(!!u.isAdmin);
           setMeSector(u.sector ?? null);
         }
       })
       .catch(() => {});
+    fetch('/api/team')
+      .then((r) => (r.ok ? r.json() : { members: [] }))
+      .then((json) => setTeam((json.members ?? []) as TeamMember[]))
+      .catch(() => setTeam([]));
   }, []);
 
   // Derivar abas permitidas
   const canCom = meIsAdmin || meSector === 'comercial' || meSector === 'ambos';
   const canExe = meIsAdmin || meSector === 'executoria' || meSector === 'ambos';
+  // Editar/cancelar é de quem criou (ou admin); o anfitrião adicional inicia,
+  // copia o link e marca no-show. O servidor confere de novo.
+  const canManage = (m: Scheduled) => meIsAdmin || !meId || m.hostId === meId;
 
   // Se só uma aba é permitida, fixar o sector nela
   useEffect(() => {
@@ -410,6 +430,7 @@ export default function AgendaPage() {
       startAt: iso,
       title: title.trim(),
     };
+    if (coHostIds.length) body.coHostIds = coHostIds;
     if (repeat !== 'none') {
       body.recurrence = {
         frequency: repeat,
@@ -444,6 +465,7 @@ export default function AgendaPage() {
       );
       setTitle('');
       setStartAt('');
+      setCoHostIds([]);
       setRepeat('none');
       setEndMode('count');
       setCountTimes(4);
@@ -723,6 +745,44 @@ export default function AgendaPage() {
               </div>
 
               <div className="space-y-2">
+                <Label>Outros anfitriões</Label>
+                <SearchableSelect
+                  value=""
+                  onValueChange={(v) => v && setCoHostIds((prev) => (prev.includes(v) ? prev : [...prev, v]))}
+                  options={team
+                    .filter((m) => m.id !== meId && !coHostIds.includes(m.id))
+                    .map((m) => ({ value: m.id, label: m.name }))}
+                  placeholder={team.length ? 'Adicionar colaborador (opcional)' : 'Carregando equipe…'}
+                  searchPlaceholder="Buscar colaborador…"
+                  emptyText="Ninguém encontrado."
+                />
+                {coHostIds.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {coHostIds.map((id) => {
+                      const name = team.find((m) => m.id === id)?.name ?? '…';
+                      return (
+                        <Badge key={id} variant="secondary" className="gap-1 pr-1">
+                          {name}
+                          <button
+                            type="button"
+                            aria-label={`Remover ${name}`}
+                            className="rounded-sm p-0.5 hover:bg-background/60"
+                            onClick={() => setCoHostIds((prev) => prev.filter((x) => x !== id))}
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </Badge>
+                      );
+                    })}
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Ex.: o Closer da sessão. Ele vê a reunião na Agenda dele, recebe o convite, entra
+                  como anfitrião e vê a gravação.
+                </p>
+              </div>
+
+              <div className="space-y-2">
                 <Label htmlFor="repeat">Repetir</Label>
                 <select
                   id="repeat"
@@ -908,6 +968,8 @@ export default function AgendaPage() {
                           </span>
                           {m.clientName && <span>· {m.clientName}</span>}
                           {m.hostName && <span>· {m.hostName}</span>}
+                        {m.coHosts?.length ? <span>{coHostsLabel(m.coHosts)}</span> : null}
+                          {m.coHosts?.length ? <span>{coHostsLabel(m.coHosts)}</span> : null}
                         </div>
                       </div>
                       <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs font-medium text-muted-foreground">
@@ -1014,6 +1076,7 @@ export default function AgendaPage() {
                         <Copy className="h-3.5 w-3.5" />
                         Link
                       </Button>
+                      {canManage(m) && (
                       <Button
                         size="sm"
                         variant="outline"
@@ -1024,6 +1087,7 @@ export default function AgendaPage() {
                         <Pencil className="h-3.5 w-3.5" />
                         Editar
                       </Button>
+                      )}
                       {overdue && (
                         <Button
                           size="sm"
@@ -1037,6 +1101,7 @@ export default function AgendaPage() {
                           No-show
                         </Button>
                       )}
+                      {canManage(m) && (
                       <Button
                         size="icon"
                         variant="ghost"
@@ -1047,6 +1112,7 @@ export default function AgendaPage() {
                       >
                         <X className="h-4 w-4" />
                       </Button>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
