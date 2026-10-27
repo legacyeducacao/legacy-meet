@@ -16,6 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import { computeOccurrences, MAX_OCCURRENCES, type Frequency } from '@/lib/recurrence';
+import { parseGuestEmails } from '@/lib/guestEmails';
 import { AppShell } from '@/components/AppShell';
 import { PageHeader } from '@/components/patterns/PageHeader';
 import { EmptyState } from '@/components/patterns/EmptyState';
@@ -127,6 +128,8 @@ export default function AgendaPage() {
   // Outros anfitriões (ex.: o Closer que vai conduzir a sessão marcada pelo SDR).
   const [team, setTeam] = useState<TeamMember[]>([]);
   const [coHostIds, setCoHostIds] = useState<string[]>([]);
+  // Comercial: e-mail(s) do cliente — recebe o convite do Google Agenda.
+  const [guestEmailsText, setGuestEmailsText] = useState('');
   const [meId, setMeId] = useState<string | null>(null);
 
   // recorrência
@@ -431,6 +434,14 @@ export default function AgendaPage() {
       title: title.trim(),
     };
     if (coHostIds.length) body.coHostIds = coHostIds;
+    if (sector === 'comercial') {
+      const guests = parseGuestEmails(guestEmailsText);
+      if (guests.invalid.length) {
+        setError(`Confira o e-mail do cliente: ${guests.invalid.join(', ')}`);
+        return;
+      }
+      if (guests.emails.length) body.guestEmails = guests.emails;
+    }
     if (repeat !== 'none') {
       body.recurrence = {
         frequency: repeat,
@@ -466,6 +477,7 @@ export default function AgendaPage() {
       setTitle('');
       setStartAt('');
       setCoHostIds([]);
+      setGuestEmailsText('');
       setRepeat('none');
       setEndMode('count');
       setCountTimes(4);
@@ -743,6 +755,25 @@ export default function AgendaPage() {
                   onChange={(e) => setStartAt(e.target.value)}
                 />
               </div>
+
+              {sector === 'comercial' && (
+                <div className="space-y-2">
+                  <Label htmlFor="guestEmails">E-mail do cliente</Label>
+                  <Input
+                    id="guestEmails"
+                    type="text"
+                    inputMode="email"
+                    autoComplete="off"
+                    value={guestEmailsText}
+                    onChange={(e) => setGuestEmailsText(e.target.value)}
+                    placeholder="cliente@empresa.com.br (opcional)"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Recebe o convite no Google Agenda com o link da reunião. Mais de um: separe por
+                    vírgula.
+                  </p>
+                </div>
+              )}
 
               <div className="space-y-2">
                 <Label>Outros anfitriões</Label>

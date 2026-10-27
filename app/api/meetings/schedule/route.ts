@@ -5,6 +5,7 @@ import { createAdminSupabase } from '@/lib/supabase/admin';
 import { createCalendarEvent } from '@/lib/calendar';
 import { computeOccurrences, type Frequency } from '@/lib/recurrence';
 import { listTeamMembers, normalizeCoHostIds } from '@/lib/meetingHosts';
+import { parseGuestEmails } from '@/lib/guestEmails';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +28,8 @@ export async function POST(req: NextRequest) {
     transcribe?: boolean;
     /** Outros anfitriões (ids de colaboradores) — ex.: o Closer da sessão. */
     coHostIds?: string[];
+    /** E-mails dos clientes convidados (recebem o convite do Google Agenda). */
+    guestEmails?: string[] | string;
     recurrence?: {
       frequency?: string;
       until?: string; // 'yyyy-mm-dd' (inclusive) — exclusivo com count
@@ -76,6 +79,11 @@ export async function POST(req: NextRequest) {
     recurrenceRule = until
       ? `${frequency};until=${until.toISOString().slice(0, 10)}`
       : `${frequency};count=${occurrences.length}`;
+  }
+
+  const guests = parseGuestEmails(body.guestEmails);
+  if (guests.invalid.length) {
+    return new NextResponse(`E-mail inválido: ${guests.invalid.join(', ')}`, { status: 400 });
   }
 
   const team = await listTeamMembers();
@@ -130,6 +138,7 @@ export async function POST(req: NextRequest) {
   try {
     if (user.email) attendees.push(user.email);
     for (const m of team) if (coHostIds.includes(m.id) && m.email) attendees.push(m.email);
+    attendees.push(...guests.emails);
     if (sector === 'executoria') {
       const { data: tenant } = await admin
         .from('client_tenants')
