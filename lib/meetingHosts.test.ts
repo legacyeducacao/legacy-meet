@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_CO_HOSTS, normalizeCoHostIds } from './meetingHosts';
+import { diffCoHosts, MAX_CO_HOSTS, normalizeCoHostIds } from './meetingHosts';
 
 const allowed = new Set(['luan', 'leonardo', 'guilherme', ...Array.from({ length: 20 }, (_, i) => `u${i}`)]);
 
@@ -26,5 +26,22 @@ describe('normalizeCoHostIds', () => {
   it('limita a quantidade', () => {
     const many = Array.from({ length: 20 }, (_, i) => `u${i}`);
     expect(normalizeCoHostIds(many, allowed, 'luan')).toHaveLength(MAX_CO_HOSTS);
+  });
+});
+
+describe('diffCoHosts', () => {
+  it('separa quem entrou e quem saiu', () => {
+    expect(diffCoHosts(['leonardo', 'guilherme'], ['guilherme', 'luan'])).toEqual({
+      added: ['luan'],
+      removed: ['leonardo'],
+    });
+  });
+
+  it('lista igual: nada muda', () => {
+    expect(diffCoHosts(['a', 'b'], ['b', 'a'])).toEqual({ added: [], removed: [] });
+  });
+
+  it('esvaziar remove todos', () => {
+    expect(diffCoHosts(['a', 'b'], [])).toEqual({ added: [], removed: ['a', 'b'] });
   });
 });

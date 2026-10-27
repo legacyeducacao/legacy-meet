@@ -76,6 +76,14 @@ export function normalizeCoHostIds(raw: unknown, allowed: Set<string>, creatorId
   return out;
 }
 
+/** Quem entra e quem sai ao trocar a lista de anfitriões de uma reunião. */
+export function diffCoHosts(current: string[], next: string[]): { added: string[]; removed: string[] } {
+  return {
+    added: next.filter((id) => !current.includes(id)),
+    removed: current.filter((id) => !next.includes(id)),
+  };
+}
+
 /** Reuniões em que o usuário foi marcado como anfitrião adicional. */
 export async function coHostedMeetingIds(userId: string): Promise<string[]> {
   const admin = createAdminSupabase();
