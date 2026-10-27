@@ -79,6 +79,56 @@ type HistoryItem = {
   recurrenceParentId: string | null;
 };
 
+// Seletor de "Outros anfitriões" (criar e editar reunião): escolhe um
+// colaborador por vez; os escolhidos viram etiquetas removíveis.
+function CoHostPicker({
+  team,
+  selected,
+  onChange,
+  excludeId,
+}: {
+  team: TeamMember[];
+  selected: string[];
+  onChange: (ids: string[]) => void;
+  /** Dono da reunião — já é o anfitrião, não entra na lista. */
+  excludeId: string | null;
+}) {
+  return (
+    <>
+      <SearchableSelect
+        value=""
+        onValueChange={(v) => v && !selected.includes(v) && onChange([...selected, v])}
+        options={team
+          .filter((m) => m.id !== excludeId && !selected.includes(m.id))
+          .map((m) => ({ value: m.id, label: m.name }))}
+        placeholder={team.length ? 'Adicionar colaborador (opcional)' : 'Carregando equipe…'}
+        searchPlaceholder="Buscar colaborador…"
+        emptyText="Ninguém encontrado."
+      />
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {selected.map((id) => {
+            const name = team.find((m) => m.id === id)?.name ?? '…';
+            return (
+              <Badge key={id} variant="secondary" className="gap-1 pr-1">
+                {name}
+                <button
+                  type="button"
+                  aria-label={`Remover ${name}`}
+                  className="rounded-sm p-0.5 hover:bg-background/60"
+                  onClick={() => onChange(selected.filter((x) => x !== id))}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+}
+
 const coHostsLabel = (list?: CoHost[]) =>
   list?.length ? `com ${list.map((h) => h.name).filter(Boolean).join(', ')}` : '';
 
@@ -169,6 +219,7 @@ export default function AgendaPage() {
   const [editStartAt, setEditStartAt] = useState('');
   const [editRecord, setEditRecord] = useState(true);
   const [editTranscribe, setEditTranscribe] = useState(true);
+  const [editCoHostIds, setEditCoHostIds] = useState<string[]>([]);
   const [editBusy, setEditBusy] = useState(false);
 
   // Prévia da série: quantas reuniões a regra atual criaria (ou o erro da regra).
@@ -245,6 +296,7 @@ export default function AgendaPage() {
     setEditStartAt(toLocalInput(m.startAt));
     setEditRecord(m.record);
     setEditTranscribe(m.transcribe);
+    setEditCoHostIds((m.coHosts ?? []).map((h) => h.id));
   };
 
   const closeEdit = () => {
@@ -276,6 +328,7 @@ export default function AgendaPage() {
           startAt: new Date(editStartAt).toISOString(),
           record: editRecord,
           transcribe: editTranscribe,
+          coHostIds: editCoHostIds,
         }),
       });
       if (!res.ok) {
@@ -665,6 +718,18 @@ export default function AgendaPage() {
                 onChange={(e) => setEditStartAt(e.target.value)}
               />
             </div>
+            <div className="space-y-2">
+              <Label>Outros anfitriões</Label>
+              <CoHostPicker
+                team={team}
+                selected={editCoHostIds}
+                onChange={setEditCoHostIds}
+                excludeId={editMeeting?.hostId ?? null}
+              />
+              <p className="text-xs text-muted-foreground">
+                Quem entra recebe o convite; quem sai deixa de ver a reunião e é removido do convite.
+              </p>
+            </div>
             <div className="space-y-4 rounded-lg border border-border/60 bg-muted/30 p-4">
               <div className="flex items-center justify-between gap-4">
                 <Label htmlFor="edit-record" className="cursor-pointer font-normal">
@@ -777,36 +842,12 @@ export default function AgendaPage() {
 
               <div className="space-y-2">
                 <Label>Outros anfitriões</Label>
-                <SearchableSelect
-                  value=""
-                  onValueChange={(v) => v && setCoHostIds((prev) => (prev.includes(v) ? prev : [...prev, v]))}
-                  options={team
-                    .filter((m) => m.id !== meId && !coHostIds.includes(m.id))
-                    .map((m) => ({ value: m.id, label: m.name }))}
-                  placeholder={team.length ? 'Adicionar colaborador (opcional)' : 'Carregando equipe…'}
-                  searchPlaceholder="Buscar colaborador…"
-                  emptyText="Ninguém encontrado."
+                <CoHostPicker
+                  team={team}
+                  selected={coHostIds}
+                  onChange={setCoHostIds}
+                  excludeId={meId}
                 />
-                {coHostIds.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {coHostIds.map((id) => {
-                      const name = team.find((m) => m.id === id)?.name ?? '…';
-                      return (
-                        <Badge key={id} variant="secondary" className="gap-1 pr-1">
-                          {name}
-                          <button
-                            type="button"
-                            aria-label={`Remover ${name}`}
-                            className="rounded-sm p-0.5 hover:bg-background/60"
-                            onClick={() => setCoHostIds((prev) => prev.filter((x) => x !== id))}
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        </Badge>
-                      );
-                    })}
-                  </div>
-                )}
                 <p className="text-xs text-muted-foreground">
                   Ex.: o Closer da sessão. Ele vê a reunião na Agenda dele, recebe o convite, entra
                   como anfitrião e vê a gravação.

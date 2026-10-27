@@ -73,6 +73,42 @@ export async function updateCalendarEvent(
   }
 }
 
+type Attendee = { email: string } & Record<string, unknown>;
+
+/**
+ * Lista nova de convidados: tira os removidos, acrescenta os novos. Os que
+ * ficam são mantidos como vieram do Google (preserva a resposta ao convite).
+ */
+export function mergeAttendees(existing: Attendee[], add: string[], remove: string[]): Attendee[] {
+  const norm = (e: string) => e.trim().toLowerCase();
+  const out = existing.filter((a) => !remove.map(norm).includes(norm(a.email)));
+  for (const email of add.map(norm).filter(Boolean)) {
+    if (!out.some((a) => norm(a.email) === email)) out.push({ email });
+  }
+  return out;
+}
+
+/** Acrescenta/remove convidados de um evento e notifica quem entrou ou saiu. */
+export async function changeCalendarAttendees(
+  eventId: string,
+  change: { add: string[]; remove: string[] },
+): Promise<void> {
+  if (!change.add.length && !change.remove.length) return;
+  const token = await getDriveAccessToken();
+  const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`;
+  const get = await fetch(`${url}?fields=attendees`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!get.ok) throw new Error(`calendar_get_failed ${get.status}: ${(await get.text()).slice(0, 200)}`);
+  const { attendees = [] } = (await get.json()) as { attendees?: Attendee[] };
+  const resp = await fetch(`${url}?sendUpdates=all`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ attendees: mergeAttendees(attendees, change.add, change.remove) }),
+  });
+  if (!resp.ok) {
+    throw new Error(`calendar_attendees_failed ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+  }
+}
+
 /** Apaga um evento e notifica os convidados do cancelamento. */
 export async function deleteCalendarEvent(eventId: string): Promise<void> {
   const token = await getDriveAccessToken();

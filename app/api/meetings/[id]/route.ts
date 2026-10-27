@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { createAdminSupabase } from '@/lib/supabase/admin';
-import { updateCalendarEvent } from '@/lib/calendar';
+import { changeCalendarAttendees, updateCalendarEvent } from '@/lib/calendar';
+import { diffCoHosts, listTeamMembers, normalizeCoHostIds } from '@/lib/meetingHosts';
 
 export const dynamic = 'force-dynamic';
 
-// Edita uma reunião agendada (título, data/hora, gravar/transcrever). Só o
-// host dono ou um admin. Sincroniza o evento do Google Agenda (não-fatal).
+// Edita uma reunião agendada (título, data/hora, gravar/transcrever e outros
+// anfitriões). Só o host dono ou um admin. Sincroniza o evento do Google
+// Agenda (não-fatal): horário/título e a lista de convidados.
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
   if (!user) return new NextResponse('Não autorizado', { status: 401 });
@@ -17,6 +19,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     startAt?: string; // ISO (UTC)
     record?: boolean;
     transcribe?: boolean;
+    /** Lista COMPLETA de outros anfitriões (substitui a atual). */
+    coHostIds?: string[];
   };
 
   const admin = createAdminSupabase();
@@ -45,10 +49,50 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   if (body.record !== undefined) update.recording_enabled = body.record;
   if (body.transcribe !== undefined) update.auto_transcribe = body.transcribe;
 
-  if (Object.keys(update).length === 0) return NextResponse.json({ ok: true });
+  // Outros anfitriões: só colaboradores da equipe; o dono da reunião (que pode
+  // não ser quem está editando, quando é um admin) nunca entra na lista.
+  let added: string[] = [];
+  let removed: string[] = [];
+  let team: Awaited<ReturnType<typeof listTeamMembers>> = [];
+  if (body.coHostIds !== undefined) {
+    team = await listTeamMembers();
+    const next = normalizeCoHostIds(
+      body.coHostIds,
+      new Set(team.map((m) => m.id)),
+      meeting.host_id ?? '',
+    );
+    const { data: current } = await admin
+      .from('meet_meeting_hosts')
+      .select('user_id')
+      .eq('meeting_id', id);
+    ({ added, removed } = diffCoHosts(
+      ((current ?? []) as { user_id: string }[]).map((r) => r.user_id),
+      next,
+    ));
+  }
 
-  const { error } = await admin.from('meetings').update(update).eq('id', id);
-  if (error) return new NextResponse('Falha ao salvar: ' + error.message, { status: 500 });
+  if (Object.keys(update).length === 0 && !added.length && !removed.length) {
+    return NextResponse.json({ ok: true });
+  }
+
+  if (Object.keys(update).length) {
+    const { error } = await admin.from('meetings').update(update).eq('id', id);
+    if (error) return new NextResponse('Falha ao salvar: ' + error.message, { status: 500 });
+  }
+  if (removed.length) {
+    const { error } = await admin
+      .from('meet_meeting_hosts')
+      .delete()
+      .eq('meeting_id', id)
+      .in('user_id', removed);
+    if (error) return new NextResponse('Falha ao remover anfitriões: ' + error.message, { status: 500 });
+  }
+  if (added.length) {
+    const { error } = await admin
+      .from('meet_meeting_hosts')
+      .insert(added.map((userId) => ({ meeting_id: id, user_id: userId })));
+    if (error) return new NextResponse('Falha ao adicionar anfitriões: ' + error.message, { status: 500 });
+  }
 
   // sincroniza o evento do Google Agenda (notifica os convidados) — não-fatal
   try {
@@ -57,11 +101,19 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       .select('calendar_event_id')
       .eq('meeting_id', id)
       .maybeSingle();
-    if (sec?.calendar_event_id) {
-      await updateCalendarEvent(sec.calendar_event_id as string, {
-        summary: body.title !== undefined ? title : undefined,
-        startISO: start ? start.toISOString() : undefined,
-        endISO: start ? new Date(start.getTime() + 60 * 60 * 1000).toISOString() : undefined,
+    const eventId = sec?.calendar_event_id as string | undefined;
+    if (eventId) {
+      if (body.title !== undefined || start) {
+        await updateCalendarEvent(eventId, {
+          summary: body.title !== undefined ? title : undefined,
+          startISO: start ? start.toISOString() : undefined,
+          endISO: start ? new Date(start.getTime() + 60 * 60 * 1000).toISOString() : undefined,
+        });
+      }
+      const emailOf = (uid: string) => team.find((m) => m.id === uid)?.email ?? '';
+      await changeCalendarAttendees(eventId, {
+        add: added.map(emailOf).filter(Boolean),
+        remove: removed.map(emailOf).filter(Boolean),
       });
     }
   } catch (e) {
