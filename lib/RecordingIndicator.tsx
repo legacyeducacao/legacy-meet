@@ -14,6 +14,7 @@ export function RecordingIndicator() {
 
   return (
     <div
+      className="lk-rec-indicator"
       style={{
         position: 'absolute',
         top: '0.75rem',
@@ -39,7 +40,8 @@ export function RecordingIndicator() {
           animation: 'lk-rec-pulse 1.6s ease-in-out infinite',
         }}
       />
-      Esta reunião está sendo gravada
+      <span className="lk-rec-long">Esta reunião está sendo gravada</span>
+      <span className="lk-rec-short">Gravando</span>
     </div>
   );
 }

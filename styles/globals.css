@@ -220,59 +220,6 @@ h2 a {
   border-radius: 0.625rem;
 }
 
-/* ---------- Barra de controles no celular ---------- */
-/* No mobile a barra fica em UMA linha com rolagem horizontal (estilo Netflix):
-   os botões mantêm o tamanho e o usuário arrasta pro lado pra alcançar todos.
-   Respeita a área segura (notch/barra do iOS) e esconde a barra de rolagem. */
-@media (max-width: 768px) {
-  [data-lk-theme] .lk-control-bar {
-    flex-wrap: nowrap;
-    justify-content: flex-start;
-    align-items: center;
-    gap: 0.4rem;
-    height: auto;
-    padding: 0.5rem 0.6rem;
-    padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
-    overflow-x: auto;
-    overflow-y: hidden;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-  }
-  [data-lk-theme] .lk-control-bar::-webkit-scrollbar {
-    display: none;
-  }
-  /* cada botão/grupo mantém o tamanho → a barra rola na horizontal */
-  [data-lk-theme] .lk-control-bar > * {
-    flex-shrink: 0;
-  }
-
-  /* TODOS os botões e grupos com a MESMA altura (botões soltos + grupos com
-     menu de dispositivo + chevron). Altura fixa + conteúdo centralizado. */
-  [data-lk-theme] .lk-control-bar .lk-button,
-  [data-lk-theme] .lk-control-bar .lk-button-group,
-  [data-lk-theme] .lk-control-bar .lk-button-group .lk-button {
-    height: 2.5rem;
-    min-height: 2.5rem;
-    box-sizing: border-box;
-  }
-  [data-lk-theme] .lk-control-bar .lk-button {
-    display: inline-flex;
-    align-items: center;
-    padding-top: 0;
-    padding-bottom: 0;
-    padding-left: 0.7rem;
-    padding-right: 0.7rem;
-    font-size: 0.78rem;
-    white-space: nowrap;
-  }
-
-  /* ícones um pouco menores pra caber mais por linha */
-  [data-lk-theme] .lk-control-bar .lk-button svg {
-    width: 18px;
-    height: 18px;
-  }
-}
-
 /* ---------- Barra de controles em notebooks: cabe tudo em uma linha ---------- */
 /* Com ~10 botões, os rótulos estouram a largura em telas de notebook e a barra
    fica centralizada e CORTADA nas pontas. Abaixo de 1400px mostramos só os
@@ -330,4 +277,237 @@ body[data-lk-theme] {
 }
 .dark body[data-lk-theme] {
   color-scheme: dark;
+}
+
+/* ---------- Celular: barra enxuta, folha "Mais", chat em tela cheia ---------- */
+/* Antes a barra do celular era uma faixa de ~10 botões que precisava ser
+   arrastada para o lado — o botão de Sair, o chat e os participantes ficavam
+   escondidos fora da tela. Agora a barra mostra só o essencial (microfone,
+   câmera, participantes, chat, Mais, Sair) e o resto fica na folha "Mais".
+   Vale para celular em pé (<=768px) e deitado (tela baixa com toque). */
+.lk-only-mobile {
+  display: none !important;
+}
+.lk-rec-short {
+  display: none;
+}
+
+/* Bolinhas de página da grade (clicáveis; 24px de área de toque) */
+.lk-legacy-pages {
+  position: absolute;
+  bottom: 0.4rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  gap: 0.15rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+}
+.lk-legacy-pages button {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.lk-legacy-pages button::after {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.45);
+}
+.lk-legacy-pages button[aria-selected='true']::after {
+  background: #ffffff;
+}
+
+.lk-chat-empty {
+  list-style: none;
+  padding: 1.25rem 1rem;
+  text-align: center;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* Folha "Mais" (só aparece no celular) */
+.lk-more-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(0, 0, 0, 0.5);
+}
+.lk-more-sheet {
+  width: 100%;
+  max-height: 80%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.4rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
+  background: #0f2742;
+  border-top: 1px solid rgba(151, 198, 255, 0.2);
+  border-radius: 1rem 1rem 0 0;
+  box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.45);
+}
+.lk-more-grip {
+  width: 2.5rem;
+  height: 4px;
+  margin: 0.3rem auto 0.5rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.25);
+}
+.lk-more-item {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  width: 100%;
+  min-height: 3.25rem;
+  padding: 0 1rem;
+  border: 0;
+  border-radius: 0.75rem;
+  background: transparent;
+  color: #ffffff;
+  font: inherit;
+  font-size: 1rem;
+  text-align: left;
+  cursor: pointer;
+}
+.lk-more-item:active,
+.lk-more-item[aria-pressed='true'] {
+  background: rgba(151, 198, 255, 0.14);
+}
+.lk-more-item:disabled {
+  opacity: 0.5;
+}
+.lk-more-cancel {
+  justify-content: center;
+  margin-top: 0.3rem;
+  background: rgba(255, 255, 255, 0.07);
+  font-weight: 600;
+}
+
+@media (max-width: 768px), (pointer: coarse) and (max-height: 500px) {
+  .lk-only-desktop {
+    display: none !important;
+  }
+  .lk-only-mobile {
+    display: inline-flex !important;
+  }
+
+  [data-lk-theme] .lk-control-bar {
+    flex-wrap: nowrap;
+    justify-content: space-evenly;
+    align-items: center;
+    gap: 0.35rem;
+    height: auto;
+    padding: 0.55rem 0.5rem calc(0.55rem + env(safe-area-inset-bottom, 0px));
+    overflow: visible;
+  }
+  [data-lk-theme] .lk-control-bar > * {
+    flex-shrink: 0;
+  }
+  /* A setinha de dispositivo some no celular: trocar de câmera é no "Mais". */
+  [data-lk-theme] .lk-control-bar .lk-button-group-menu {
+    display: none;
+  }
+  /* Botões redondos de 48px (alvo de toque confortável) */
+  [data-lk-theme] .lk-control-bar .lk-button,
+  [data-lk-theme] .lk-control-bar .lk-button-group {
+    width: 3rem;
+    height: 3rem;
+    min-height: 3rem;
+    padding: 0;
+    gap: 0;
+    justify-content: center;
+    border-radius: 999px;
+  }
+  /* Microfone e câmera são "botão + setinha" no computador; sem a setinha,
+     o botão precisa ficar redondo inteiro (o LiveKit zera um dos lados). */
+  [data-lk-theme] .lk-control-bar .lk-button-group > .lk-button,
+  [data-lk-theme] .lk-control-bar .lk-button-group > .lk-button:first-child {
+    width: 3rem;
+    border-radius: 999px;
+  }
+  [data-lk-theme] .lk-control-bar .lk-btn-label {
+    display: none;
+  }
+  [data-lk-theme] .lk-control-bar .lk-button svg {
+    width: 20px;
+    height: 20px;
+  }
+  /* Microfone/câmera desligados ficam visivelmente "desligados" */
+  [data-lk-theme] .lk-control-bar .lk-button[data-lk-enabled='false'] {
+    background-color: rgba(217, 45, 58, 0.2);
+    color: #ff9aa2;
+  }
+  [data-lk-theme] .lk-control-bar .lk-disconnect-button {
+    background-color: #d92d3a;
+    border-color: #d92d3a;
+    color: #ffffff;
+  }
+
+  /* Chat ocupa a tela inteira, com o botão de fechar no cabeçalho */
+  [data-lk-theme] .lk-chat {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    width: 100%;
+    max-width: 100%;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background-color: #0d1a2b;
+  }
+  /* 16px: abaixo disso o iPhone dá zoom na página ao tocar no campo */
+  [data-lk-theme] .lk-chat-form-input {
+    font-size: 16px;
+  }
+
+  /* Avisos do topo: gravação vira "Gravando" e a sala de espera desce para
+     baixo dele (antes um cobria o outro). */
+  .lk-rec-long {
+    display: none;
+  }
+  .lk-rec-short {
+    display: inline;
+  }
+  .lk-host-overlay {
+    top: 3rem !important;
+    left: 0.5rem !important;
+    right: 0.5rem !important;
+    align-items: stretch !important;
+  }
+  .lk-host-overlay > div {
+    width: 100% !important;
+  }
+  /* Painel de participantes do anfitrião vira folha de largura inteira */
+  .lk-participants-panel {
+    left: 0.5rem !important;
+    right: 0.5rem !important;
+    width: auto !important;
+    max-width: none !important;
+    bottom: calc(4.6rem + env(safe-area-inset-bottom, 0px)) !important;
+    max-height: 60vh !important;
+  }
+
+  /* Celular deitado: o aviso da sala de espera fica no canto, sem cobrir a
+     largura inteira do vídeo. */
+  @media (orientation: landscape) {
+    .lk-host-overlay {
+      left: auto !important;
+      width: min(360px, 55vw);
+    }
+  }
+
+  /* Tela de entrada: menos moldura, mais espaço para a câmera e os campos */
+  .prejoin-stage {
+    padding: 0.75rem;
+  }
+  .prejoin-card {
+    padding: 1.15rem;
+  }
 }

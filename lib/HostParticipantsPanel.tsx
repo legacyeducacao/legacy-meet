@@ -96,6 +96,7 @@ export function HostParticipantsPanel({
       </button>
       {open && (
         <div
+          className="lk-participants-panel"
           style={{
             ...box,
             // fixed (não absolute) para não ser cortado pela barra de controles,
