@@ -3,18 +3,18 @@
 import * as React from 'react';
 import { Track, RoomEvent, ConnectionState, ScreenSharePresets, isLocalTrack } from 'livekit-client';
 import { HostParticipantsPanel } from './HostParticipantsPanel';
+import { LegacyChat } from './LegacyChat';
+import { LegacyGridLayout } from './LegacyGridLayout';
 import { toast } from '@/components/ui/custom-toast';
 import { describeMediaError, type MediaSource } from './mediaErrors';
 import { reportClientEvent, serializeError } from './telemetry';
 import {
-  Chat,
   ChatToggle,
   CarouselLayout,
   ConnectionStateToast,
   DisconnectButton,
   FocusLayout,
   FocusLayoutContainer,
-  GridLayout,
   LayoutContextProvider,
   MediaDeviceMenu,
   ParticipantTile,
@@ -40,8 +40,10 @@ import {
   MicOff,
   MonitorUp,
   MonitorX,
+  MoreHorizontal,
   Settings,
   Sparkles,
+  SwitchCamera,
   Video,
   VideoOff,
   Volume2,
@@ -217,6 +219,33 @@ function LegacyControlBar(props: {
       .catch((error) => console.error('Não foi possível copiar o link:', error));
   }, []);
 
+  // Celular: câmera frontal ↔ traseira. Reinicia a mesma faixa (sem
+  // republicar), então quem está assistindo nem percebe a troca.
+  const [flipping, setFlipping] = React.useState(false);
+  const flipCamera = React.useCallback(async () => {
+    const track = cameraTrack?.track;
+    if (!isLocalTrack(track) || track.kind !== Track.Kind.Video) return;
+    setFlipping(true);
+    try {
+      const current = track.mediaStreamTrack?.getSettings().facingMode;
+      const next = current === 'environment' ? 'user' : 'environment';
+      await (track as import('livekit-client').LocalVideoTrack).restartTrack({ facingMode: next });
+    } catch (error) {
+      console.error('Não foi possível virar a câmera:', error);
+      toast.error('Não foi possível trocar de câmera neste aparelho.');
+    } finally {
+      setFlipping(false);
+    }
+  }, [cameraTrack]);
+
+  // Celular: os controles secundários ficam numa folha "Mais" (a barra só
+  // mostra o essencial, sem precisar arrastar para achar o botão de Sair).
+  const [moreOpen, setMoreOpen] = React.useState(false);
+  const closeMoreThen = (fn: () => unknown) => () => {
+    setMoreOpen(false);
+    void fn();
+  };
+
   return (
     <div className="lk-control-bar">
       {visible.microphone && (
@@ -249,8 +278,9 @@ function LegacyControlBar(props: {
         </div>
       )}
 
-      {/* Seletor de saída de áudio (alto-falante / fone) */}
-      <div className="lk-button-group">
+      {/* Seletor de saída de áudio (alto-falante / fone). Fora do celular:
+          iOS e Android não deixam a página escolher a saída de áudio. */}
+      <div className="lk-button-group lk-only-desktop">
         <span className="lk-button">
           <Volume2 size={18} />
           <span className="lk-btn-label">Alto-falante</span>
@@ -261,7 +291,7 @@ function LegacyControlBar(props: {
       </div>
 
       {visible.screenShare && (
-        <button {...screenShareButtonProps} className="lk-button">
+        <button {...screenShareButtonProps} className="lk-button lk-only-desktop">
           {screenShareEnabled ? <MonitorX size={18} /> : <MonitorUp size={18} />}
           <span className="lk-btn-label">
             {screenShareEnabled ? 'Parar compartilhamento' : 'Compartilhar tela'}
@@ -271,7 +301,7 @@ function LegacyControlBar(props: {
 
       {visible.camera && (
         <button
-          className="lk-button"
+          className="lk-button lk-only-desktop"
           onClick={toggleBlur}
           aria-pressed={blurEnabled}
           disabled={blurPending || !isLocalTrack(cameraTrack?.track)}
@@ -283,7 +313,7 @@ function LegacyControlBar(props: {
       )}
 
       <button
-        className="lk-button"
+        className="lk-button lk-only-desktop"
         onClick={toggleHand}
         aria-pressed={handRaised}
         title={handRaised ? 'Baixar a mão' : 'Levantar a mão'}
@@ -292,7 +322,7 @@ function LegacyControlBar(props: {
         <span className="lk-btn-label">{handRaised ? 'Baixar mão' : 'Levantar mão'}</span>
       </button>
 
-      <button className="lk-button" onClick={copyLink} title="Copiar link da reunião">
+      <button className="lk-button lk-only-desktop" onClick={copyLink} title="Copiar link da reunião">
         <Link size={18} />
         <span className="lk-btn-label">{linkCopied ? 'Link copiado!' : 'Copiar link'}</span>
       </button>
@@ -314,7 +344,7 @@ function LegacyControlBar(props: {
 
       {visible.settings && (
         <button
-          className="lk-button"
+          className="lk-button lk-only-desktop"
           onClick={() => layoutContext?.widget.dispatch?.({ msg: 'toggle_settings' })}
         >
           <Settings size={18} />
@@ -322,14 +352,96 @@ function LegacyControlBar(props: {
         </button>
       )}
 
+      <button
+        type="button"
+        className="lk-button lk-only-mobile"
+        onClick={() => setMoreOpen(true)}
+        aria-haspopup="dialog"
+        aria-expanded={moreOpen}
+        aria-label="Mais opções"
+        title="Mais opções"
+      >
+        <MoreHorizontal size={20} />
+      </button>
+
       {visible.leave && (
-        <DisconnectButton>
+        <DisconnectButton aria-label="Sair da reunião" title="Sair da reunião">
           <LogOut size={18} />
           <span className="lk-btn-label">Sair</span>
         </DisconnectButton>
       )}
 
       <StartMediaButton label="Permitir reprodução de mídia" />
+
+      {moreOpen && (
+        <div className="lk-more-backdrop" onClick={() => setMoreOpen(false)}>
+          <div
+            className="lk-more-sheet"
+            role="dialog"
+            aria-label="Mais opções"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="lk-more-grip" aria-hidden />
+            <button type="button" className="lk-more-item" onClick={closeMoreThen(toggleHand)}>
+              <Hand size={20} />
+              {handRaised ? 'Baixar a mão' : 'Levantar a mão'}
+            </button>
+            {visible.camera && camEnabled && (
+              <button
+                type="button"
+                className="lk-more-item"
+                disabled={flipping}
+                onClick={closeMoreThen(flipCamera)}
+              >
+                <SwitchCamera size={20} />
+                Virar câmera (frontal / traseira)
+              </button>
+            )}
+            {visible.camera && (
+              <button
+                type="button"
+                className="lk-more-item"
+                aria-pressed={blurEnabled}
+                disabled={blurPending || !isLocalTrack(cameraTrack?.track)}
+                onClick={closeMoreThen(toggleBlur)}
+              >
+                <Sparkles size={20} />
+                {blurEnabled ? 'Tirar o desfoque do fundo' : 'Desfocar o fundo'}
+              </button>
+            )}
+            <button type="button" className="lk-more-item" onClick={closeMoreThen(copyLink)}>
+              <Link size={20} />
+              Copiar link da reunião
+            </button>
+            {visible.screenShare && (
+              <button
+                type="button"
+                className="lk-more-item"
+                onClick={(e) => {
+                  setMoreOpen(false);
+                  screenShareButtonProps.onClick?.(e);
+                }}
+              >
+                {screenShareEnabled ? <MonitorX size={20} /> : <MonitorUp size={20} />}
+                {screenShareEnabled ? 'Parar compartilhamento' : 'Compartilhar tela'}
+              </button>
+            )}
+            {visible.settings && (
+              <button
+                type="button"
+                className="lk-more-item"
+                onClick={closeMoreThen(() => layoutContext?.widget.dispatch?.({ msg: 'toggle_settings' }))}
+              >
+                <Settings size={20} />
+                Configurações
+              </button>
+            )}
+            <button type="button" className="lk-more-item lk-more-cancel" onClick={() => setMoreOpen(false)}>
+              Fechar
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -376,12 +488,31 @@ export function LegacyVideoConference({
     .filter((t): t is TrackReferenceOrPlaceholder => !!(t as any).publication)
     .filter((t) => (t as any).publication.source === Track.Source.ScreenShare);
 
-  const focusTrack = usePinnedTracks(layoutContext)?.[0];
-  const carouselTracks = tracks.filter((track) => !isSameTrack(track, focusTrack));
-
-  // Participantes com a mão levantada (atributo sincronizado)
-  const participants = useParticipants({ updateOnlyOn: [RoomEvent.ParticipantAttributesChanged] });
+  // Participantes com a mão levantada (atributo sincronizado) e quem ainda
+  // está na sala de espera (sem permissão de publicar até o anfitrião admitir).
+  const participants = useParticipants({
+    updateOnlyOn: [
+      RoomEvent.ParticipantAttributesChanged,
+      RoomEvent.ParticipantPermissionsChanged,
+      RoomEvent.ParticipantConnected,
+      RoomEvent.ParticipantDisconnected,
+    ],
+  });
   const raisedHands = participants.filter((p) => p.attributes?.hand_raised === 'true');
+  // Quem está na sala de espera não entra na grade: virava um quadro preto que
+  // ocupava meia tela do celular (o anfitrião já o vê no aviso "Aguardando").
+  const waitingKey = participants
+    .filter((p) => !p.isLocal && p.permissions?.canPublish === false)
+    .map((p) => p.identity)
+    .join('|');
+  const visibleTracks = React.useMemo(() => {
+    if (!waitingKey) return tracks;
+    const waiting = new Set(waitingKey.split('|'));
+    return tracks.filter((t) => !waiting.has(t.participant.identity));
+  }, [tracks, waitingKey]);
+
+  const focusTrack = usePinnedTracks(layoutContext)?.[0];
+  const carouselTracks = visibleTracks.filter((track) => !isSameTrack(track, focusTrack));
 
   // Toca um som quando alguém NOVO levanta a mão (para todos na sala).
   const handAudioRef = React.useRef<HTMLAudioElement | null>(null);
@@ -473,9 +604,9 @@ export function LegacyVideoConference({
           <div className="lk-video-conference-inner">
             {!focusTrack ? (
               <div className="lk-grid-layout-wrapper">
-                <GridLayout tracks={tracks}>
+                <LegacyGridLayout tracks={visibleTracks}>
                   <ParticipantTile />
-                </GridLayout>
+                </LegacyGridLayout>
               </div>
             ) : (
               <div className="lk-focus-layout-wrapper">
@@ -492,7 +623,7 @@ export function LegacyVideoConference({
               hostControls={hostControls}
             />
           </div>
-          <Chat
+          <LegacyChat
             style={{ display: widgetState.showChat ? 'grid' : 'none' }}
             messageFormatter={chatMessageFormatter}
             messageEncoder={chatMessageEncoder}

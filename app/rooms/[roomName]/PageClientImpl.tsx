@@ -33,6 +33,7 @@ import { useLowCPUOptimizer } from '@/lib/usePerfomanceOptimiser';
 import { reportClientEvent, serializeError, setTelemetryContext } from '@/lib/telemetry';
 import { describeMediaError, iframePermissionProblem } from '@/lib/mediaErrors';
 import { isCohostIdentity } from '@/lib/cohosts';
+import { NPS_NAME_STORAGE_KEY } from '@/lib/npsStorage';
 import {
   extractSelectedCandidate,
   firstStatsReport,
@@ -609,8 +610,15 @@ function VideoConferenceComponent(props: {
     // host=1 quando é anfitrião OU co-anfitrião → o /obrigado NÃO mostra o NPS
     // (NPS é só do cliente/convidado, não da equipe).
     const isTeam = isHost || isCohost;
+    // O cliente já digitou o nome ao entrar: a avaliação vem com ele preenchido.
+    try {
+      const name = (props.userChoices.username ?? '').trim();
+      if (name && !isTeam) sessionStorage.setItem(NPS_NAME_STORAGE_KEY, name);
+    } catch {
+      /* sem sessionStorage */
+    }
     router.push(`/obrigado?room=${encodeURIComponent(room.name)}${isTeam ? '&host=1' : ''}`);
-  }, [router, room, isHost, isCohost]);
+  }, [router, room, isHost, isCohost, props.userChoices.username]);
 
   // null = conectado; 'failed' = queda sem reconexão automática; 'reconnecting'
   // = tentativa manual em andamento.
@@ -858,6 +866,7 @@ function VideoConferenceComponent(props: {
             />
             {(isHost || isCohost) && (
               <div
+                className="lk-host-overlay"
                 style={{
                   position: 'absolute',
                   top: '0.75rem',

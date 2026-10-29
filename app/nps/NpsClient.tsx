@@ -371,7 +371,7 @@ export function NpsClient({ isAdmin }: { isAdmin: boolean }) {
             })}
           </div>
 
-          <div className="flex items-center gap-1" role="group" aria-label="Nota">
+          <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Nota">
             <span className="mr-1 text-xs text-muted-foreground">Nota</span>
             {Array.from({ length: 11 }, (_, n) => {
               const active = filters.scores.includes(n);

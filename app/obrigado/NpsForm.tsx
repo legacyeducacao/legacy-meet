@@ -1,13 +1,15 @@
 'use client';
 import * as React from 'react';
 import Image from 'next/image';
-import { CheckCircle2 } from 'lucide-react';
+import { CheckCircle2, Loader2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+import { NPS_NAME_STORAGE_KEY } from '@/lib/npsStorage';
+
 
 export function NpsForm({ room }: { room: string }) {
   const [state, setState] = React.useState<'loading' | 'thanks' | 'form' | 'done'>('loading');
@@ -19,11 +21,19 @@ export function NpsForm({ room }: { room: string }) {
   const [error, setError] = React.useState('');
 
   React.useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(NPS_NAME_STORAGE_KEY);
+      if (saved) setName(saved);
+    } catch {
+      /* sem sessionStorage (aba anônima/bloqueada) */
+    }
     fetch(`/api/nps/context?room=${encodeURIComponent(room)}`)
       .then((r) => r.json())
       .then((j) => {
-        if (j?.needsNps) { setHostName(j.hostName ?? null); setState('form'); }
-        else setState('thanks');
+        if (j?.needsNps) {
+          setHostName(j.hostName ?? null);
+          setState('form');
+        } else setState('thanks');
       })
       .catch(() => setState('thanks'));
   }, [room]);
@@ -50,10 +60,16 @@ export function NpsForm({ room }: { room: string }) {
     }
   };
 
-  if (state === 'loading') return null;
+  if (state === 'loading')
+    return (
+      <div className="m-auto flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Carregando…
+      </div>
+    );
   if (state === 'thanks' || state === 'done')
     return (
-      <Card className="w-full max-w-md text-center">
+      <Card className="m-auto w-full max-w-md text-center">
         <CardContent className="flex flex-col items-center gap-4 py-10">
           <Image src="/favicon.svg" alt="Legacy Meet" width={64} height={64} />
           <CheckCircle2 className="h-10 w-10 text-primary" />
@@ -66,38 +82,62 @@ export function NpsForm({ room }: { room: string }) {
     );
 
   return (
-    <Card className="w-full max-w-2xl">
-      <CardContent className="space-y-5 py-8">
+    <Card className="m-auto w-full max-w-2xl">
+      <CardContent className="space-y-5 px-5 py-6 sm:px-6 sm:py-8">
         <div className="text-center">
           <h1 className="text-xl font-bold">Como foi a entrega{hostName ? ` de ${hostName}` : ''}?</h1>
-          <p className="text-sm text-muted-foreground">Dê uma nota de 0 a 10.</p>
+          <p className="text-sm text-muted-foreground">Toque em uma nota de 0 a 10.</p>
         </div>
-        <div className="grid grid-cols-11 gap-1.5">
-          {Array.from({ length: 11 }).map((_, n) => (
-            <button
-              key={n}
-              type="button"
-              onClick={() => setScore(n)}
-              className={cn(
-                'h-10 w-full rounded-md border text-sm font-semibold transition-colors',
-                score === n ? 'border-primary bg-primary text-primary-foreground' : 'border-input hover:bg-muted',
-              )}
-            >
-              {n}
-            </button>
-          ))}
+        <div>
+          {/* Celular: 0–5 e 6–10 em duas linhas, botões de 48px (onze numa linha
+              ficavam com ~22px, difíceis de acertar com o dedo). */}
+          <div className="grid grid-cols-6 gap-2 sm:grid-cols-11 sm:gap-1.5" role="radiogroup" aria-label="Nota">
+            {Array.from({ length: 11 }).map((_, n) => (
+              <button
+                key={n}
+                type="button"
+                role="radio"
+                aria-checked={score === n}
+                onClick={() => setScore(n)}
+                className={cn(
+                  'h-12 w-full rounded-lg border text-base font-semibold transition-colors sm:h-11',
+                  score === n
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'border-input bg-background hover:bg-muted active:bg-muted',
+                )}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+          <div className="mt-1.5 flex justify-between text-xs text-muted-foreground">
+            <span>0 = Muito ruim</span>
+            <span>10 = Excelente</span>
+          </div>
         </div>
         <div className="space-y-2">
-          <Label htmlFor="obs">Observações</Label>
-          <Textarea id="obs" value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Conte como foi…" />
+          <Label htmlFor="obs">Observações (opcional)</Label>
+          <Textarea
+            id="obs"
+            rows={3}
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            placeholder="Conte como foi…"
+          />
         </div>
         <div className="space-y-2">
           <Label htmlFor="nome">Seu nome (opcional)</Label>
-          <Input id="nome" value={name} onChange={(e) => setName(e.target.value)} />
+          <Input
+            id="nome"
+            autoComplete="name"
+            enterKeyHint="send"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
         </div>
         {error && <p className="text-sm font-medium text-destructive">{error}</p>}
-        <Button className="w-full" disabled={score == null || busy} onClick={enviar}>
-          {busy ? 'Enviando…' : 'Enviar avaliação'}
+        <Button className="h-12 w-full text-base" disabled={score == null || busy} onClick={enviar}>
+          {busy ? 'Enviando…' : score == null ? 'Escolha uma nota para enviar' : 'Enviar avaliação'}
         </Button>
       </CardContent>
     </Card>

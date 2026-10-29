@@ -764,7 +764,7 @@ export default function AgendaPage() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Formulário de agendamento */}
-        <Card className="h-fit self-start lg:col-span-1">
+        <Card className="h-fit min-w-0 self-start lg:col-span-1">
           <CardHeader>
             <CardTitle>Agendar reunião</CardTitle>
             <CardDescription>Escolha o setor, a data e os detalhes.</CardDescription>
@@ -955,7 +955,7 @@ export default function AgendaPage() {
         </Card>
 
         {/* Lista de agendadas / histórico */}
-        <div className="space-y-4 lg:col-span-2">
+        <div className="min-w-0 space-y-4 lg:col-span-2">
           <div className="flex flex-wrap items-center gap-3">
             <Tabs value={view} onValueChange={(v) => setView(v as 'upcoming' | 'history')}>
               <TabsList className="grid w-64 grid-cols-2">
@@ -1005,7 +1005,7 @@ export default function AgendaPage() {
                 />
               ) : (
                 histPageItems.map((m) => (
-                  <Card key={m.id}>
+                  <Card key={m.id} className="gap-0 py-0">
                     <CardContent className="flex flex-col gap-2 px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between">
                       <div className="min-w-0 space-y-0.5">
                         <div className="flex flex-wrap items-center gap-2">
@@ -1102,7 +1102,7 @@ export default function AgendaPage() {
             pageItems.map((m) => {
               const overdue = new Date(m.startAt).getTime() < Date.now();
               return (
-                <Card key={m.id}>
+                <Card key={m.id} className="gap-0 py-0">
                   <CardContent className="flex flex-col gap-2 px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0 space-y-0.5">
                       <div className="flex flex-wrap items-center gap-2">

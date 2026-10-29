@@ -185,13 +185,13 @@ export function RecordingDetail({ manifest }: { manifest: RecordingManifest }) {
               preload="metadata"
               src={`/api/recordings/${encodeURIComponent(manifest.id)}/video`}
             />
-            <div className="flex items-center justify-between gap-2 px-4 py-3 border-t bg-muted/30">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-t bg-muted/30">
               <span className="text-xs text-muted-foreground">
                 {manifest.storage === 'gdrive'
                   ? 'Arquivada no Google Drive'
                   : 'Armazenada no MinIO'}
               </span>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {/* Retranscrever no rodapé só quando parece completa (o banner
                     acima já mostra o botão nos casos de falha/incompleta). */}
                 {showFooterRetry && renderRetry('sm')}
