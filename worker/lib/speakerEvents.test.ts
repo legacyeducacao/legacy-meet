@@ -99,6 +99,33 @@ describe('mapFromVoiceActivity', () => {
     expect(map).toEqual({ A: 'Ana', B: 'Ana' });
   });
 
+  it('caso Atual Center (04/11): o microfone do anfitrião capta a cliente — cada nome fica com uma voz só', () => {
+    // A = Celso (fala muito); B = Rosimere, mas o LiveKit marcou o Celso como
+    // ativo durante a maior parte das falas dela (eco / microfone baixo).
+    const utts = [utt('A', 0, 100), utt('B', 100, 140), utt('A', 140, 240), utt('B', 240, 290)];
+    const events = [
+      ev('Celso Bento', 0, 100),
+      ev('Celso Bento', 100, 130), // "eco" durante a fala da Rosimere
+      ev('Rosimere', 130, 140),
+      ev('Celso Bento', 140, 240),
+      ev('Celso Bento', 240, 275),
+      ev('Rosimere', 275, 290),
+      ev('Flavio Guerrico', 289, 290),
+    ];
+    const { map } = mapFromVoiceActivity(utts, events, T0, ['Celso Bento', 'Flavio Guerrico', 'Rosimere'], {
+      padMs: 0,
+    });
+    expect(map).toEqual({ A: 'Celso Bento', B: 'Rosimere' });
+  });
+
+  it('sem nome que sobre com evidência clara, a voz fica sem nome (vai para a reserva)', () => {
+    const utts = [utt('A', 0, 100), utt('B', 100, 140)];
+    const events = [ev('Ana', 0, 140), ev('Beto', 120, 122)];
+    const { map } = mapFromVoiceActivity(utts, events, T0, ['Ana', 'Beto', 'Caio'], { padMs: 0 });
+    // Beto tem só 2s em B: abaixo do mínimo, não decide.
+    expect(map).toEqual({ A: 'Ana' });
+  });
+
   it('ignora eventos fora da janela da gravação (sessão antiga na mesma sala)', () => {
     const utts = [utt('A', 0, 30)];
     const events = [

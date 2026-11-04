@@ -91,15 +91,36 @@ export function mapFromVoiceActivity(
     }
   }
 
+  // Com tantas pessoas quanto vozes (ou mais), cada nome fica com UMA voz só.
+  // Caso real (Atual Center, 04/11): o microfone do anfitrião captava a cliente
+  // pelo alto-falante e o LiveKit o marcava como "falando" durante as falas
+  // dela — as duas vozes viravam o anfitrião. Atribuição gulosa: o par com
+  // mais evidência primeiro; as demais vozes escolhem só entre os nomes que
+  // sobraram, ainda com a exigência de dominância. Só com MAIS vozes que
+  // pessoas um nome pode repetir (a diarização dividiu alguém em duas).
+  const knownPeople = new Set([...participants.map((p) => norm(p)), ...events.map((e) => norm(e.name))]);
+  const unique = Object.keys(votes).length <= knownPeople.size;
+
   const map: SpeakerMap = {};
-  for (const [label, perName] of Object.entries(votes)) {
-    const ranked = Object.entries(perName).sort((a, b) => b[1] - a[1]);
-    if (!ranked.length) continue;
-    const [winner, winnerSec] = ranked[0];
-    const total = ranked.reduce((acc, [, s]) => acc + s, 0);
-    if (winnerSec >= minSeconds && winnerSec / total >= minShare) {
-      map[label] = winner;
+  const taken = new Set<string>();
+  const pending = new Set(Object.keys(votes));
+  for (;;) {
+    let best: { label: string; name: string; sec: number } | null = null;
+    for (const label of pending) {
+      const ranked = Object.entries(votes[label])
+        .filter(([name]) => !unique || !taken.has(norm(name)))
+        .sort((a, b) => b[1] - a[1]);
+      if (!ranked.length) continue;
+      const [name, sec] = ranked[0];
+      const total = ranked.reduce((acc, [, s]) => acc + s, 0);
+      if (sec >= minSeconds && sec / total >= minShare && (!best || sec > best.sec)) {
+        best = { label, name, sec };
+      }
     }
+    if (!best) break;
+    map[best.label] = best.name;
+    taken.add(norm(best.name));
+    pending.delete(best.label);
   }
   return { map, votes };
 }
