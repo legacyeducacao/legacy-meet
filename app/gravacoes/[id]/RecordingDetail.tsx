@@ -44,7 +44,7 @@ export function RecordingDetail({ manifest }: { manifest: RecordingManifest }) {
   const [query, setQuery] = useState('');
   const [retrying, setRetrying] = useState(false);
   const [requeued, setRequeued] = useState(false);
-  const utterances = manifest.utterances ?? [];
+  const utterances = useMemo(() => manifest.utterances ?? [], [manifest.utterances]);
   const failed = manifest.transcriptionStatus === 'failed';
   // Transcrição INCOMPLETA = houve chunks descartados (buracos reais). Não usamos
   // "silêncio no fim" como sinal: uma reunião que só termina em silêncio daria
@@ -132,7 +132,7 @@ export function RecordingDetail({ manifest }: { manifest: RecordingManifest }) {
             Voltar para Gravações
           </Link>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">
+            <h1 className="break-words text-xl font-bold tracking-tight sm:text-2xl">
               {manifest.title?.trim() || `Reunião · ${manifest.roomName}`}
             </h1>
             <div className="flex flex-wrap items-center gap-2 mt-1">
@@ -179,9 +179,13 @@ export function RecordingDetail({ manifest }: { manifest: RecordingManifest }) {
           </Card>
         )}
 
-        <div className="grid gap-6 lg:grid-cols-[1fr_420px]">
+        {/* Duas colunas só a partir de 1280px: com a barra lateral (~290px), em
+            1024px o vídeo ficava espremido. Lado a lado, a transcrição acompanha
+            a altura do vídeo (mínimo de 560px) e o cartão do vídeo não estica
+            (sobrava um vão branco embaixo dele). */}
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px] 2xl:grid-cols-[minmax(0,1fr)_420px]">
           {/* Video card */}
-          <Card className="overflow-hidden rounded-xl p-0 gap-0">
+          <Card className="min-w-0 overflow-hidden rounded-xl p-0 gap-0 xl:self-start">
             {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
             <video
               ref={videoRef}
@@ -209,7 +213,8 @@ export function RecordingDetail({ manifest }: { manifest: RecordingManifest }) {
           </Card>
 
           {/* Transcript card */}
-          <Card className="rounded-xl flex flex-col gap-0 p-0">
+          <div className="min-w-0 xl:relative xl:min-h-[560px]">
+          <Card className="min-w-0 rounded-xl flex flex-col gap-0 p-0 xl:absolute xl:inset-0">
             <CardHeader className="px-4 pt-4 pb-3 border-b">
               <CardTitle className="text-base">Transcrição</CardTitle>
               <div className="relative mt-2">
@@ -222,8 +227,8 @@ export function RecordingDetail({ manifest }: { manifest: RecordingManifest }) {
                 />
               </div>
             </CardHeader>
-            <CardContent className="p-0 flex-1">
-              <ScrollArea className="h-[480px]">
+            <CardContent className="p-0 flex-1 min-h-0 flex flex-col">
+              <ScrollArea className="h-[60dvh] max-h-[560px] min-h-[320px] xl:h-auto xl:max-h-none xl:min-h-0 xl:flex-1">
                 <div className="px-4 py-3 space-y-4">
                   {filtered.length === 0 && (
                     <p className="text-sm text-muted-foreground text-center py-8">
@@ -233,9 +238,11 @@ export function RecordingDetail({ manifest }: { manifest: RecordingManifest }) {
                   {filtered.map((u, i) => (
                     <div key={`${u.start}-${i}`} className="space-y-1">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-semibold text-foreground">{u.speaker}</span>
+                        <span className="min-w-0 truncate text-sm font-semibold text-foreground">{u.speaker}</span>
+                        {/* inline-flex: no celular todo role=button ganha 44px de altura
+                            (área de toque); centraliza o horário com o nome. */}
                         <span
-                          className="text-xs text-muted-foreground hover:text-primary cursor-pointer transition-colors tabular-nums"
+                          className="inline-flex shrink-0 items-center text-xs text-muted-foreground hover:text-primary cursor-pointer transition-colors tabular-nums"
                           onClick={() => seek(u.start)}
                           role="button"
                           tabIndex={0}
@@ -244,7 +251,7 @@ export function RecordingDetail({ manifest }: { manifest: RecordingManifest }) {
                           {formatTimestamp(u.start)}
                         </span>
                       </div>
-                      <p className="text-sm text-foreground/80 leading-relaxed">
+                      <p className="break-words text-sm text-foreground/80 leading-relaxed">
                         {highlight(u.text, query)}
                       </p>
                     </div>
@@ -253,6 +260,7 @@ export function RecordingDetail({ manifest }: { manifest: RecordingManifest }) {
               </ScrollArea>
             </CardContent>
           </Card>
+          </div>
         </div>
 
         <ResumoCard
