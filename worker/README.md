@@ -71,6 +71,8 @@ documentado, só mais lento.
 | `ASSEMBLYAI_API_KEY` | com `assemblyai` | — | Chave da AssemblyAI |
 | `ASSEMBLYAI_WEBHOOK_SECRET` | não | — | Secret do webhook (mesmo valor no app). Sem ele: só polling |
 | `APP_BASE_URL` | não | — | Base pública do app para montar o `webhook_url` |
+| `EXECSCORE_WORKER_SECRET` | não | — | Liga o aviso ao app quando a transcrição fica pronta (integração ExecScore). Mesmo valor no app. Precisa de `APP_BASE_URL` |
+| `EXECSCORE_SWEEP_MINUTES` | não | `10` | Intervalo do varredor da integração ExecScore |
 | `ASSEMBLYAI_SPEECH_MODEL` | não | `universal-3-5-pro` | Modelo de fala |
 | `ASSEMBLYAI_LANGUAGE_CODE` | não | `pt` | Idioma fixo (sem detecção automática) |
 | `ASSEMBLYAI_USE_PARTICIPANT_COUNT` | não | `true` | Envia nº de participantes como teto de falantes |
