@@ -1,6 +1,12 @@
-# O EasyPanel monta o app com Nixpacks, que rodava `npm install -g pnpm` sem
-# versão e pegava sempre o pnpm mais recente. O pnpm 12 (05/11/2026) virou
-# binário nativo e o build passou a falhar com exit 127. Fica preso na mesma
-# versão do "packageManager" do package.json; ao atualizar um, atualize o outro.
+# Build do app no EasyPanel (Nixpacks).
+#
+# providers: o Nixpacks adivinha a linguagem e o teste de Deno vem antes do de
+# Node. Basta um .ts com `import ... from "https://deno.land/..."` (a cópia da
+# edge function em integracoes/execscore/) para ele montar o app como Deno, sem
+# npm, e o build falhar com exit 127. Aqui ele fica preso em Node.
+providers = ["node"]
+
+# O "Comando de Instalação" preenchido no EasyPanel tem prioridade sobre este.
+# Mantenha os dois com o pnpm na mesma versão do "packageManager" do package.json.
 [phases.install]
 cmds = ["npm install -g pnpm@10.18.2 && pnpm install"]
