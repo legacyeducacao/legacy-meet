@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { PilaresExecScoreButton } from '@/components/execscore/PilaresExecScoreDialog';
+import { ResumoCard } from '@/components/resumo/ResumoCard';
 
 function formatTimestamp(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -177,6 +178,11 @@ export function RecordingDetail({ manifest }: { manifest: RecordingManifest }) {
             </CardContent>
           </Card>
         )}
+
+        <ResumoCard
+          recordingId={manifest.id}
+          transcricaoPronta={manifest.transcriptionStatus === 'complete'}
+        />
 
         <div className="grid gap-6 lg:grid-cols-[1fr_420px]">
           {/* Video card */}

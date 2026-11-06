@@ -12,6 +12,7 @@ import {
   type ExecutoriaMeeting,
 } from '@/lib/execscore';
 import { isValidRoomName } from '@/lib/livekitAuth';
+import { applyNoShow } from '@/lib/noShow';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,6 +50,8 @@ export async function GET(req: NextRequest) {
       executorName: ctx.meeting.executorName,
       titulo: ctx.meeting.title,
       cliente: ctx.meeting.clientName,
+      onboarding: ctx.meeting.onboarding,
+      noShow: ctx.meeting.noShow,
       pilares: PILARES,
       // null = ainda não escolheu (a tela começa com todos ligados)
       desabilitados: row?.pilares_desabilitados ?? null,
@@ -61,14 +64,33 @@ export async function GET(req: NextRequest) {
   }
 }
 
+/**
+ * Corpo: { room, noShow?, desabilitados? }.
+ * - noShow true: marca no-show (cliente não veio) e a reunião sai do ExecScore.
+ * - noShow false com a reunião em no-show: desfaz antes de salvar os pilares.
+ * - Reunião de onboarding não tem pilares: só o no-show é registrado.
+ */
 export async function POST(req: NextRequest) {
-  const body = (await req.json().catch(() => null)) as { room?: string; desabilitados?: unknown } | null;
+  const body = (await req.json().catch(() => null)) as {
+    room?: string;
+    desabilitados?: unknown;
+    noShow?: unknown;
+  } | null;
   try {
     const ctx = await resolve(body?.room ?? null);
     if (!ctx.ok) {
       // Na escrita, não elegível é erro explícito (no GET é só "não mostra").
       return ctx.res.status === 200 ? new NextResponse('não autorizado', { status: 403 }) : ctx.res;
     }
+    const meetingId = ctx.meeting.meetingId;
+
+    if (typeof body?.noShow === 'boolean' && body.noShow !== ctx.meeting.noShow) {
+      const r = await applyNoShow(meetingId, !body.noShow);
+      if (!r.ok) return new NextResponse(r.message, { status: r.httpStatus });
+    }
+    if (body?.noShow === true) return NextResponse.json({ ok: true, noShow: true });
+    if (ctx.meeting.onboarding) return NextResponse.json({ ok: true, onboarding: true });
+
     let desabilitados;
     try {
       desabilitados = sanitizeDisabled(body?.desabilitados);
@@ -77,7 +99,6 @@ export async function POST(req: NextRequest) {
     }
     await savePillarChoice(ctx.meeting, desabilitados, ctx.userId);
     // Se a transcrição já estiver pronta, envia agora; senão o worker dispara depois.
-    const meetingId = ctx.meeting.meetingId;
     after(() => dispatchMeeting(meetingId).catch((e) => console.error('execscore dispatch', e)));
     return NextResponse.json({ ok: true, desabilitados, ativos: activePillars(desabilitados) });
   } catch (e) {

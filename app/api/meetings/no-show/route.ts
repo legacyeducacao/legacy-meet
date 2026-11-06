@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { isMeetingHost } from '@/lib/meetingHosts';
+import { applyNoShow } from '@/lib/noShow';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 
 export const dynamic = 'force-dynamic';
 
 // Marca (ou desfaz) o no-show de uma reunião. Só o host dono, anfitrião adicional ou admin.
-// Marcar: aceita reunião agendada (após o horário de início) ou realizada
-// (host entrou na sala e o cliente não veio). Desfazer restaura o status
-// verdadeiro: 'ended' se a reunião chegou a acontecer, senão 'scheduled'.
-// O status persiste na tabela meetings (base para métricas de no-show).
+// Regras em lib/noShow.ts (mesmas da tela de saída do executor).
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return new NextResponse('Não autorizado', { status: 401 });
@@ -17,10 +15,9 @@ export async function POST(req: NextRequest) {
   const { id, undo } = (await req.json().catch(() => ({}))) as { id?: string; undo?: boolean };
   if (!id) return new NextResponse('id obrigatório', { status: 400 });
 
-  const admin = createAdminSupabase();
-  const { data: meeting } = await admin
+  const { data: meeting } = await createAdminSupabase()
     .from('meetings')
-    .select('host_id, status, scheduled_start_at, scheduled_end_at, started_at, ended_at')
+    .select('host_id')
     .eq('id', id)
     .maybeSingle();
   if (!meeting) return new NextResponse('Reunião não encontrada', { status: 404 });
@@ -28,37 +25,7 @@ export async function POST(req: NextRequest) {
   if (!user.isAdmin && !(await isMeetingHost({ id, host_id: meeting.host_id }, user.id)))
     return new NextResponse('Não autorizado', { status: 403 });
 
-  if (undo) {
-    if (meeting.status !== 'no_show')
-      return new NextResponse('A reunião não está marcada como no-show', { status: 400 });
-    // Aconteceu de fato (iniciou ou foi encerrada — inclui reuniões anteriores
-    // à coluna started_at ser preenchida) → volta para 'ended'; senão 'scheduled'.
-    const restored = meeting.started_at || meeting.ended_at ? 'ended' : 'scheduled';
-    const { error } = await admin.from('meetings').update({ status: restored }).eq('id', id);
-    if (error)
-      return new NextResponse('Falha ao desfazer no-show: ' + error.message, { status: 500 });
-    return NextResponse.json({ ok: true, status: restored });
-  }
-
-  // 'live' entra: host clicou em Iniciar, ficou esperando e o cliente não veio.
-  if (!['scheduled', 'ended', 'live'].includes(meeting.status as string))
-    return new NextResponse('Só reuniões agendadas ou realizadas podem virar no-show', {
-      status: 400,
-    });
-  if (
-    meeting.status === 'scheduled' &&
-    new Date(meeting.scheduled_start_at as string).getTime() > Date.now()
-  )
-    return new NextResponse('A reunião ainda não chegou ao horário de início', { status: 400 });
-
-  // Reunião realizada sem ended_at (legado): carimba para o "desfazer" saber
-  // que ela aconteceu e restaurar 'ended', não 'scheduled'.
-  const update: Record<string, unknown> = { status: 'no_show' };
-  if ((meeting.status === 'ended' || meeting.status === 'live') && !meeting.ended_at) {
-    update.ended_at = meeting.scheduled_end_at;
-  }
-  const { error } = await admin.from('meetings').update(update).eq('id', id);
-  if (error) return new NextResponse('Falha ao marcar no-show: ' + error.message, { status: 500 });
-
-  return NextResponse.json({ ok: true, status: 'no_show' });
+  const r = await applyNoShow(id, !!undo);
+  if (!r.ok) return new NextResponse(r.message, { status: r.httpStatus });
+  return NextResponse.json({ ok: true, status: r.status });
 }

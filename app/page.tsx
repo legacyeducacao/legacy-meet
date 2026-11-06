@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { SearchableSelect } from '@/components/ui/searchable-select';
+import { OnboardingSwitch } from '@/components/OnboardingSwitch';
 
 type Client = { id: string; name: string };
 
@@ -23,6 +24,7 @@ export default function Page() {
   const [tenantId, setTenantId] = useState('');
   const [record, setRecord] = useState(true);
   const [transcribe, setTranscribe] = useState(true);
+  const [onboarding, setOnboarding] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -100,6 +102,7 @@ export default function Page() {
         return;
       }
       body.tenantId = tenantId;
+      body.onboarding = onboarding;
     }
 
     try {
@@ -203,6 +206,9 @@ export default function Page() {
                     onCheckedChange={onTranscribeChange}
                   />
                 </div>
+                {sector === 'executoria' && (
+                  <OnboardingSwitch id="onboarding" checked={onboarding} onChange={setOnboarding} />
+                )}
               </div>
 
               {error && <p className="text-sm font-medium text-destructive">{error}</p>}

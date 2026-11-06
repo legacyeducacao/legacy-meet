@@ -93,7 +93,7 @@ type Integracao = {
   pilares_desabilitados: string[] | null;
   pilares_escolhidos_em: string | null;
   recording_ids: string[];
-  status: 'aguardando' | 'processando' | 'enviada' | 'erro';
+  status: 'aguardando' | 'processando' | 'enviada' | 'erro' | 'descartada';
   evaluation_id: string | null;
   tentativas: number;
   ultimo_erro: string | null;
@@ -110,7 +110,18 @@ export type ExecutoriaMeeting = {
   scheduledStartAt: string | null;
   executorId: string;
   executorName: string;
+  /** Marcada como onboarding na criação/edição: não vai para o ExecScore. */
+  onboarding: boolean;
+  /** Cliente não compareceu (status no_show): não vai para o ExecScore. */
+  noShow: boolean;
 };
+
+/** Por que a reunião não vai para o ExecScore (null = vai). */
+export function motivoForaDoScore(m: Pick<ExecutoriaMeeting, 'onboarding' | 'noShow'>): string | null {
+  if (m.noShow) return 'no-show: o cliente não compareceu';
+  if (m.onboarding) return 'reunião de onboarding';
+  return null;
+}
 
 function pick<T>(v: T | T[] | null | undefined): T | null {
   return Array.isArray(v) ? (v[0] ?? null) : (v ?? null);
@@ -127,14 +138,15 @@ export async function findExecutoriaMeeting(
   let q = admin
     .from('meetings')
     .select(
-      'id, room_name, title, host_id, started_at, scheduled_start_at, users:host_id(name), client_tenants:tenant_id(name), meet_meeting_sector(sector)',
+      'id, room_name, title, host_id, status, started_at, scheduled_start_at, users:host_id(name), client_tenants:tenant_id(name), meet_meeting_sector(sector, onboarding)',
     );
   q = 'roomName' in by ? q.eq('room_name', by.roomName) : q.eq('id', by.meetingId);
   const { data: m, error } = await q.maybeSingle();
   if (error) throw new Error(`meeting: ${error.message}`);
   if (!m?.host_id) return null;
-  const sector = pick(m.meet_meeting_sector as { sector?: string } | { sector?: string }[] | null)?.sector;
-  if (sector !== 'executoria') return null;
+  type Sec = { sector?: string; onboarding?: boolean };
+  const sec = pick(m.meet_meeting_sector as Sec | Sec[] | null);
+  if (sec?.sector !== 'executoria') return null;
 
   const { data: ex, error: exErr } = await admin
     .schema('execscore')
@@ -156,7 +168,54 @@ export async function findExecutoriaMeeting(
     scheduledStartAt: m.scheduled_start_at,
     executorId: ex.id,
     executorName: ex.name,
+    onboarding: sec.onboarding === true,
+    noShow: m.status === 'no_show',
   };
+}
+
+/**
+ * Tira a reunião da fila do ExecScore (onboarding ou no-show). Avaliação já
+ * enviada fica como está: apagar nota no ExecScore é decisão do admin de lá.
+ */
+export async function descartarEnvio(meetingId: string, motivo: string): Promise<void> {
+  const { error } = await createAdminSupabase()
+    .schema('execscore')
+    .from('meet_integracao')
+    .update({ status: 'descartada', ultimo_erro: motivo, processando_desde: null })
+    .eq('meeting_id', meetingId)
+    .in('status', ['aguardando', 'erro', 'processando']);
+  if (error) throw new Error(`descartar envio: ${error.message}`);
+}
+
+/** Volta para a fila uma reunião descartada (no-show desfeito, onboarding desligado). */
+export async function reabrirEnvio(meetingId: string): Promise<void> {
+  const { error } = await createAdminSupabase()
+    .schema('execscore')
+    .from('meet_integracao')
+    .update({ status: 'aguardando', tentativas: 0, ultimo_erro: null })
+    .eq('meeting_id', meetingId)
+    .eq('status', 'descartada');
+  if (error) throw new Error(`reabrir envio: ${error.message}`);
+}
+
+/**
+ * Onboarding ou no-show mudou: tira da fila ou devolve e tenta enviar. Nunca
+ * lança (quem chama já salvou a mudança principal; aqui é só a integração).
+ */
+export async function syncForaDoScore(meetingId: string): Promise<void> {
+  if (!isEnabled()) return;
+  try {
+    const meeting = await findExecutoriaMeeting({ meetingId });
+    if (!meeting) return;
+    const motivo = motivoForaDoScore(meeting);
+    if (motivo) await descartarEnvio(meetingId, motivo);
+    else {
+      await reabrirEnvio(meetingId);
+      await dispatchMeeting(meetingId);
+    }
+  } catch (e) {
+    console.error(`execscore: sync onboarding/no-show ${meetingId}`, e);
+  }
 }
 
 export async function getIntegracao(meetingId: string): Promise<Integracao | null> {
@@ -193,6 +252,11 @@ export async function registerTranscriptReady(
 
   const meeting = await findExecutoriaMeeting({ roomName: room });
   if (!meeting) return { status: 'ignorada', motivo: 'não é reunião de executor do ExecScore' };
+  const fora = motivoForaDoScore(meeting);
+  if (fora) {
+    await descartarEnvio(meeting.meetingId, fora);
+    return { status: 'ignorada', motivo: fora };
+  }
 
   await rpc('meet_registrar_transcricao', {
     p_meeting_id: meeting.meetingId,
@@ -255,6 +319,12 @@ export async function dispatchMeeting(meetingId: string): Promise<'enviada' | 'n
     if (!meeting) throw new Error('reunião deixou de ser de um executor do ExecScore');
     if (meeting.executorId !== claimed.executor_id) {
       throw new Error('anfitrião da reunião mudou depois da transcrição');
+    }
+    // Marcada como onboarding/no-show depois de entrar na fila: não envia.
+    const fora = motivoForaDoScore(meeting);
+    if (fora) {
+      await descartarEnvio(meetingId, fora);
+      return 'nao_pronta';
     }
 
     const { text, used } = await loadTranscript(claimed.recording_ids);

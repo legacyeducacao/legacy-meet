@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 import { computeOccurrences, MAX_OCCURRENCES, type Frequency } from '@/lib/recurrence';
 import { parseGuestEmails } from '@/lib/guestEmails';
+import { OnboardingSwitch } from '@/components/OnboardingSwitch';
+import { UltimaReuniaoButton } from '@/components/resumo/UltimaReuniaoButton';
 import { AppShell } from '@/components/AppShell';
 import { PageHeader } from '@/components/patterns/PageHeader';
 import { EmptyState } from '@/components/patterns/EmptyState';
@@ -64,6 +66,8 @@ type Scheduled = {
   coHosts?: CoHost[];
   clientName: string | null;
   sector: string | null;
+  /** Reunião de onboarding: não vai para o ExecScore. */
+  onboarding?: boolean;
   recurrenceParentId: string | null;
 };
 
@@ -173,6 +177,7 @@ export default function AgendaPage() {
   const [startAt, setStartAt] = useState('');
   const [record, setRecord] = useState(true);
   const [transcribe, setTranscribe] = useState(true);
+  const [onboarding, setOnboarding] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   // Outros anfitriões (ex.: o Closer que vai conduzir a sessão marcada pelo SDR).
@@ -219,6 +224,7 @@ export default function AgendaPage() {
   const [editStartAt, setEditStartAt] = useState('');
   const [editRecord, setEditRecord] = useState(true);
   const [editTranscribe, setEditTranscribe] = useState(true);
+  const [editOnboarding, setEditOnboarding] = useState(false);
   const [editCoHostIds, setEditCoHostIds] = useState<string[]>([]);
   const [editBusy, setEditBusy] = useState(false);
 
@@ -296,6 +302,7 @@ export default function AgendaPage() {
     setEditStartAt(toLocalInput(m.startAt));
     setEditRecord(m.record);
     setEditTranscribe(m.transcribe);
+    setEditOnboarding(m.onboarding === true);
     setEditCoHostIds((m.coHosts ?? []).map((h) => h.id));
   };
 
@@ -328,6 +335,7 @@ export default function AgendaPage() {
           startAt: new Date(editStartAt).toISOString(),
           record: editRecord,
           transcribe: editTranscribe,
+          ...(editMeeting.sector === 'executoria' ? { onboarding: editOnboarding } : {}),
           coHostIds: editCoHostIds,
         }),
       });
@@ -508,6 +516,7 @@ export default function AgendaPage() {
         return;
       }
       body.tenantId = tenantId;
+      body.onboarding = onboarding;
     }
 
     setBusy(true);
@@ -535,6 +544,7 @@ export default function AgendaPage() {
       setEndMode('count');
       setCountTimes(4);
       setUntilDate('');
+      setOnboarding(false);
       await loadList();
     } catch {
       setError('Erro de rede ao agendar.');
@@ -743,6 +753,9 @@ export default function AgendaPage() {
                 </Label>
                 <Switch id="edit-transcribe" checked={editTranscribe} onCheckedChange={onEditTranscribeChange} />
               </div>
+              {editMeeting?.sector === 'executoria' && (
+                <OnboardingSwitch id="edit-onboarding" checked={editOnboarding} onChange={setEditOnboarding} />
+              )}
             </div>
           </div>
           <DialogFooter>
@@ -942,6 +955,9 @@ export default function AgendaPage() {
                   </Label>
                   <Switch id="transcribe" checked={transcribe} onCheckedChange={onTranscribeChange} />
                 </div>
+                {sector === 'executoria' && (
+                  <OnboardingSwitch id="onboarding" checked={onboarding} onChange={setOnboarding} />
+                )}
               </div>
 
               {error && <p className="text-sm font-medium text-destructive">{error}</p>}
@@ -1118,6 +1134,7 @@ export default function AgendaPage() {
                             Recorrente
                           </Badge>
                         )}
+                        {m.onboarding && <Badge variant="outline">Onboarding</Badge>}
                         {overdue && <Badge variant="destructive">Atrasada</Badge>}
                       </div>
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
@@ -1148,6 +1165,9 @@ export default function AgendaPage() {
                         <Copy className="h-3.5 w-3.5" />
                         Link
                       </Button>
+                      {m.sector === 'executoria' && (
+                        <UltimaReuniaoButton meetingId={m.id} clientName={m.clientName} />
+                      )}
                       {canManage(m) && (
                       <Button
                         size="sm"

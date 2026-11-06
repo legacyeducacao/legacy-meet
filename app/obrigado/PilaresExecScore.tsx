@@ -4,7 +4,7 @@ import * as React from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { PilaresForm } from '@/components/execscore/PilaresForm';
+import { PilaresForm, type PilaresSaved } from '@/components/execscore/PilaresForm';
 import { fetchPilares, type PilaresInfo } from '@/lib/execscorePilares';
 import { ThanksCard } from './ThanksCard';
 
@@ -15,7 +15,7 @@ import { ThanksCard } from './ThanksCard';
  */
 export function PilaresExecScore({ room }: { room: string }) {
   const [info, setInfo] = React.useState<PilaresInfo | 'loading'>('loading');
-  const [done, setDone] = React.useState(false);
+  const [done, setDone] = React.useState<PilaresSaved | null>(null);
   const [forbidden, setForbidden] = React.useState(false);
   const [loginHref, setLoginHref] = React.useState<string | undefined>();
 
@@ -53,14 +53,17 @@ export function PilaresExecScore({ room }: { room: string }) {
   if (!info.elegivel || forbidden) return <ThanksCard loginHref={forbidden ? undefined : loginHref} />;
 
   if (done) {
+    const texto = done.noShow
+      ? 'No-show registrado. A reunião não vai para o ExecScore.'
+      : info.onboarding
+        ? 'Reunião de onboarding registrada. Quando a transcrição terminar, o resumo aparece na gravação.'
+        : 'Assim que a transcrição terminar, a avaliação aparece no seu ExecScore e o resumo na gravação.';
     return (
       <Card className="m-auto w-full max-w-md text-center">
         <CardContent className="flex flex-col items-center gap-4 py-10">
           <CheckCircle2 className="h-10 w-10 text-primary" />
           <h1 className="text-2xl font-bold">Pronto!</h1>
-          <p className="text-muted-foreground">
-            Assim que a transcrição terminar, a avaliação aparece no seu ExecScore.
-          </p>
+          <p className="text-muted-foreground">{texto}</p>
           <p className="text-sm text-muted-foreground">Você já pode fechar esta janela.</p>
         </CardContent>
       </Card>
@@ -77,15 +80,18 @@ export function PilaresExecScore({ room }: { room: string }) {
             <p className="text-sm font-medium">{detalhes.join(' · ')}</p>
           )}
           <p className="text-sm text-muted-foreground">
-            Desligue os pilares que não foram tratados nesta reunião. A transcrição vai sozinha para
-            o seu ExecScore.
+            {info.onboarding
+              ? 'Se o cliente não apareceu, marque o no-show abaixo.'
+              : 'Desligue os pilares que não foram tratados nesta reunião. A transcrição vai sozinha para o seu ExecScore.'}
           </p>
         </div>
         <PilaresForm
           room={room}
           pilares={info.pilares}
           desabilitados={info.desabilitados}
-          onSaved={() => setDone(true)}
+          onboarding={info.onboarding}
+          noShow={info.noShow}
+          onSaved={setDone}
           onForbidden={() => setForbidden(true)}
         />
       </CardContent>
