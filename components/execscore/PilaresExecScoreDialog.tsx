@@ -20,6 +20,7 @@ const STATUS_VARIANT: Record<ExecScoreStatus, 'secondary' | 'default' | 'destruc
   processando: 'secondary',
   enviada: 'default',
   erro: 'destructive',
+  descartada: 'secondary',
 };
 
 /**
@@ -53,17 +54,24 @@ export function PilaresExecScoreButton({ room }: { room: string }) {
         }}
       >
         <ListChecks className="h-4 w-4" />
-        Pilares do ExecScore
+        {info.onboarding ? 'No-show e ExecScore' : 'Pilares do ExecScore'}
       </Button>
-      {info.status && <Badge variant={STATUS_VARIANT[info.status]}>{STATUS_LABEL[info.status]}</Badge>}
+      {info.noShow ? (
+        <Badge variant="destructive">No-show</Badge>
+      ) : info.onboarding ? (
+        <Badge variant="secondary">Onboarding · fora do ExecScore</Badge>
+      ) : (
+        info.status && <Badge variant={STATUS_VARIANT[info.status]}>{STATUS_LABEL[info.status]}</Badge>
+      )}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Pilares do ExecScore</DialogTitle>
             <DialogDescription>
-              Desligue os pilares que não foram tratados nesta reunião. Salvar de novo reabre a
-              avaliação e o ExecScore refaz a nota.
+              {info.onboarding
+                ? 'Reunião de onboarding: não vai para o ExecScore. Aqui você marca ou desfaz o no-show.'
+                : 'Desligue os pilares que não foram tratados nesta reunião. Salvar de novo reabre a avaliação e o ExecScore refaz a nota.'}
             </DialogDescription>
           </DialogHeader>
           <PilaresForm
@@ -71,10 +79,18 @@ export function PilaresExecScoreButton({ room }: { room: string }) {
             room={room}
             pilares={info.pilares}
             desabilitados={info.desabilitados}
+            onboarding={info.onboarding}
+            noShow={info.noShow}
             submitLabel="Salvar pilares"
-            onSaved={() => {
+            onSaved={(r) => {
               setOpen(false);
-              toast.success('Pilares salvos. A avaliação será refeita no ExecScore.');
+              toast.success(
+                r.noShow
+                  ? 'No-show registrado. A reunião não vai para o ExecScore.'
+                  : info.onboarding
+                    ? 'Salvo.'
+                    : 'Pilares salvos. A avaliação será refeita no ExecScore.',
+              );
               load();
             }}
             onForbidden={() => {

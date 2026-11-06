@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canTurnOff, initialDisabled, togglePilar, type Pilar } from './execscorePilares';
+import { buildSaveBody, canTurnOff, initialDisabled, togglePilar, type Pilar } from './execscorePilares';
 
 const PILARES: Pilar[] = ['a', 'b', 'c', 'd', 'e', 'f'].map((k) => ({ key: k, label: k.toUpperCase() }));
 
@@ -47,5 +47,17 @@ describe('togglePilar', () => {
 
   it('desligar o que já está desligado não duplica', () => {
     expect(togglePilar(['a'], 'a', false, PILARES)).toEqual(['a']);
+  });
+});
+
+describe('buildSaveBody', () => {
+  it('no-show não manda pilares', () => {
+    expect(buildSaveBody('sala', ['a'], true, false)).toEqual({ room: 'sala', noShow: true });
+  });
+  it('onboarding sem no-show não manda pilares', () => {
+    expect(buildSaveBody('sala', ['a'], false, true)).toEqual({ room: 'sala', noShow: false });
+  });
+  it('reunião comum manda os pilares desligados', () => {
+    expect(buildSaveBody('sala', ['a'], false, false)).toEqual({ room: 'sala', noShow: false, desabilitados: ['a'] });
   });
 });

@@ -14,6 +14,8 @@ export async function POST(req: NextRequest) {
     tenantId?: string;
     record?: boolean;
     transcribe?: boolean;
+    /** Reunião de onboarding (Executoria): não vai para o ExecScore. */
+    onboarding?: boolean;
   };
   const sector = body.sector === 'comercial' ? 'comercial' : 'executoria';
   const title = (body.title ?? '').trim();
@@ -46,7 +48,11 @@ export async function POST(req: NextRequest) {
 
   const { error: sectorError } = await admin
     .from('meet_meeting_sector')
-    .insert({ meeting_id: meeting.id, sector });
+    .insert({
+      meeting_id: meeting.id,
+      sector,
+      onboarding: sector === 'executoria' && body.onboarding === true,
+    });
   if (sectorError) {
     // não deixa reunião "fantasma" sem setor: desfaz a reunião e falha.
     await admin.from('meetings').delete().eq('id', meeting.id);

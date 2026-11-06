@@ -26,6 +26,8 @@ export async function POST(req: NextRequest) {
     startAt?: string; // ISO (UTC)
     record?: boolean;
     transcribe?: boolean;
+    /** Reunião de onboarding (Executoria): não vai para o ExecScore. */
+    onboarding?: boolean;
     /** Outros anfitriões (ids de colaboradores) — ex.: o Closer da sessão. */
     coHostIds?: string[];
     /** E-mails dos clientes convidados (recebem o convite do Google Agenda). */
@@ -114,7 +116,13 @@ export async function POST(req: NextRequest) {
 
   const { error: sectorError } = await admin
     .from('meet_meeting_sector')
-    .insert(ids.map((meetingId) => ({ meeting_id: meetingId, sector })));
+    .insert(
+      ids.map((meetingId) => ({
+        meeting_id: meetingId,
+        sector,
+        onboarding: sector === 'executoria' && body.onboarding === true,
+      })),
+    );
   if (sectorError) {
     // não deixa reuniões "fantasma" sem setor: desfaz tudo e falha.
     await admin.from('meetings').delete().in('id', ids);

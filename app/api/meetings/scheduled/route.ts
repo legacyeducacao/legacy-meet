@@ -27,7 +27,7 @@ export async function GET() {
     admin
       .from('meetings')
       .select(
-        `id, title, room_name, scheduled_start_at, recording_enabled, auto_transcribe, host_id, recurrence_parent_id, users:host_id(name), client_tenants:tenant_id(name), meet_meeting_sector!inner(sector), ${CO_HOSTS_SELECT}`,
+        `id, title, room_name, scheduled_start_at, recording_enabled, auto_transcribe, host_id, recurrence_parent_id, users:host_id(name), client_tenants:tenant_id(name), meet_meeting_sector!inner(sector, onboarding), ${CO_HOSTS_SELECT}`,
       )
       .eq('status', 'scheduled')
       .gte('scheduled_end_at', nowIso)
@@ -50,6 +50,7 @@ export async function GET() {
       coHosts: parseCoHosts(m.meet_meeting_hosts),
       clientName: (one<{ name: string | null }>(m.client_tenants)?.name ?? null) as string | null,
       sector: (one<{ sector: string | null }>(m.meet_meeting_sector)?.sector ?? null) as string | null,
+      onboarding: one<{ onboarding?: boolean | null }>(m.meet_meeting_sector)?.onboarding === true,
     }))
     .sort((a, b) => a.startAt.localeCompare(b.startAt));
 

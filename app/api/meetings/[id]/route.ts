@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 import { changeCalendarAttendees, updateCalendarEvent } from '@/lib/calendar';
 import { diffCoHosts, listTeamMembers, normalizeCoHostIds } from '@/lib/meetingHosts';
+import { syncForaDoScore } from '@/lib/execscore';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +20,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     startAt?: string; // ISO (UTC)
     record?: boolean;
     transcribe?: boolean;
+    /** Reunião de onboarding (Executoria): não vai para o ExecScore. */
+    onboarding?: boolean;
     /** Lista COMPLETA de outros anfitriões (substitui a atual). */
     coHostIds?: string[];
   };
@@ -70,6 +73,26 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       next,
     ));
   }
+
+  // Onboarding fica na tabela do Meet (meet_meeting_sector), só na Executoria.
+  let onboardingChanged = false;
+  if (typeof body.onboarding === 'boolean') {
+    const { data: sec } = await admin
+      .from('meet_meeting_sector')
+      .select('sector, onboarding')
+      .eq('meeting_id', id)
+      .maybeSingle();
+    if (sec?.sector === 'executoria' && sec.onboarding !== body.onboarding) {
+      const { error } = await admin
+        .from('meet_meeting_sector')
+        .update({ onboarding: body.onboarding })
+        .eq('meeting_id', id);
+      if (error) return new NextResponse('Falha ao salvar onboarding: ' + error.message, { status: 500 });
+      onboardingChanged = true;
+    }
+  }
+  // Tira da fila do ExecScore (ou devolve) depois de responder.
+  if (onboardingChanged) after(() => syncForaDoScore(id));
 
   if (Object.keys(update).length === 0 && !added.length && !removed.length) {
     return NextResponse.json({ ok: true });

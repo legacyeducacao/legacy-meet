@@ -5,7 +5,7 @@
  */
 
 export type Pilar = { key: string; label: string };
-export type ExecScoreStatus = 'aguardando' | 'processando' | 'enviada' | 'erro';
+export type ExecScoreStatus = 'aguardando' | 'processando' | 'enviada' | 'erro' | 'descartada';
 
 export type PilaresInfo =
   | { elegivel: false; precisaLogin: boolean }
@@ -15,6 +15,10 @@ export type PilaresInfo =
       executorName: string | null;
       titulo: string | null;
       cliente: string | null;
+      /** Reunião de onboarding: não tem pilares nem vai para o ExecScore. */
+      onboarding: boolean;
+      /** Marcada como no-show (cliente não compareceu). */
+      noShow: boolean;
       pilares: Pilar[];
       /** null = o executor ainda não escolheu (todos ligados). */
       desabilitados: string[] | null;
@@ -27,6 +31,7 @@ export const STATUS_LABEL: Record<ExecScoreStatus, string> = {
   processando: 'Avaliando',
   enviada: 'Enviada ao ExecScore',
   erro: 'Erro no envio (vamos tentar de novo)',
+  descartada: 'Fora do ExecScore',
 };
 
 /** Pilares desligados no começo: a escolha salva, sem chaves que não existem mais. */
@@ -71,17 +76,33 @@ export async function fetchPilares(room: string): Promise<PilaresInfo> {
   if (!res.ok) return { elegivel: false, precisaLogin: false };
   const data = await res.json();
   if (!data?.elegivel || !Array.isArray(data.pilares)) return { elegivel: false, precisaLogin: false };
-  return data as PilaresInfo;
+  return { ...data, onboarding: data.onboarding === true, noShow: data.noShow === true } as PilaresInfo;
 }
 
 export type SaveResult = { kind: 'ok' } | { kind: 'forbidden' } | { kind: 'error'; message: string };
 
-export async function savePilares(room: string, desabilitados: string[]): Promise<SaveResult> {
+/** Corpo do POST: com no-show os pilares não vão (a reunião sai do ExecScore). */
+export function buildSaveBody(
+  room: string,
+  desabilitados: string[],
+  noShow: boolean,
+  onboarding: boolean,
+): Record<string, unknown> {
+  if (noShow) return { room, noShow: true };
+  if (onboarding) return { room, noShow: false };
+  return { room, noShow: false, desabilitados };
+}
+
+export async function savePilares(
+  room: string,
+  desabilitados: string[],
+  opts: { noShow?: boolean; onboarding?: boolean } = {},
+): Promise<SaveResult> {
   try {
     const res = await fetch('/api/execscore/pilares', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ room, desabilitados }),
+      body: JSON.stringify(buildSaveBody(room, desabilitados, !!opts.noShow, !!opts.onboarding)),
     });
     const isJson = (res.headers.get('content-type') ?? '').includes('application/json');
     if (res.status === 403 || res.redirected) return { kind: 'forbidden' };

@@ -31,6 +31,27 @@ LiveKit egress ──> worker transcreve ──> manifesto "complete"      │
 - **Falhas:** até `EXECSCORE_MAX_ATTEMPTS` (4) tentativas, com 15 min entre elas;
   o erro fica em `meet_integracao.ultimo_erro`.
 
+## Onboarding e no-show (002_onboarding_noshow.sql)
+
+- **Onboarding:** switch "Reunião de onboarding" na criação/edição (Executoria),
+  guardado em `meet_meeting_sector.onboarding`. Não vai para o ExecScore.
+- **No-show:** na tela de saída o executor marca "O cliente não compareceu".
+  Usa a mesma regra da Agenda (`lib/noShow.ts`, status `no_show` em `meetings`).
+- Nos dois casos a linha de `meet_integracao` vira `descartada` (motivo em
+  `ultimo_erro`). Desfazer o no-show ou desligar o onboarding devolve para a fila.
+  Avaliação já enviada não é apagada do ExecScore.
+
+## Resumo da reunião
+
+Quando a transcrição fica pronta, o mesmo aviso do worker
+(`/api/execscore/transcricao-pronta`) gera o resumo da reunião da Executoria
+(`lib/meetingSummary.ts`, IA pelo LLM Gateway da AssemblyAI com
+`ASSEMBLYAI_API_KEY`). Usa o prompt ativo do ExecScore
+(`execscore.prompt_versions`) como referência da metodologia e o resumo da
+reunião anterior com o mesmo cliente. Fica em `resumos/<sala>.json` no MinIO e
+aparece na gravação e no botão "Última reunião" da Agenda.
+`MEETING_SUMMARY_DISABLED=1` desliga.
+
 ## Arquivos
 
 | Onde | O quê |

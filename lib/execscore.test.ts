@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { activePillars, joinTranscriptParts, PILARES, roomFromRecordingId, sanitizeDisabled } from './execscore';
+import {
+  activePillars,
+  joinTranscriptParts,
+  motivoForaDoScore,
+  PILARES,
+  roomFromRecordingId,
+  sanitizeDisabled,
+} from './execscore';
 
 describe('sanitizeDisabled', () => {
   it('mantém só chaves válidas, sem repetição', () => {
@@ -52,5 +59,17 @@ describe('joinTranscriptParts', () => {
   });
   it('nada aproveitável vira string vazia', () => {
     expect(joinTranscriptParts([])).toBe('');
+  });
+});
+
+describe('motivoForaDoScore', () => {
+  it('reunião comum vai para o ExecScore', () => {
+    expect(motivoForaDoScore({ onboarding: false, noShow: false })).toBeNull();
+  });
+  it('onboarding fica de fora', () => {
+    expect(motivoForaDoScore({ onboarding: true, noShow: false })).toMatch(/onboarding/);
+  });
+  it('no-show fica de fora (e é o motivo que aparece, mesmo sendo onboarding)', () => {
+    expect(motivoForaDoScore({ onboarding: true, noShow: true })).toMatch(/no-show/);
   });
 });
