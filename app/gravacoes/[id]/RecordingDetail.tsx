@@ -179,11 +179,6 @@ export function RecordingDetail({ manifest }: { manifest: RecordingManifest }) {
           </Card>
         )}
 
-        <ResumoCard
-          recordingId={manifest.id}
-          transcricaoPronta={manifest.transcriptionStatus === 'complete'}
-        />
-
         <div className="grid gap-6 lg:grid-cols-[1fr_420px]">
           {/* Video card */}
           <Card className="overflow-hidden rounded-xl p-0 gap-0">
@@ -259,6 +254,11 @@ export function RecordingDetail({ manifest }: { manifest: RecordingManifest }) {
             </CardContent>
           </Card>
         </div>
+
+        <ResumoCard
+          recordingId={manifest.id}
+          transcricaoPronta={manifest.transcriptionStatus === 'complete'}
+        />
       </div>
     </AppShell>
   );

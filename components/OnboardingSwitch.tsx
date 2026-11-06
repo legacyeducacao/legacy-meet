@@ -19,10 +19,7 @@ export function OnboardingSwitch({
   return (
     <div className="flex items-center justify-between gap-4">
       <Label htmlFor={id} className="cursor-pointer font-normal">
-        <span>
-          Reunião de onboarding
-          <span className="block text-xs text-muted-foreground">Não vai para o ExecScore</span>
-        </span>
+        Reunião de onboarding
       </Label>
       <Switch id={id} checked={checked} onCheckedChange={onChange} />
     </div>
