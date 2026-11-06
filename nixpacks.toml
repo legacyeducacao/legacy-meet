@@ -1,0 +1,6 @@
+# O EasyPanel monta o app com Nixpacks, que rodava `npm install -g pnpm` sem
+# versão e pegava sempre o pnpm mais recente. O pnpm 12 (05/11/2026) virou
+# binário nativo e o build passou a falhar com exit 127. Fica preso na mesma
+# versão do "packageManager" do package.json; ao atualizar um, atualize o outro.
+[phases.install]
+cmds = ["npm install -g pnpm@10.18.2 && pnpm install"]
