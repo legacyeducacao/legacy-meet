@@ -57,6 +57,7 @@ import {
   type DriveConfig,
 } from './lib/drive';
 import { WORKER_VERSION } from './version';
+import { createExecScoreNotifier } from './lib/execscore';
 import type {
   AudioSource,
   PendingJob,
@@ -123,6 +124,15 @@ const ASSEMBLYAI_POLL_MAX_SECONDS = Number(env.ASSEMBLYAI_POLL_MAX_SECONDS ?? '3
 // Webhook: o app recebe o callback e grava o marker; sem secret ou URL base, só polling.
 const ASSEMBLYAI_WEBHOOK_SECRET = env.ASSEMBLYAI_WEBHOOK_SECRET;
 const APP_BASE_URL = env.APP_BASE_URL;
+// Integração ExecScore: avisa o app quando a transcrição fica pronta e roda o
+// varredor a cada EXECSCORE_SWEEP_MINUTES. Sem secret ou APP_BASE_URL, desligada.
+const execscore = createExecScoreNotifier({
+  appBaseUrl: APP_BASE_URL,
+  secret: env.EXECSCORE_WORKER_SECRET,
+  log: (m) => log(m),
+});
+const EXECSCORE_SWEEP_MS = Number(env.EXECSCORE_SWEEP_MINUTES ?? '10') * 60 * 1000;
+let lastExecScoreSweep = 0;
 const KEYTERMS_FILE = env.KEYTERMS_FILE ?? path.resolve(process.cwd(), 'config/keyterms.json');
 // Mapeamento rótulo (A/B/C) → nome via LLM. Com o provider assemblyai a
 // chamada vai ao LLM Gateway da própria AssemblyAI (mesma chave; pipeline em
@@ -689,6 +699,10 @@ async function finalizeRecording(
   };
   await uploadText(manifestKey(id), JSON.stringify(manifest, null, 2), 'application/json');
 
+  // ExecScore: só transcrição completa. O notificador nunca lança (falha vira
+  // log) e responde rápido: o app processa depois de devolver 202.
+  if (!transcriptionFailed) await execscore.transcriptReady(id);
+
   // Limpa os markers de controle (tentativas, "egress pronto", job assíncrono).
   await deleteObject(`attempts/${id}.json`).catch(() => {});
   await deleteObject(`ready/${id}.json`).catch(() => {});
@@ -1055,6 +1069,10 @@ async function main() {
       }
       if (!shuttingDown && (await processPendingJobs())) processedAny = true;
       if (!shuttingDown) await reconcileS3Recordings();
+      if (!shuttingDown && execscore.enabled && Date.now() - lastExecScoreSweep >= EXECSCORE_SWEEP_MS) {
+        lastExecScoreSweep = Date.now();
+        await execscore.sweep();
+      }
       if (!processedAny) await sleep(POLL_INTERVAL_SECONDS * 1000);
     } catch (e) {
       log(`erro no loop: ${e} - aguardando e tentando de novo`);

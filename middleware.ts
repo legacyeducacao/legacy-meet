@@ -10,6 +10,9 @@ const PUBLIC_API_PREFIXES = [
   // rota valida a própria assinatura/secret. Bloqueados aqui, o registro de
   // participantes, o ciclo live→ended e os markers de transcrição param.
   '/api/livekit/webhook', '/api/transcription/webhook',
+  // Worker -> integração ExecScore (valida X-Execscore-Worker-Secret na rota).
+  // /api/execscore/pilares NÃO entra aqui: exige o executor logado.
+  '/api/execscore/transcricao-pronta', '/api/execscore/varrer',
 ];
 
 function isPublic(path: string) {
