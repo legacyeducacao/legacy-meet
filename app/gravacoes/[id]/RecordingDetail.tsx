@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { PilaresExecScoreButton } from '@/components/execscore/PilaresExecScoreDialog';
 
 function formatTimestamp(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -143,6 +144,9 @@ export function RecordingDetail({ manifest }: { manifest: RecordingManifest }) {
               ) : (
                 <Badge variant="secondary">MinIO</Badge>
               )}
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2 empty:hidden">
+              <PilaresExecScoreButton room={manifest.roomName} />
             </div>
           </div>
         </div>
