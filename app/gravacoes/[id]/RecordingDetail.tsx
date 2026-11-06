@@ -179,13 +179,14 @@ export function RecordingDetail({ manifest }: { manifest: RecordingManifest }) {
           </Card>
         )}
 
-        {/* Duas colunas só a partir de 1280px: com a barra lateral (~290px), em
-            1024px o vídeo ficava espremido. Lado a lado, a transcrição acompanha
-            a altura do vídeo (mínimo de 560px) e o cartão do vídeo não estica
-            (sobrava um vão branco embaixo dele). */}
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px] 2xl:grid-cols-[minmax(0,1fr)_420px]">
+        {/* Lado a lado só quando o CONTEÚDO tem 1152px ou mais (@container: vale
+            com a barra lateral aberta ou fechada); antes disso, empilhado. Lado a
+            lado, a transcrição tem exatamente a altura do cartão do vídeo: ela fica
+            em absolute e não conta na altura da linha, então nunca sobra vão. */}
+        <div className="@container">
+        <div className="grid gap-6 @6xl:grid-cols-[minmax(0,1fr)_400px]">
           {/* Video card */}
-          <Card className="min-w-0 overflow-hidden rounded-xl p-0 gap-0 xl:self-start">
+          <Card className="min-w-0 overflow-hidden rounded-xl p-0 gap-0 @6xl:self-start">
             {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
             <video
               ref={videoRef}
@@ -213,8 +214,8 @@ export function RecordingDetail({ manifest }: { manifest: RecordingManifest }) {
           </Card>
 
           {/* Transcript card */}
-          <div className="min-w-0 xl:relative xl:min-h-[560px]">
-          <Card className="min-w-0 rounded-xl flex flex-col gap-0 p-0 xl:absolute xl:inset-0">
+          <div className="min-w-0 @6xl:relative">
+          <Card className="min-w-0 rounded-xl flex flex-col gap-0 p-0 @6xl:absolute @6xl:inset-0">
             <CardHeader className="px-4 pt-4 pb-3 border-b">
               <CardTitle className="text-base">Transcrição</CardTitle>
               <div className="relative mt-2">
@@ -228,7 +229,7 @@ export function RecordingDetail({ manifest }: { manifest: RecordingManifest }) {
               </div>
             </CardHeader>
             <CardContent className="p-0 flex-1 min-h-0 flex flex-col">
-              <ScrollArea className="h-[60dvh] max-h-[560px] min-h-[320px] xl:h-auto xl:max-h-none xl:min-h-0 xl:flex-1">
+              <ScrollArea className="h-[60dvh] max-h-[560px] min-h-[320px] @6xl:h-auto @6xl:max-h-none @6xl:min-h-0 @6xl:flex-1">
                 <div className="px-4 py-3 space-y-4">
                   {filtered.length === 0 && (
                     <p className="text-sm text-muted-foreground text-center py-8">
@@ -261,6 +262,7 @@ export function RecordingDetail({ manifest }: { manifest: RecordingManifest }) {
             </CardContent>
           </Card>
           </div>
+        </div>
         </div>
 
         <ResumoCard
