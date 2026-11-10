@@ -20,12 +20,13 @@ export interface LinhaSessaoTurma {
   cohort_schedules: { cohort_name: string | null } | Array<{ cohort_name: string | null }> | null;
 }
 
-/** Link da aula: o meeting_url, ou o link de entrada do Zoom montado pelo ID da reunião. */
-export function linkDaAula(meetingUrl: string | null | undefined, zoomId: string | null | undefined): string | null {
+/**
+ * Link da aula: só o meeting_url cadastrado no Legacy Plan. Não montamos link
+ * pelo ID do Zoom: o Plan pode esconder o link de propósito (check-in).
+ */
+export function linkDaAula(meetingUrl: string | null | undefined, _zoomId?: string | null): string | null {
   const url = meetingUrl?.trim();
-  if (url && /^https?:\/\//i.test(url)) return url;
-  const id = zoomId?.replace(/\D/g, '');
-  return id ? `https://zoom.us/j/${id}` : null;
+  return url && /^https?:\/\//i.test(url) ? url : null;
 }
 
 const MODALIDADES: Record<string, string> = {

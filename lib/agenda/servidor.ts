@@ -249,7 +249,11 @@ export async function listarBloqueios(user: Usuario, executores: string[], de: D
  * arquivadas). Só leitura: as tabelas cohort_* são do Legacy Plan.
  */
 export async function listarTurmas(de: Date, ate: Date): Promise<EventoDTO[]> {
-  const { data, error } = await createAdminSupabase()
+  const admin = createAdminSupabase();
+  // Turma arquivada no Plan (ex.: turmas de teste) não aparece, mesmo com o cronograma publicado.
+  const { data: arquivadas } = await admin.from('cohorts').select('name').not('archived_at', 'is', null);
+  const fora = new Set(((arquivadas ?? []) as Array<{ name: string | null }>).map((c) => c.name?.trim()).filter(Boolean));
+  const { data, error } = await admin
     .from('cohort_sessions')
     .select(
       'id, scheduled_start_at, scheduled_end_at, title, modality, location, meeting_url, zoom_meeting_id, cohort_schedules!inner(cohort_name, published)',
@@ -263,6 +267,10 @@ export async function listarTurmas(de: Date, ate: Date): Promise<EventoDTO[]> {
     .limit(1000);
   if (error) throw new Error(error.message);
   return ((data ?? []) as unknown as LinhaSessaoTurma[])
+    .filter((r) => {
+      const t = Array.isArray(r.cohort_schedules) ? r.cohort_schedules[0] : r.cohort_schedules;
+      return !fora.has(t?.cohort_name?.trim() ?? '');
+    })
     .map(sessaoParaEvento)
     .filter((e) => Date.parse(e.fim) > de.getTime());
 }

@@ -55,7 +55,8 @@ describe('turmas do Legado', () => {
 
   it('link da aula: URL quando existe, senão o link do Zoom pelo ID', () => {
     expect(linkDaAula('https://zoom.us/j/1', '999')).toBe('https://zoom.us/j/1');
-    expect(linkDaAula(null, '895 6184 9516')).toBe('https://zoom.us/j/89561849516');
+    // Sem meeting_url não montamos link pelo ID do Zoom (o Plan controla o acesso).
+    expect(linkDaAula(null, '895 6184 9516')).toBeNull();
     expect(linkDaAula('javascript:alert(1)', null)).toBeNull();
     expect(linkDaAula('', '')).toBeNull();
   });
