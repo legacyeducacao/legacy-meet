@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { EXPEDIENTE_PADRAO } from './disponibilidade';
 import {
   calcularKpis,
+  horasPorSemana,
+  mapaOcupacao,
+  somarKpis,
   kpisJornadasImpulsao,
   periodoAnterior,
   riscoJornadaLegado,
@@ -122,5 +125,39 @@ describe('jornadas', () => {
     expect(riscoJornadaLegado(j, '2026-11-09')).toMatchObject({ pendentes: 3, possiveis: 2, emRisco: true });
     expect(riscoJornadaLegado({ ...j, realizados: 10 }, '2026-11-09')).toMatchObject({ pendentes: 2, emRisco: false });
     expect(riscoJornadaLegado({ ...j, realizados: 12 }, '2026-11-09').emRisco).toBe(false);
+  });
+});
+
+describe('visão do gestor e gráficos', () => {
+  const k = calcularKpis({ de: '2026-11-09', ate: '2026-11-13' }, ctx, reunioes, gravacoes);
+
+  it('somar dois executores iguais dobra as horas e mantém as taxas', () => {
+    const t = somarKpis([k, k]);
+    expect(t.horasDisponiveis).toBe(86);
+    expect(t.horasAgendadas).toBe(10);
+    expect(t.horasRealizadas).toBe(6);
+    expect(t.taxaRealizacao).toBe(0.6);
+    expect(t.noShow).toEqual({ total: 2, taxa: 0.2 });
+    expect(t.cancelamentos.porOrigem).toEqual({ cliente: 2 });
+    expect(t.aderenciaDuracao).toBe(1);
+    expect(t.cargaSemanal).toEqual([{ semana: '2026-11-09', horas: 10, acimaLimite: false }]);
+  });
+
+  it('horas por semana: agendadas x realizadas', () => {
+    const semanas = horasPorSemana(reunioes, gravacoes, 'America/Sao_Paulo');
+    expect(semanas).toEqual([
+      { semana: '2026-11-09', agendadas: 5, realizadas: 3 },
+      { semana: '2026-11-16', agendadas: 1, realizadas: 1 },
+    ]);
+  });
+
+  it('mapa de calor por dia da semana e hora', () => {
+    const m = mapaOcupacao(reunioes, 'America/Sao_Paulo');
+    expect(m[0][9]).toBe(2); // segundas 9h: r1 (09/11) + r7 (16/11)
+    expect(m[0][10]).toBe(0.5); // r2 começa 10:30
+    expect(m[0][11]).toBe(0.5);
+    expect(m[1][14]).toBe(0); // r4 cancelada não conta
+    expect(m[3][18]).toBe(1); // quinta 18h
+    expect(m.flat().reduce((a, b) => a + b, 0)).toBe(6);
   });
 });
