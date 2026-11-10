@@ -167,6 +167,10 @@ Os testes obrigatórios do prompt (tabela de 5 semanas e além, datas antes da �
   - Bloqueios pessoais pontuais ou semanais (criação rápida "Bloquear horário" ou na aba), com lista das reuniões atingidas; motivo só para o dono e admin.
   - Regras da empresa e limites por executor só admin; expediente e buffer (nunca abaixo do mínimo) o próprio executor.
   - Feriados: nacionais calculados + cadastrados (estadual, municipal, recesso) com prévia do impacto nos grupos.
+- **Fase 5 concluída (10/11/2026):**
+  - `agenda_gravacoes_duracao` preenchida com o histórico (1.899 gravações a partir dos manifestos do MinIO) e atualizada a cada "transcrição pronta" do worker. Botão "Atualizar durações" (admin) busca o que faltar.
+  - Painel `/agenda/nova/painel` (ícone de gráfico na agenda): período (semana, mês, 30/90 dias, mês passado, personalizado), executor (admin: todos ou um), produto e cliente; 12 cartões com comparação ao período anterior; horas por semana (agendadas x realizadas); horas por produto; alerta de carga semanal; mapa de calor dia x hora; ranking de executores (admin, clique abre o executor); jornadas do Impulsão (ativos por grupo, x/4, faltas em Aula 2) e do Legado (realizados x previstos, em risco).
+  - Realização acima de 100% acontece quando a gravação passa do horário marcado (ou a reunião teve mais de uma parte); é dado real.
 - Decisões tomadas pelo motor (configuráveis):
   - Carnaval e Corpus Christi são pontos facultativos e **contam como feriado por padrão** (`considerarFacultativos`). Ex.: a terça de Carnaval de 2026 pausa o grupo da terça.
   - Na política "segue", a aula perdida é recuperada na próxima ocorrência dela **em qualquer grupo** (o cliente continua no grupo onde recuperou). Dá para restringir ao mesmo grupo (`recuperarEmOutroGrupo: false`).

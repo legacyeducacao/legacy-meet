@@ -2,6 +2,7 @@ import { after, NextRequest, NextResponse } from 'next/server';
 import { dispatchMeeting, isEnabled, registerTranscriptReady, roomFromRecordingId } from '@/lib/execscore';
 import { isWorkerCall } from '@/lib/execscoreAuth';
 import { generateSummary, summaryEnabled } from '@/lib/meetingSummary';
+import { registrarDuracao } from '@/lib/agenda/duracoes';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,10 +22,14 @@ export async function POST(req: NextRequest) {
   }
   const execscore = isEnabled();
   const resumo = summaryEnabled();
-  if (!execscore && !resumo) return NextResponse.json({ ok: true, ignorada: 'integração desligada' });
+  if (!execscore && !resumo) {
+    after(() => registrarDuracao(recordingId).then(() => undefined));
+    return NextResponse.json({ ok: true, ignorada: 'integração desligada' });
+  }
 
   after(async () => {
-    const tarefas: Promise<void>[] = [];
+    // Duração real no banco (painel de horas da agenda). Não depende de integração.
+    const tarefas: Promise<void>[] = [registrarDuracao(recordingId).then(() => undefined)];
     const room = roomFromRecordingId(recordingId);
     if (resumo && room) {
       tarefas.push(

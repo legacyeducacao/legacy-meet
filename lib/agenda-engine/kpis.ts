@@ -4,7 +4,7 @@
  */
 import { blocosDeFoco, horasDisponiveis, type ContextoAgenda } from './disponibilidade';
 import { expedienteDoDia } from './disponibilidade';
-import { addDays, diffDays, HORA_MS, localYmd, startOfWeek, subtractIv, totalMs, type Iv, type Ymd } from './tempo';
+import { addDays, diffDays, HORA_MS, localYmd, startOfWeek, subtractIv, totalMs, utcToLocal, type Iv, type Ymd } from './tempo';
 
 export type StatusReuniao = 'agendada' | 'realizada' | 'no_show' | 'cancelada';
 export type Origem = 'cliente' | 'executor' | 'legacy';
@@ -48,6 +48,8 @@ export interface ResultadoKpis {
   horasForaExpediente: number;
   tempoFoco: { blocos: number; horas: number };
   cargaSemanal: Array<{ semana: Ymd; horas: number; acimaLimite: boolean }>;
+  /** Contagens brutas (para somar vários executores na visão do gestor). */
+  contagens: { validas: number; doPeriodo: number; comGravacao: number; planejadoComGravacaoH: number };
 }
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -139,6 +141,12 @@ export function calcularKpis(
     },
     horasForaExpediente: horasDe(foraMs),
     tempoFoco: { blocos: foco.length, horas: horasDe(totalMs(foco)) },
+    contagens: {
+      validas: validas.length,
+      doPeriodo: doPeriodo.length,
+      comGravacao: comGravacao.length,
+      planejadoComGravacaoH: horasDe(comGravacao.reduce((t, r) => t + planejadoMs(r), 0)),
+    },
     cargaSemanal: [...semanas.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([semana, ms]) => ({
@@ -210,4 +218,91 @@ export function riscoJornadaLegado(j: JornadaLegadoKpi, hoje: Ymd, intervaloDias
     emRisco: pendentes > 0 && pendentes > possiveis,
     taxa: div(j.realizados, j.previstos),
   };
+}
+
+// ------------------------------ Gestor e gráficos ------------------------------
+
+const somaMapa = (lista: Array<Record<string, number>>) =>
+  lista.reduce<Record<string, number>>((acc, m) => {
+    for (const [k, v] of Object.entries(m)) acc[k] = r2((acc[k] ?? 0) + v);
+    return acc;
+  }, {});
+
+/** Soma os KPIs de vários executores e recalcula as taxas pelos totais. */
+export function somarKpis(lista: readonly ResultadoKpis[]): ResultadoKpis {
+  const soma = (f: (k: ResultadoKpis) => number) => r2(lista.reduce((t, k) => t + f(k), 0));
+  const disponiveis = soma((k) => k.horasDisponiveis);
+  const agendadas = soma((k) => k.horasAgendadas);
+  const realizadas = soma((k) => k.horasRealizadas);
+  const validas = soma((k) => k.contagens.validas);
+  const doPeriodo = soma((k) => k.contagens.doPeriodo);
+  const comGravacao = soma((k) => k.contagens.comGravacao);
+  const planejadoComGravacao = soma((k) => k.contagens.planejadoComGravacaoH);
+  const noShow = soma((k) => k.noShow.total);
+  const cancel = soma((k) => k.cancelamentos.total);
+  const remarc = soma((k) => k.remarcacoes.total);
+  const semanas = new Map<Ymd, number>();
+  for (const k of lista) for (const c of k.cargaSemanal) semanas.set(c.semana, r2((semanas.get(c.semana) ?? 0) + c.horas));
+  return {
+    horasDisponiveis: disponiveis,
+    horasAgendadas: agendadas,
+    horasRealizadas: realizadas,
+    taxaOcupacao: div(agendadas, disponiveis),
+    taxaRealizacao: div(realizadas, agendadas),
+    horasPorProduto: somaMapa(lista.map((k) => k.horasPorProduto)),
+    aderenciaDuracao: comGravacao ? div(realizadas / comGravacao, planejadoComGravacao / comGravacao) : null,
+    noShow: { total: noShow, taxa: div(noShow, validas) },
+    cancelamentos: { total: cancel, taxa: div(cancel, doPeriodo), porOrigem: somaMapa(lista.map((k) => k.cancelamentos.porOrigem)) },
+    remarcacoes: { total: remarc, taxa: div(remarc, validas), porOrigem: somaMapa(lista.map((k) => k.remarcacoes.porOrigem)) },
+    horasForaExpediente: soma((k) => k.horasForaExpediente),
+    tempoFoco: { blocos: soma((k) => k.tempoFoco.blocos), horas: soma((k) => k.tempoFoco.horas) },
+    // No total da equipe o limite semanal é por pessoa: o alerta fica na visão individual.
+    cargaSemanal: [...semanas.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([semana, horas]) => ({ semana, horas, acimaLimite: false })),
+    contagens: { validas, doPeriodo, comGravacao, planejadoComGravacaoH: planejadoComGravacao },
+  };
+}
+
+/** Horas agendadas (planejadas, sem canceladas) x realizadas (gravação) por semana. */
+export function horasPorSemana(
+  reunioes: readonly ReuniaoKpi[],
+  gravacoes: readonly GravacaoKpi[],
+  fuso: string,
+): Array<{ semana: Ymd; agendadas: number; realizadas: number }> {
+  const m = new Map<Ymd, { a: number; r: number }>();
+  const pega = (d: Date) => {
+    const w = startOfWeek(localYmd(d, fuso));
+    if (!m.has(w)) m.set(w, { a: 0, r: 0 });
+    return m.get(w)!;
+  };
+  for (const r of reunioes) if (r.status !== 'cancelada') pega(r.inicio).a += r.fim.getTime() - r.inicio.getTime();
+  // A hora realizada conta na semana da reunião (a gravação pode ter outra data
+  // quando a sala foi reaproveitada).
+  const inicioDe = new Map(reunioes.map((r) => [r.id, r.inicio]));
+  for (const g of gravacoes) {
+    const ini = inicioDe.get(g.reuniaoId);
+    if (ini) pega(ini).r += g.duracaoSeg * 1000;
+  }
+  return [...m.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([semana, v]) => ({ semana, agendadas: horasDe(v.a), realizadas: horasDe(v.r) }));
+}
+
+/**
+ * Mapa de calor: horas de reunião (sem canceladas) por dia da semana (1 a 7)
+ * e hora do dia (0 a 23), no fuso. Reunião que atravessa a hora é dividida.
+ */
+export function mapaOcupacao(reunioes: readonly ReuniaoKpi[], fuso: string): number[][] {
+  const mapa = Array.from({ length: 7 }, () => Array(24).fill(0) as number[]);
+  for (const r of reunioes) {
+    if (r.status === 'cancelada') continue;
+    let t = r.inicio.getTime();
+    const fim = r.fim.getTime();
+    while (t < fim) {
+      const l = utcToLocal(new Date(t), fuso);
+      const proxHora = t + (60 - l.minute) * 60_000 - l.second * 1000;
+      const ate = Math.min(fim, proxHora);
+      const dia = new Date(Date.UTC(l.year, l.month - 1, l.day)).getUTCDay();
+      mapa[dia === 0 ? 6 : dia - 1][l.hour] += (ate - t) / HORA_MS;
+      t = ate;
+    }
+  }
+  return mapa.map((linha) => linha.map(r2));
 }

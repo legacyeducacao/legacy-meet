@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 // @ts-ignore
 import { tinykeys } from 'tinykeys';
 import Link from 'next/link';
-import { ChevronLeft, ChevronRight, Keyboard, Loader2, Menu, Plus, Search, Settings } from 'lucide-react';
+import { BarChart3, ChevronLeft, ChevronRight, Keyboard, Loader2, Menu, Plus, Search, Settings } from 'lucide-react';
 import { toast } from '@/components/ui/custom-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -602,6 +602,11 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
         </div>
         <Button variant="ghost" size="icon" className="hidden md:inline-flex" onClick={() => setAtalhos(true)} aria-label="Atalhos de teclado">
           <Keyboard className="h-5 w-5" />
+        </Button>
+        <Button asChild variant="ghost" size="icon" aria-label="Painel da agenda">
+          <Link href="/agenda/nova/painel">
+            <BarChart3 className="h-5 w-5" />
+          </Link>
         </Button>
         <Button asChild variant="ghost" size="icon" aria-label="Configurações da agenda">
           <Link href="/agenda/nova/configuracoes">
