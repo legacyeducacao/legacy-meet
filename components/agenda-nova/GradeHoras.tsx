@@ -365,7 +365,7 @@ export function GradeHoras({
                       </span>
                       <span className="truncate text-muted-foreground">
                         {faixaHorario(new Date(e.inicio), new Date(e.fim), tz)}
-                        {!curto && e.cliente ? ` · ${e.cliente}` : ''}
+                        {!curto && (e.cliente || e.turma) ? ` · ${e.cliente || e.turma}` : ''}
                       </span>
                     </div>
                     {e.podeEditar && (

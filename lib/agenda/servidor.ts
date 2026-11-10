@@ -21,6 +21,7 @@ import {
   type TipoConflito,
 } from '@/lib/agenda-engine';
 import type { Calendario, EventoDTO, FeriadoDTO, StatusReuniao } from './tipos';
+import { sessaoParaEvento, type LinhaSessaoTurma } from './turmas';
 
 export const FUSO = 'America/Sao_Paulo';
 
@@ -241,6 +242,37 @@ export async function listarBloqueios(user: Usuario, executores: string[], de: D
       };
     },
   );
+}
+
+/**
+ * Encontros das Turmas do Legado no período (turmas publicadas, sessões não
+ * arquivadas). Só leitura: as tabelas cohort_* são do Legacy Plan.
+ */
+export async function listarTurmas(de: Date, ate: Date): Promise<EventoDTO[]> {
+  const admin = createAdminSupabase();
+  // Turma arquivada no Plan (ex.: turmas de teste) não aparece, mesmo com o cronograma publicado.
+  const { data: arquivadas } = await admin.from('cohorts').select('name').not('archived_at', 'is', null);
+  const fora = new Set(((arquivadas ?? []) as Array<{ name: string | null }>).map((c) => c.name?.trim()).filter(Boolean));
+  const { data, error } = await admin
+    .from('cohort_sessions')
+    .select(
+      'id, scheduled_start_at, scheduled_end_at, title, modality, location, meeting_url, zoom_meeting_id, cohort_schedules!inner(cohort_name, published)',
+    )
+    .is('archived_at', null)
+    .eq('cohort_schedules.published', true)
+    // Margem de 1 dia para encontros que começam antes e terminam dentro do período.
+    .gte('scheduled_start_at', new Date(de.getTime() - 86_400_000).toISOString())
+    .lt('scheduled_start_at', ate.toISOString())
+    .order('scheduled_start_at')
+    .limit(1000);
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as unknown as LinhaSessaoTurma[])
+    .filter((r) => {
+      const t = Array.isArray(r.cohort_schedules) ? r.cohort_schedules[0] : r.cohort_schedules;
+      return !fora.has(t?.cohort_name?.trim() ?? '');
+    })
+    .map(sessaoParaEvento)
+    .filter((e) => Date.parse(e.fim) > de.getTime());
 }
 
 export function feriadosParaDTO(feriados: Feriado[], de: Date, ate: Date): FeriadoDTO[] {

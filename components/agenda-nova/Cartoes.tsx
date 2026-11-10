@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Clock, Copy, Link2, Pencil, Repeat, Trash2, User, Users, Video } from 'lucide-react';
+import { Clock, Copy, ExternalLink, GraduationCap, Link2, MapPin, Monitor, Pencil, Repeat, Trash2, User, Users, Video } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -9,6 +9,7 @@ import { SearchableSelect } from '@/components/ui/searchable-select';
 import { localYmd } from '@/lib/agenda-engine';
 import { faixaHorario, rotuloDia } from '@/lib/agenda/visao';
 import type { EventoDTO } from '@/lib/agenda/tipos';
+import { rotuloModalidade } from '@/lib/agenda/turmas';
 import { Flutuante, type Ancora } from './Flutuante';
 
 export interface Cliente {
@@ -53,6 +54,8 @@ export function DetalhesEvento({
   const ini = new Date(evento.inicio);
   const fim = new Date(evento.fim);
   const reuniao = evento.tipo === 'reuniao';
+  const turma = evento.tipo === 'turma';
+  const modalidade = turma ? rotuloModalidade(evento.modalidade) : null;
   const podeEntrar = reuniao && !!evento.roomName && (evento.status === 'scheduled' || evento.status === 'live');
   return (
     <Flutuante ancora={ancora} onClose={onFechar} titulo={evento.titulo} largura={380}>
@@ -96,8 +99,36 @@ export function DetalhesEvento({
               </span>
             </li>
           )}
+          {turma && evento.turma && (
+            <li className="flex items-center gap-2">
+              <GraduationCap className="h-4 w-4 text-muted-foreground" /> {evento.turma}
+            </li>
+          )}
+          {turma && modalidade && (
+            <li className="flex items-center gap-2">
+              {evento.modalidade === 'online' ? <Monitor className="h-4 w-4 text-muted-foreground" /> : <Users className="h-4 w-4 text-muted-foreground" />}
+              {modalidade}
+            </li>
+          )}
+          {turma && evento.local && (
+            <li className="flex items-center gap-2">
+              <MapPin className="h-4 w-4 text-muted-foreground" /> {evento.local}
+            </li>
+          )}
         </ul>
-        {!reuniao && evento.podeEditar && (
+        {turma && (
+          <div className="space-y-2 pt-1">
+            {evento.link && (
+              <Button size="sm" asChild>
+                <a href={evento.link} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="h-4 w-4" /> Abrir link da aula
+                </a>
+              </Button>
+            )}
+            <p className="text-xs text-muted-foreground">Gerenciada no Legacy Plan</p>
+          </div>
+        )}
+        {evento.tipo === 'bloqueio' && evento.podeEditar && (
           <Button size="sm" variant="outline" className="text-destructive" onClick={onRemoverBloqueio}>
             <Trash2 className="h-4 w-4" /> Remover bloqueio
           </Button>
