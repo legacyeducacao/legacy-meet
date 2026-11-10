@@ -9,6 +9,7 @@ import { AbaDisponibilidade } from './AbaDisponibilidade';
 import { AbaFeriados } from './AbaFeriados';
 import { AbaRegras } from './AbaRegras';
 import { AbaModelos } from './AbaModelos';
+import { AbaMigracao } from './AbaMigracao';
 
 const ABAS = [
   ['grupos', 'Grupos do Impulsão'],
@@ -16,6 +17,7 @@ const ABAS = [
   ['feriados', 'Feriados'],
   ['regras', 'Regras da empresa'],
   ['modelos', 'Modelos'],
+  ['migracao', 'Migração'],
 ] as const;
 
 export function Configuracoes({ me }: { me: { id: string; isAdmin: boolean } }) {
@@ -38,7 +40,7 @@ export function Configuracoes({ me }: { me: { id: string; isAdmin: boolean } }) 
         }}
       >
         <TabsList className="flex h-auto flex-wrap justify-start">
-          {ABAS.map(([k, nome]) => (
+          {ABAS.filter(([k]) => k !== 'migracao' || me.isAdmin).map(([k, nome]) => (
             <TabsTrigger key={k} value={k}>
               {nome}
             </TabsTrigger>
@@ -59,6 +61,11 @@ export function Configuracoes({ me }: { me: { id: string; isAdmin: boolean } }) 
         <TabsContent value="modelos" className="pt-4">
           <AbaModelos />
         </TabsContent>
+        {me.isAdmin && (
+          <TabsContent value="migracao" className="pt-4">
+            <AbaMigracao />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

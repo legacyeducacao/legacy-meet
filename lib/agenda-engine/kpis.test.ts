@@ -161,3 +161,13 @@ describe('visão do gestor e gráficos', () => {
     expect(m.flat().reduce((a, b) => a + b, 0)).toBe(6);
   });
 });
+
+describe('risco do Legado com a agenda em mãos', () => {
+  const j = { clienteId: 'x', inicio: '2026-11-10', fim: '2027-02-23', previstos: 16, realizados: 0 };
+  it('jornada que começou agora, com os 16 encontros marcados, não está em risco', () => {
+    expect(riscoJornadaLegado(j, '2026-11-10', 7, 16).emRisco).toBe(false);
+  });
+  it('faltou e não remarcou: 15 marcados para 16 pendentes é risco', () => {
+    expect(riscoJornadaLegado({ ...j, previstos: 16 }, '2026-11-17', 7, 15)).toMatchObject({ pendentes: 16, possiveis: 15, emRisco: true });
+  });
+});
