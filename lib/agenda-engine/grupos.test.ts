@@ -6,6 +6,7 @@ import {
   previaImpactoFeriado,
   progressoJornada,
   proximoDiaSemana,
+  reancorar,
   sugerirEntrada,
   type GrupoConfig,
 } from './grupos';
@@ -187,5 +188,22 @@ describe('prévia do impacto de um feriado', () => {
     const impacto = previaImpactoFeriado(grupo('segue'), feriadoLegacy(terca(2)), [], terca(1), terca(4));
     expect(impacto).toHaveLength(1);
     expect(impacto[0].depois).toEqual({ rotulo: 'F2', status: 'perdida_feriado' });
+  });
+});
+
+describe('mudar o dia do grupo', () => {
+  it('o ciclo continua de onde estava, mesmo com feriado no dia antigo', () => {
+    // Terça com recesso na semana 2: semanas 1..5 dão F1, (pausa), F2, C1, C2.
+    const feriados = [feriadoLegacy(terca(2))];
+    const antes = ocorrenciasDoGrupo(TER, terca(1), terca(5), feriados).map((o) => o.rotulo);
+    expect(antes).toEqual(['F1', null, 'F2', 'C1', 'C2']);
+    // A partir da semana 4 o grupo passa para quarta: a quarta da semana 4 tem que dar C1.
+    const novo = { ...TER, diaSemana: 3, ...reancorar(TER.sequencia, 'C1', terca(4)) };
+    const depois = ocorrenciasDoGrupo(novo, terca(4), addDays(terca(6), 1), feriados).map((o) => [o.data, o.rotulo]);
+    expect(depois).toEqual([
+      [addDays(terca(4), 1), 'C1'],
+      [addDays(terca(5), 1), 'C2'],
+      [addDays(terca(6), 1), 'F1'],
+    ]);
   });
 });

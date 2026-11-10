@@ -2,13 +2,14 @@ import { after, NextRequest, NextResponse } from 'next/server';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 import { deleteCalendarEvent } from '@/lib/calendar';
 import { corpo, soAdmin, usuarioAgenda } from '@/lib/agenda/rota';
+import { editarGrupo, type MudancasGrupo } from '@/lib/agenda/editarGrupo';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * Admin: nome, substituto, cliente da reunião e encerrar o grupo (cancela os
- * encontros futuros). Executor do grupo: só o nome. Mudar dia/hora = encerrar
- * e criar outro grupo (o histórico fica).
+ * Editar o grupo (nome, dia, horário, duração, primeira aula, executor,
+ * substituto e cliente): ver lib/agenda/editarGrupo.ts. Encerrar ({ ativo:
+ * false }, só admin) cancela os encontros futuros.
  */
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
@@ -17,19 +18,20 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   const admin = createAdminSupabase();
   const { data: g } = await admin.from('agenda_grupos').select('executor_id, ativo').eq('id', id).maybeSingle();
   if (!g) return new NextResponse('Grupo não encontrado', { status: 404 });
-  const b = await corpo<{ nome?: string; substitutoId?: string | null; tenantId?: string | null; ativo?: boolean }>(req);
-  const dono = g.executor_id === a.user.id;
-  if (!a.user.isAdmin && (!dono || b.substitutoId !== undefined || b.tenantId !== undefined || b.ativo !== undefined)) return soAdmin();
+  const b = await corpo<MudancasGrupo & { ativo?: boolean; justificativa?: string }>(req);
 
-  const upd: Record<string, unknown> = { atualizado_em: new Date().toISOString() };
-  if (b.nome?.trim()) upd.nome = b.nome.trim();
-  if (b.substitutoId !== undefined) upd.substituto_id = b.substitutoId;
-  if (b.tenantId !== undefined) upd.tenant_id = b.tenantId;
-  if (b.ativo === false) {
-    upd.ativo = false;
-    upd.fim = new Date().toISOString().slice(0, 10);
+  if (b.ativo !== false) {
+    const { ativo: _a, justificativa, ...mudancas } = b;
+    const r = await editarGrupo(id, a.user, mudancas, justificativa);
+    if (r.ok) return NextResponse.json(r);
+    if ('conflito' in r) return NextResponse.json(r.conflito, { status: 409 });
+    return new NextResponse(r.erro, { status: r.status });
   }
-  const { error } = await admin.from('agenda_grupos').update(upd).eq('id', id);
+  if (!a.user.isAdmin) return soAdmin();
+  const { error } = await admin
+    .from('agenda_grupos')
+    .update({ ativo: false, fim: new Date().toISOString().slice(0, 10), atualizado_em: new Date().toISOString() })
+    .eq('id', id);
   if (error) return new NextResponse('Falha ao salvar: ' + error.message, { status: 400 });
 
   if (b.ativo === false && g.ativo) {

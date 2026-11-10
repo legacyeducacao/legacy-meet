@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { CalendarPlus, ChevronDown, Loader2, Plus, UserPlus, Users } from 'lucide-react';
+import { CalendarPlus, ChevronDown, Loader2, Pencil, Plus, UserPlus, Users } from 'lucide-react';
 import { toast } from '@/components/ui/custom-toast';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -21,6 +21,11 @@ type Grupo = {
   id: string;
   nome: string;
   executor_id: string;
+  substituto_id: string | null;
+  tenant_id: string | null;
+  template_id: string | null;
+  ancora: string;
+  defasagem: number;
   executorNome: string | null;
   substitutoNome: string | null;
   clienteNome: string | null;
@@ -52,6 +57,7 @@ export function AbaGrupos({ isAdmin, meId }: { isAdmin: boolean; meId: string })
   const [equipe, setEquipe] = React.useState<Opcao[]>([]);
   const [clientes, setClientes] = React.useState<Opcao[]>([]);
   const [novo, setNovo] = React.useState(false);
+  const [editando, setEditando] = React.useState<Grupo | null>(null);
   const [matricular, setMatricular] = React.useState<Grupo | 'qualquer' | null>(null);
   const [abertos, setAbertos] = React.useState<Record<string, Jornada[] | 'carregando'>>({});
   const [ocupado, setOcupado] = React.useState<string | null>(null);
@@ -179,6 +185,11 @@ export function AbaGrupos({ isAdmin, meId }: { isAdmin: boolean; meId: string })
                       <UserPlus className="h-4 w-4" /> Matricular
                     </Button>
                     {podeMexer && (
+                      <Button size="sm" variant="outline" onClick={() => setEditando(g)}>
+                        <Pencil className="h-4 w-4" /> Editar
+                      </Button>
+                    )}
+                    {podeMexer && (
                       <Button size="sm" onClick={() => void gerar(g)} disabled={ocupado === g.id}>
                         {ocupado === g.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarPlus className="h-4 w-4" />} Gerar agenda
                       </Button>
@@ -265,6 +276,21 @@ export function AbaGrupos({ isAdmin, meId }: { isAdmin: boolean; meId: string })
           onFechar={() => setNovo(false)}
           onCriado={() => {
             setNovo(false);
+            void carregar();
+          }}
+        />
+      )}
+      {editando && (
+        <EditarGrupo
+          grupo={editando}
+          template={templates.find((t) => t.id === editando.template_id) ?? null}
+          isAdmin={isAdmin}
+          equipe={equipe}
+          clientes={clientes}
+          onFechar={() => setEditando(null)}
+          onSalvo={() => {
+            setEditando(null);
+            setAbertos({});
             void carregar();
           }}
         />
@@ -413,6 +439,174 @@ function NovoGrupo({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function EditarGrupo({
+  grupo: g,
+  template,
+  isAdmin,
+  equipe,
+  clientes,
+  onFechar,
+  onSalvo,
+}: {
+  grupo: Grupo;
+  template: Template | null;
+  isAdmin: boolean;
+  equipe: Opcao[];
+  clientes: Opcao[];
+  onFechar: () => void;
+  onSalvo: () => void;
+}) {
+  // Data da 1ª aula do ciclo (âncora + defasagem em semanas).
+  const primeiraAtual = React.useMemo(() => {
+    const d = new Date(`${g.ancora}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + 7 * (g.defasagem || 0));
+    return d.toISOString().slice(0, 10);
+  }, [g.ancora, g.defasagem]);
+  const [nome, setNome] = React.useState(g.nome);
+  const [dia, setDia] = React.useState(g.dia_semana);
+  const [hora, setHora] = React.useState(g.hora);
+  const [duracao, setDuracao] = React.useState(String(g.duracao_min));
+  const [primeira, setPrimeira] = React.useState(primeiraAtual);
+  const [executor, setExecutor] = React.useState(g.executor_id);
+  const [substituto, setSubstituto] = React.useState(g.substituto_id ?? '');
+  const [tenant, setTenant] = React.useState(g.tenant_id ?? '');
+  const [busy, setBusy] = React.useState(false);
+  const [conflito, setConflito] = React.useState<RespostaConflito | null>(null);
+  const livre = (c: string) => isAdmin || !!template?.campos_editaveis.includes(c);
+  const primeiroRotulo = g.sequencia[0] ?? 'Aula 1';
+  const mudaHorario = dia !== g.dia_semana || hora !== g.hora || Number(duracao) !== g.duracao_min || primeira !== primeiraAtual;
+
+  const salvar = async (justificativa?: string) => {
+    const corpo: Record<string, unknown> = {};
+    if (nome.trim() !== g.nome) corpo.nome = nome.trim();
+    if (dia !== g.dia_semana) corpo.diaSemana = dia;
+    if (hora !== g.hora) corpo.hora = hora;
+    if (Number(duracao) !== g.duracao_min) corpo.duracaoMin = Number(duracao);
+    if (primeira !== primeiraAtual) corpo.ancora = primeira;
+    if (isAdmin) {
+      if (executor !== g.executor_id) corpo.executorId = executor;
+      if (substituto !== (g.substituto_id ?? '')) corpo.substitutoId = substituto || null;
+      if (tenant !== (g.tenant_id ?? '')) corpo.tenantId = tenant || null;
+    }
+    if (!Object.keys(corpo).length) return onFechar();
+    setBusy(true);
+    const r = await fetch(`/api/agenda/grupos/${g.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...corpo, justificativa }),
+    });
+    setBusy(false);
+    if (r.status === 409) return setConflito((await r.json()) as RespostaConflito);
+    if (!r.ok) return toast.error('Não foi possível salvar', { description: await erro(r) });
+    const j = (await r.json()) as { movidos: number };
+    toast.success('Grupo atualizado', { description: j.movidos ? `${j.movidos} encontro(s) remarcado(s). Os convidados recebem o aviso.` : undefined });
+    onSalvo();
+  };
+
+  return (
+    <>
+      <Dialog open={!conflito} onOpenChange={(o) => !o && onFechar()}>
+        <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Editar {g.nome}</DialogTitle>
+            <DialogDescription>O ciclo, as entradas e a regra de feriado vêm do modelo{isAdmin ? '' : ' (definidos pelo admin)'}.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="eg-nome">Nome</Label>
+              <Input id="eg-nome" value={nome} onChange={(e) => setNome(e.target.value)} />
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label>Dia da semana</Label>
+                <select className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={dia} disabled={!livre('dia_semana')} onChange={(e) => setDia(Number(e.target.value))}>
+                  {DIAS_LONGOS.map((d, i) => (
+                    <option key={d} value={i + 1}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="eg-hora">Horário</Label>
+                <Input id="eg-hora" type="time" step={900} value={hora} disabled={!livre('hora')} onChange={(e) => setHora(e.target.value)} />
+              </div>
+              <div className="col-span-2 space-y-1.5 sm:col-span-1">
+                <Label htmlFor="eg-dur">Duração (min)</Label>
+                <Input id="eg-dur" type="number" min={15} max={720} step={15} value={duracao} disabled={!livre('duracao_min')} onChange={(e) => setDuracao(e.target.value)} />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="eg-primeira">Data da primeira {primeiroRotulo} deste grupo</Label>
+              <Input id="eg-primeira" type="date" value={primeira} disabled={!livre('ancora') || g.clientesAtivos > 0} onChange={(e) => setPrimeira(e.target.value)} />
+              {g.clientesAtivos > 0 && <p className="text-xs text-muted-foreground">Não muda enquanto houver clientes no grupo: mudaria o conteúdo das aulas deles.</p>}
+            </div>
+            {isAdmin && (
+              <>
+                <div className="space-y-1.5">
+                  <Label>Executor responsável</Label>
+                  <SearchableSelect value={executor} onValueChange={setExecutor} options={equipe.map((m) => ({ value: m.id, label: m.name }))} placeholder="Executor" searchPlaceholder="Buscar…" emptyText="Ninguém encontrado." />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Substituto (quando o executor tiver bloqueio)</Label>
+                  <div className="flex gap-2">
+                    <div className="min-w-0 flex-1">
+                      <SearchableSelect value={substituto} onValueChange={setSubstituto} options={equipe.map((m) => ({ value: m.id, label: m.name }))} placeholder="Nenhum" searchPlaceholder="Buscar…" emptyText="Ninguém encontrado." />
+                    </div>
+                    {substituto && (
+                      <Button type="button" variant="ghost" onClick={() => setSubstituto('')}>
+                        Tirar
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Cliente das reuniões (opcional)</Label>
+                  <div className="flex gap-2">
+                    <div className="min-w-0 flex-1">
+                      <SearchableSelect value={tenant} onValueChange={setTenant} options={clientes.map((c) => ({ value: c.id, label: c.name }))} placeholder="Legacy Executoria" searchPlaceholder="Buscar cliente…" emptyText="Nenhum cliente." />
+                    </div>
+                    {tenant && (
+                      <Button type="button" variant="ghost" onClick={() => setTenant('')}>
+                        Tirar
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+            {mudaHorario && (
+              <p className="rounded-lg border border-amber-300 bg-amber-500/10 p-2 text-xs text-amber-800 dark:text-amber-200">
+                Os encontros já marcados vão para o novo dia e horário, na mesma ordem do ciclo. A sala, o link e a matrícula dos clientes continuam os mesmos, e os
+                convidados recebem o aviso da mudança.
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={onFechar}>
+              Cancelar
+            </Button>
+            <Button onClick={() => void salvar()} disabled={busy || !nome.trim()}>
+              {busy ? 'Salvando…' : 'Salvar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {conflito && (
+        <DialogoConflitos
+          conflitos={conflito.conflitos}
+          podeSobreporBloqueante={conflito.podeSobreporBloqueante}
+          onSalvar={(j) => {
+            setConflito(null);
+            void salvar(j);
+          }}
+          onDesistir={() => setConflito(null)}
+        />
+      )}
+    </>
   );
 }
 

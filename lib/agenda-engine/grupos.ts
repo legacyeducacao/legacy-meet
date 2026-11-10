@@ -10,7 +10,7 @@
  */
 import { conteudo, indiceCiclo, sequenciaAPartirDe } from './ciclo';
 import { feriadosValidos, type Feriado, type FiltroFeriados } from './feriados';
-import { addDays, diffDays, instante, MIN_MS, weekdayIso, type Hm, type Ymd } from './tempo';
+import { addDays, diffDays, instante, MIN_MS, mod, weekdayIso, type Hm, type Ymd } from './tempo';
 
 export type PoliticaFeriadoGrupo = 'pausa' | 'segue';
 
@@ -285,4 +285,15 @@ export function previaImpactoFeriado(
     }
   }
   return out.sort((a, b) => a.data.localeCompare(b.data));
+}
+
+/**
+ * Âncora e defasagem que fazem a semana de `data` dar `rotulo`, para o ciclo
+ * continuar de onde estava quando o grupo muda de dia (os feriados do dia
+ * novo passam a contar só daqui para frente).
+ */
+export function reancorar(sequencia: readonly string[], rotulo: string, data: Ymd): { ancora: Ymd; defasagem: number } {
+  const i = sequencia.indexOf(rotulo);
+  if (i < 0) throw new Error(`rótulo ${rotulo} não está na sequência`);
+  return { ancora: data, defasagem: mod(-i, sequencia.length) };
 }
