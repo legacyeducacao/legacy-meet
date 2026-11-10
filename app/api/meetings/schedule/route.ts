@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { after } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
-import { createAdminSupabase } from '@/lib/supabase/admin';
-import { createCalendarEvent } from '@/lib/calendar';
+import { criarReunioes } from '@/lib/meetingsCore';
 import { computeOccurrences, type Frequency } from '@/lib/recurrence';
 import { listTeamMembers, normalizeCoHostIds } from '@/lib/meetingHosts';
 import { parseGuestEmails } from '@/lib/guestEmails';
@@ -91,120 +89,24 @@ export async function POST(req: NextRequest) {
   const team = await listTeamMembers();
   const coHostIds = normalizeCoHostIds(body.coHostIds, new Set(team.map((m) => m.id)), user.id);
 
-  const ids = occurrences.map(() => crypto.randomUUID());
-  const roomNames = occurrences.map(() => `meet_${crypto.randomUUID()}`);
-  const isSeries = occurrences.length > 1;
-
-  const rows = occurrences.map((occ, i) => ({
-    id: ids[i],
-    tenant_id: tenantId,
-    host_id: user.id,
+  const r = await criarReunioes({
+    hostId: user.id,
+    hostEmail: user.email,
+    sector,
+    tenantId,
     title,
-    room_name: roomNames[i],
-    scheduled_start_at: occ.toISOString(),
-    scheduled_end_at: new Date(occ.getTime() + 60 * 60 * 1000).toISOString(),
-    status: 'scheduled',
-    recording_enabled: body.record !== false,
-    auto_transcribe: body.transcribe !== false,
-    recurrence_parent_id: isSeries ? ids[0] : null,
-    recurrence_rule: isSeries ? recurrenceRule : null,
-  }));
-
-  const admin = createAdminSupabase();
-  const { error } = await admin.from('meetings').insert(rows);
-  if (error) return new NextResponse('Falha ao agendar: ' + error.message, { status: 500 });
-
-  const { error: sectorError } = await admin
-    .from('meet_meeting_sector')
-    .insert(
-      ids.map((meetingId) => ({
-        meeting_id: meetingId,
-        sector,
-        onboarding: sector === 'executoria' && body.onboarding === true,
-      })),
-    );
-  if (sectorError) {
-    // não deixa reuniões "fantasma" sem setor: desfaz tudo e falha.
-    await admin.from('meetings').delete().in('id', ids);
-    return new NextResponse('Falha ao registrar o setor: ' + sectorError.message, { status: 500 });
-  }
-
-  if (coHostIds.length) {
-    const { error: hostsError } = await admin
-      .from('meet_meeting_hosts')
-      .insert(ids.flatMap((meetingId) => coHostIds.map((userId) => ({ meeting_id: meetingId, user_id: userId }))));
-    if (hostsError) {
-      await admin.from('meetings').delete().in('id', ids);
-      return new NextResponse('Falha ao registrar os anfitriões: ' + hostsError.message, { status: 500 });
-    }
-  }
-
-  // Google Agenda: um evento por ocorrência (com o link daquela sala), criados
-  // em SEGUNDO PLANO — uma série de 52 não pode travar a resposta. Erros são
-  // por ocorrência e não-fatais (a reunião continua agendada sem o evento).
-  const attendees: string[] = [];
-  try {
-    if (user.email) attendees.push(user.email);
-    for (const m of team) if (coHostIds.includes(m.id) && m.email) attendees.push(m.email);
-    attendees.push(...guests.emails);
-    if (sector === 'executoria') {
-      const { data: tenant } = await admin
-        .from('client_tenants')
-        .select('email')
-        .eq('id', tenantId)
-        .maybeSingle();
-      if (tenant?.email) {
-        attendees.push(tenant.email as string);
-      } else {
-        // fallback: e-mails dos usuários CLIENT do tenant
-        const { data: clientUsers } = await admin
-          .from('users')
-          .select('email')
-          .eq('tenant_id', tenantId)
-          .eq('role', 'CLIENT');
-        for (const u of (clientUsers ?? []) as { email: string | null }[]) {
-          if (u.email) attendees.push(u.email);
-        }
-      }
-    }
-  } catch (e) {
-    console.error('[schedule] falha ao resolver convidados do Calendar:', e);
-  }
-
-  if (attendees.length > 0) {
-    const base = (process.env.APP_BASE_URL || '').replace(/\/$/, '');
-    after(async () => {
-      for (let i = 0; i < occurrences.length; i++) {
-        try {
-          // A série pode ter sido cancelada/editada nos segundos entre a
-          // resposta e este loop — só cria o convite se ainda estiver agendada.
-          const { data: current } = await admin
-            .from('meetings')
-            .select('status')
-            .eq('id', ids[i])
-            .maybeSingle();
-          if (!current || current.status !== 'scheduled') continue;
-          const eventId = await createCalendarEvent({
-            summary: title,
-            description: base
-              ? `Reunião Legacy Meet.\nLink: ${base}/rooms/${roomNames[i]}`
-              : 'Reunião Legacy Meet.',
-            startISO: occurrences[i].toISOString(),
-            endISO: new Date(occurrences[i].getTime() + 60 * 60 * 1000).toISOString(),
-            attendees,
-          });
-          if (eventId) {
-            await admin
-              .from('meet_meeting_sector')
-              .update({ calendar_event_id: eventId })
-              .eq('meeting_id', ids[i]);
-          }
-        } catch (e) {
-          console.error(`[schedule] falha no evento do Calendar (ocorrência ${i + 1}):`, e);
-        }
-      }
-    });
-  }
+    // Agenda atual: toda reunião dura 1 hora.
+    ocorrencias: occurrences.map((occ) => ({ inicio: occ, fim: new Date(occ.getTime() + 60 * 60 * 1000) })),
+    record: body.record !== false,
+    transcribe: body.transcribe !== false,
+    onboarding: body.onboarding === true,
+    coHostIds,
+    team,
+    guestEmails: guests.emails,
+    recurrenceRule,
+  });
+  if (!r.ok) return new NextResponse(r.message, { status: r.status });
+  const { ids, roomNames } = r;
 
   return NextResponse.json({ id: ids[0], roomName: roomNames[0], occurrences: ids.length });
 }

@@ -1,0 +1,219 @@
+'use client';
+
+import * as React from 'react';
+import { Clock, Copy, Link2, Pencil, Repeat, Trash2, User, Users, Video } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { SearchableSelect } from '@/components/ui/searchable-select';
+import { localYmd } from '@/lib/agenda-engine';
+import { faixaHorario, rotuloDia } from '@/lib/agenda/visao';
+import type { EventoDTO } from '@/lib/agenda/tipos';
+import { Flutuante, type Ancora } from './Flutuante';
+
+export interface Cliente {
+  id: string;
+  name: string;
+}
+
+const STATUS: Record<string, string> = {
+  live: 'Em andamento',
+  ended: 'Encerrada',
+  no_show: 'No-show',
+};
+
+/** Detalhes do evento com ações rápidas. */
+export function DetalhesEvento({
+  evento,
+  ancora,
+  tz,
+  cor,
+  meId,
+  onFechar,
+  onEntrar,
+  onCopiarLink,
+  onEditar,
+  onDuplicar,
+  onExcluir,
+}: {
+  evento: EventoDTO;
+  ancora: Ancora;
+  tz: string;
+  cor: string;
+  meId: string;
+  onFechar: () => void;
+  onEntrar: () => void;
+  onCopiarLink: () => void;
+  onEditar: () => void;
+  onDuplicar: () => void;
+  onExcluir: () => void;
+}) {
+  const ini = new Date(evento.inicio);
+  const fim = new Date(evento.fim);
+  const reuniao = evento.tipo === 'reuniao';
+  const podeEntrar = reuniao && !!evento.roomName && (evento.status === 'scheduled' || evento.status === 'live');
+  return (
+    <Flutuante ancora={ancora} onClose={onFechar} titulo={evento.titulo} largura={380}>
+      <div className="space-y-3 p-4 pr-10">
+        <div className="flex items-start gap-3">
+          <span className="mt-1.5 h-3.5 w-3.5 shrink-0 rounded" style={{ backgroundColor: cor }} />
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold leading-snug">
+              {evento.rotulo && <Badge variant="secondary" className="mr-1.5 align-middle">{evento.rotulo}</Badge>}
+              {evento.titulo}
+            </h2>
+            <p className="text-sm text-muted-foreground first-letter:uppercase">
+              {rotuloDia(localYmd(ini, tz))}
+              {evento.diaInteiro ? ' · dia todo' : ` · ${faixaHorario(ini, fim, tz)}`}
+            </p>
+          </div>
+        </div>
+        <ul className="space-y-1.5 pl-[26px] text-sm">
+          {evento.serieId && (
+            <li className="flex items-center gap-2 text-muted-foreground">
+              <Repeat className="h-4 w-4" /> Faz parte de uma série
+            </li>
+          )}
+          {evento.cliente && (
+            <li className="flex items-center gap-2">
+              <Users className="h-4 w-4 text-muted-foreground" /> {evento.cliente}
+            </li>
+          )}
+          {evento.executorNome && evento.executorId !== meId && (
+            <li className="flex items-center gap-2">
+              <User className="h-4 w-4 text-muted-foreground" /> {evento.executorNome}
+            </li>
+          )}
+          {reuniao && (
+            <li className="flex flex-wrap items-center gap-1.5">
+              <Clock className="h-4 w-4 text-muted-foreground" />
+              {evento.status && STATUS[evento.status] && <Badge variant="outline">{STATUS[evento.status]}</Badge>}
+              {evento.onboarding && <Badge variant="outline">Onboarding</Badge>}
+              <span className="text-xs text-muted-foreground">
+                {evento.gravar ? (evento.transcrever ? 'Grava e transcreve' : 'Grava') : 'Sem gravação'}
+              </span>
+            </li>
+          )}
+        </ul>
+        {reuniao && (
+          <div className="flex flex-wrap gap-2 pt-1">
+            {podeEntrar && (
+              <Button size="sm" onClick={onEntrar}>
+                <Video className="h-4 w-4" /> Entrar na sala
+              </Button>
+            )}
+            {evento.roomName && (
+              <Button size="sm" variant="outline" onClick={onCopiarLink} aria-label="Copiar link do convidado">
+                <Link2 className="h-4 w-4" /> Link
+              </Button>
+            )}
+            {evento.podeEditar && (
+              <Button size="sm" variant="outline" onClick={onEditar} aria-label="Editar">
+                <Pencil className="h-4 w-4" /> Editar
+              </Button>
+            )}
+            <Button size="sm" variant="outline" onClick={onDuplicar} aria-label="Duplicar">
+              <Copy className="h-4 w-4" /> Duplicar
+            </Button>
+            {evento.podeEditar && (
+              <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={onExcluir} aria-label="Cancelar reunião">
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+    </Flutuante>
+  );
+}
+
+/** Criação rápida: título, cliente e horário; "Mais opções" abre o formulário completo. */
+export function CriacaoRapida({
+  ancora,
+  inicio,
+  fim,
+  tz,
+  setor,
+  podeEscolherSetor,
+  clientes,
+  onFechar,
+  onSalvar,
+  onMaisOpcoes,
+}: {
+  ancora: Ancora;
+  inicio: Date;
+  fim: Date;
+  tz: string;
+  setor: 'executoria' | 'comercial';
+  podeEscolherSetor: boolean;
+  clientes: Cliente[];
+  onFechar: () => void;
+  onSalvar: (v: { titulo: string; setor: 'executoria' | 'comercial'; tenantId: string }) => Promise<boolean>;
+  onMaisOpcoes: (v: { titulo: string; setor: 'executoria' | 'comercial'; tenantId: string }) => void;
+}) {
+  const [titulo, setTitulo] = React.useState('');
+  const [s, setS] = React.useState(setor);
+  const [tenantId, setTenantId] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  const [erro, setErro] = React.useState('');
+
+  const salvar = async () => {
+    if (!titulo.trim()) return setErro('Informe o título.');
+    if (s === 'executoria' && !tenantId) return setErro('Selecione o cliente.');
+    setErro('');
+    setBusy(true);
+    const ok = await onSalvar({ titulo: titulo.trim(), setor: s, tenantId });
+    setBusy(false);
+    if (ok) onFechar();
+  };
+
+  return (
+    <Flutuante ancora={ancora} onClose={onFechar} titulo="Nova reunião" largura={380}>
+      <form
+        className="space-y-3 p-4 pr-10"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void salvar();
+        }}
+      >
+        <Input autoFocus placeholder="Adicionar título" value={titulo} onChange={(e) => setTitulo(e.target.value)} className="text-base font-medium" />
+        <p className="text-sm text-muted-foreground first-letter:uppercase">
+          {rotuloDia(localYmd(inicio, tz))} · {faixaHorario(inicio, fim, tz)}
+        </p>
+        {podeEscolherSetor && (
+          <div className="flex gap-1 rounded-lg bg-muted p-1 text-sm">
+            {(['executoria', 'comercial'] as const).map((x) => (
+              <button
+                key={x}
+                type="button"
+                onClick={() => setS(x)}
+                className={`flex-1 rounded-md px-2 py-1 ${s === x ? 'bg-background font-medium shadow-sm' : 'text-muted-foreground'}`}
+              >
+                {x === 'executoria' ? 'Executoria' : 'Comercial'}
+              </button>
+            ))}
+          </div>
+        )}
+        {s === 'executoria' && (
+          <SearchableSelect
+            value={tenantId}
+            onValueChange={setTenantId}
+            options={clientes.map((c) => ({ value: c.id, label: c.name }))}
+            placeholder={clientes.length ? 'Cliente' : 'Carregando clientes…'}
+            searchPlaceholder="Buscar cliente…"
+            emptyText="Nenhum cliente encontrado."
+          />
+        )}
+        {erro && <p className="text-sm text-destructive">{erro}</p>}
+        <div className="flex justify-end gap-2 pt-1">
+          <Button type="button" variant="ghost" onClick={() => onMaisOpcoes({ titulo: titulo.trim(), setor: s, tenantId })}>
+            Mais opções
+          </Button>
+          <Button type="submit" disabled={busy}>
+            {busy ? 'Salvando…' : 'Salvar'}
+          </Button>
+        </div>
+      </form>
+    </Flutuante>
+  );
+}

@@ -44,6 +44,7 @@ type UserRow = {
   email: string;
   isAdmin: boolean;
   sector: Sector | null;
+  agendaNova: boolean;
 };
 
 function getInitials(name: string | null, email: string): string {
@@ -91,13 +92,13 @@ export default function UsuariosClient() {
   React.useEffect(() => { loadUsers(); }, [loadUsers]);
 
   const patchUser = React.useCallback(
-    async (userId: string, isAdmin: boolean, userSector: Sector | null) => {
+    async (userId: string, isAdmin: boolean, userSector: Sector | null, agendaNova?: boolean) => {
       setSaving((prev) => ({ ...prev, [userId]: true }));
       try {
         const res = await fetch('/api/admin/users', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId, isAdmin, sector: userSector ?? 'ambos' }),
+          body: JSON.stringify({ userId, isAdmin, sector: userSector ?? 'ambos', agendaNova }),
         });
         if (!res.ok) {
           const text = await res.text();
@@ -267,6 +268,7 @@ export default function UsuariosClient() {
                       <TableHead>E-mail</TableHead>
                       <TableHead>Admin</TableHead>
                       <TableHead>Setor</TableHead>
+                      <TableHead>Agenda nova</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -307,6 +309,14 @@ export default function UsuariosClient() {
                               <SelectItem value="ambos">Ambos</SelectItem>
                             </SelectContent>
                           </Select>
+                        </TableCell>
+                        <TableCell>
+                          <Switch
+                            checked={u.agendaNova || u.isAdmin}
+                            disabled={saving[u.id] || u.isAdmin}
+                            title={u.isAdmin ? 'Admin sempre vê a agenda nova' : 'Liberar a agenda nova (teste)'}
+                            onCheckedChange={(checked) => patchUser(u.id, u.isAdmin, u.sector, checked)}
+                          />
                         </TableCell>
                       </TableRow>
                     ))}
