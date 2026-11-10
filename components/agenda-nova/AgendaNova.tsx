@@ -187,7 +187,7 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
       (e) =>
         !ocultos.includes(e.calendario) &&
         !escondidosPendentes.has(e.id) &&
-        (!q || `${e.titulo} ${e.cliente ?? ''} ${e.rotulo ?? ''} ${e.executorNome ?? ''}`.toLowerCase().includes(q)),
+        (!q || `${e.titulo} ${e.cliente ?? ''} ${e.rotulo ?? ''} ${e.executorNome ?? ''} ${e.turma ?? ''}`.toLowerCase().includes(q)),
     );
   }, [eventos, ocultos, escondidosPendentes, busca]);
   const feriadosVisiveis = ocultos.includes('feriados') ? [] : feriados;
@@ -345,6 +345,8 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
   // ------------------------------ Cancelar (com Desfazer) ------------------------------
   const confirmarCancelamento = (ev: EventoDTO, esc: Escopo, origem: Origem) => {
     setCancelar(null);
+    // Só reuniões do Meet se cancelam aqui (turmas do Legado são do Legacy Plan).
+    if (ev.tipo !== 'reuniao' || !ev.podeEditar) return;
     setDetalhe(null);
     const ids = eventos
       .filter((e) => e.id === ev.id || (esc !== 'esta' && !!ev.serieId && e.serieId === ev.serieId && e.status === 'scheduled' && (esc === 'todas' || e.inicio >= ev.inicio)))
@@ -730,7 +732,7 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
         />
       )}
 
-      {cancelar && (
+      {cancelar?.tipo === 'reuniao' && (
         <DialogoCancelar
           titulo={cancelar.titulo}
           recorrente={!!cancelar.serieId}

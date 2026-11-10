@@ -21,6 +21,7 @@ import {
   type TipoConflito,
 } from '@/lib/agenda-engine';
 import type { Calendario, EventoDTO, FeriadoDTO, StatusReuniao } from './tipos';
+import { sessaoParaEvento, type LinhaSessaoTurma } from './turmas';
 
 export const FUSO = 'America/Sao_Paulo';
 
@@ -241,6 +242,29 @@ export async function listarBloqueios(user: Usuario, executores: string[], de: D
       };
     },
   );
+}
+
+/**
+ * Encontros das Turmas do Legado no período (turmas publicadas, sessões não
+ * arquivadas). Só leitura: as tabelas cohort_* são do Legacy Plan.
+ */
+export async function listarTurmas(de: Date, ate: Date): Promise<EventoDTO[]> {
+  const { data, error } = await createAdminSupabase()
+    .from('cohort_sessions')
+    .select(
+      'id, scheduled_start_at, scheduled_end_at, title, modality, location, meeting_url, zoom_meeting_id, cohort_schedules!inner(cohort_name, published)',
+    )
+    .is('archived_at', null)
+    .eq('cohort_schedules.published', true)
+    // Margem de 1 dia para encontros que começam antes e terminam dentro do período.
+    .gte('scheduled_start_at', new Date(de.getTime() - 86_400_000).toISOString())
+    .lt('scheduled_start_at', ate.toISOString())
+    .order('scheduled_start_at')
+    .limit(1000);
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as unknown as LinhaSessaoTurma[])
+    .map(sessaoParaEvento)
+    .filter((e) => Date.parse(e.fim) > de.getTime());
 }
 
 export function feriadosParaDTO(feriados: Feriado[], de: Date, ate: Date): FeriadoDTO[] {

@@ -66,9 +66,9 @@ export function VisaoLista({
                       {e.rotulo && <span className="mr-1 rounded bg-muted px-1 text-xs">{e.rotulo}</span>}
                       {e.titulo}
                     </span>
-                    {(e.cliente || e.executorNome) && (
+                    {(e.cliente || e.turma || e.executorNome) && (
                       <span className="block truncate text-xs text-muted-foreground">
-                        {[e.cliente, e.executorNome].filter(Boolean).join(' · ')}
+                        {[e.cliente || e.turma, e.executorNome].filter(Boolean).join(' · ')}
                       </span>
                     )}
                   </span>

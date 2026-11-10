@@ -20,9 +20,11 @@ import {
   FUSO,
   listarBloqueios,
   listarReunioes,
+  listarTurmas,
   podeUsarAgendaNova,
   registrarSobreposicoes,
 } from '@/lib/agenda/servidor';
+import type { EventoDTO } from '@/lib/agenda/tipos';
 import { decidirConflitos } from '@/lib/agenda/regras';
 
 export const dynamic = 'force-dynamic';
@@ -30,7 +32,7 @@ export const dynamic = 'force-dynamic';
 const MAX_OCORRENCIAS = 200;
 const pad = (n: number) => String(n).padStart(2, '0');
 
-/** GET ?de=ISO&ate=ISO&executores=id,id : reuniões, bloqueios e feriados do período. */
+/** GET ?de=ISO&ate=ISO&executores=id,id : reuniões, bloqueios, turmas do Legado e feriados do período. */
 export async function GET(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user || !(await podeUsarAgendaNova(user))) return new NextResponse('Não autorizado', { status: 403 });
@@ -44,12 +46,20 @@ export async function GET(req: NextRequest) {
   const executores = user.isAdmin && pedidos.length ? [...new Set(pedidos)].slice(0, 30) : [user.id];
 
   try {
-    const [reunioes, bloqueios, feriados] = await Promise.all([
+    const [reunioes, bloqueios, feriados, turmas] = await Promise.all([
       listarReunioes(user, executores, de, ate),
       listarBloqueios(user, executores, de, ate),
       carregarFeriados(de, ate),
+      // Turmas do Legado (Legacy Plan): informação da empresa, só leitura. Se falhar, a agenda abre sem elas.
+      listarTurmas(de, ate).catch((e) => {
+        console.error('agenda eventos GET: turmas do Legado', e);
+        return [] as EventoDTO[];
+      }),
     ]);
-    return NextResponse.json({ eventos: [...reunioes, ...bloqueios], feriados: feriadosParaDTO(feriados, de, ate) });
+    return NextResponse.json({
+      eventos: [...reunioes, ...bloqueios, ...turmas],
+      feriados: feriadosParaDTO(feriados, de, ate),
+    });
   } catch (e) {
     console.error('agenda eventos GET', e);
     return new NextResponse('Erro ao carregar a agenda', { status: 500 });

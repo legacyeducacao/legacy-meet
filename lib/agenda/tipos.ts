@@ -3,13 +3,14 @@
  * Sem dependência de servidor: pode ir para o navegador.
  */
 
-export type Calendario = 'impulsao' | 'legado' | 'comercial' | 'outros' | 'bloqueios' | 'feriados';
+export type Calendario = 'impulsao' | 'legado' | 'comercial' | 'outros' | 'turmas' | 'bloqueios' | 'feriados';
 
 export const CALENDARIOS: Array<{ id: Calendario; nome: string; cor: string }> = [
   { id: 'impulsao', nome: 'Impulsão', cor: '#7c3aed' },
   { id: 'legado', nome: 'Legado', cor: '#2563eb' },
   { id: 'comercial', nome: 'Comercial', cor: '#059669' },
   { id: 'outros', nome: 'Outras reuniões', cor: '#0891b2' },
+  { id: 'turmas', nome: 'Turmas do Legado', cor: '#d97706' },
   { id: 'bloqueios', nome: 'Pessoal / bloqueios', cor: '#64748b' },
   { id: 'feriados', nome: 'Feriados', cor: '#dc2626' },
 ];
@@ -18,7 +19,8 @@ export type StatusReuniao = 'scheduled' | 'live' | 'ended' | 'canceled' | 'no_sh
 
 export interface EventoDTO {
   id: string;
-  tipo: 'reuniao' | 'bloqueio';
+  /** 'turma': encontro das Turmas do Legado (Legacy Plan), só leitura. */
+  tipo: 'reuniao' | 'bloqueio' | 'turma';
   titulo: string;
   inicio: string; // ISO
   fim: string; // ISO
@@ -37,6 +39,14 @@ export interface EventoDTO {
   gravar?: boolean;
   transcrever?: boolean;
   onboarding?: boolean;
+  /** Turma: local do encontro presencial. */
+  local?: string | null;
+  /** Turma: modalidade como vem do Legacy Plan (online, in_person...). */
+  modalidade?: string | null;
+  /** Turma: link da aula (Zoom). */
+  link?: string | null;
+  /** Turma: nome da turma (ex.: Turma 20). */
+  turma?: string | null;
   /** Pode mover, editar e excluir. */
   podeEditar: boolean;
 }
