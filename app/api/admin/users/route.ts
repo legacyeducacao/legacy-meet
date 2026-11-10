@@ -16,7 +16,7 @@ export async function GET() {
   // (evita listar clientes do Legacy Plan que compartilham a tabela `users`).
   const { data } = await admin
     .from('users')
-    .select('id, name, email, role, meet_user_profile(is_admin, sector)')
+    .select('id, name, email, role, meet_user_profile(is_admin, sector, agenda_nova)')
     .ilike('email', '%@legacyeducacaocorp.com.br')
     .order('name');
   const users = ((data ?? []) as any[]).map((u) => {
@@ -27,6 +27,7 @@ export async function GET() {
       email: u.email as string,
       isAdmin: p?.is_admin ?? false,
       sector: (p?.sector as Sector | undefined) ?? null,
+      agendaNova: p?.agenda_nova === true,
     };
   });
   return NextResponse.json({ users });
@@ -75,14 +76,21 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const me = await getCurrentUser();
   if (!me?.isAdmin) return new NextResponse('Não autorizado', { status: 401 });
-  const { userId, isAdmin, sector } = (await req.json().catch(() => ({}))) as {
-    userId?: string; isAdmin?: boolean; sector?: string;
+  const { userId, isAdmin, sector, agendaNova } = (await req.json().catch(() => ({}))) as {
+    userId?: string; isAdmin?: boolean; sector?: string; agendaNova?: boolean;
   };
   if (!userId) return new NextResponse('userId obrigatório', { status: 400 });
   const admin = createAdminSupabase();
   const { error } = await admin
     .from('meet_user_profile')
-    .upsert({ user_id: userId, is_admin: !!isAdmin, sector: asSector(sector), updated_at: new Date().toISOString() });
+    .upsert({
+      user_id: userId,
+      is_admin: !!isAdmin,
+      sector: asSector(sector),
+      // Liberação da agenda nova (teste): só muda quando vier no corpo.
+      ...(typeof agendaNova === 'boolean' ? { agenda_nova: agendaNova } : {}),
+      updated_at: new Date().toISOString(),
+    });
   if (error) return new NextResponse('Falha ao salvar: ' + error.message, { status: 500 });
   return NextResponse.json({ ok: true });
 }

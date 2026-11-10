@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
+import { podeUsarAgendaNova } from '@/lib/agenda/servidor';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,6 +14,7 @@ export async function GET() {
       isStaff: user.isStaff,
       isAdmin: user.isAdmin,
       sector: user.sector,
+      agendaNova: await podeUsarAgendaNova(user),
     },
   });
 }
