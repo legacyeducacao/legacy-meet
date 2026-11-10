@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 // O pacote não expõe os tipos pelo campo "exports" (mesmo caso de lib/Debug.tsx).
 // @ts-ignore
 import { tinykeys } from 'tinykeys';
-import { ChevronLeft, ChevronRight, Keyboard, Loader2, Menu, Plus, Search } from 'lucide-react';
+import Link from 'next/link';
+import { ChevronLeft, ChevronRight, Keyboard, Loader2, Menu, Plus, Search, Settings } from 'lucide-react';
 import { toast } from '@/components/ui/custom-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,7 +30,7 @@ import { GradeHoras } from './GradeHoras';
 import { VisaoMes } from './VisaoMes';
 import { VisaoLista } from './VisaoLista';
 import { CriacaoRapida, DetalhesEvento, type Cliente } from './Cartoes';
-import { FormularioEvento, valoresIniciais, type Membro, type ValoresEvento } from './FormularioEvento';
+import { FormularioEvento, valoresIniciais, type Membro, type ModeloSerie, type ValoresEvento } from './FormularioEvento';
 import { DialogoAtalhos, DialogoCancelar, DialogoConflitos, DialogoEscopo } from './Dialogos';
 
 export interface MeAgenda {
@@ -91,6 +92,7 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
   const [lateralMobile, setLateralMobile] = React.useState(false);
   const [clientes, setClientes] = React.useState<Cliente[]>([]);
   const [equipe, setEquipe] = React.useState<Membro[]>([]);
+  const [modelos, setModelos] = React.useState<ModeloSerie[]>([]);
   const [escondidosPendentes, setEscondidosPendentes] = React.useState<Set<string>>(new Set());
   const pendentes = React.useRef(new Map<string, { timer: number; enviar: (keepalive?: boolean) => void }>());
   const buscaRef = React.useRef<HTMLInputElement>(null);
@@ -121,6 +123,10 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
     fetch('/api/clients')
       .then((r) => (r.ok ? r.json() : { clients: [] }))
       .then((j) => setClientes(j.clients ?? []))
+      .catch(() => {});
+    fetch('/api/agenda/templates')
+      .then((r) => (r.ok ? r.json() : { templates: [] }))
+      .then((j) => setModelos((j.templates ?? []).filter((t: ModeloSerie & { ativo: boolean }) => t.ativo && t.produto !== 'impulsao')))
       .catch(() => {});
     fetch('/api/team')
       .then((r) => (r.ok ? r.json() : { members: [] }))
@@ -207,6 +213,8 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
         onboarding: v.onboarding,
         coHostIds: v.coHostIds,
         guestEmails: v.guestEmails,
+        templateId: v.templateId,
+        jornadaLegado: !!v.jornadaLegado,
         justificativa,
       }),
     });
@@ -381,6 +389,36 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
         },
       },
     });
+  };
+
+  // ------------------------------ Bloqueios ------------------------------
+  const bloquear = async (inicio: Date, fim: Date, motivo: string): Promise<boolean> => {
+    const r = await fetch('/api/agenda/bloqueios', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ inicio: inicio.toISOString(), fim: fim.toISOString(), motivo }),
+    });
+    if (!r.ok) {
+      toast.error('Não foi possível bloquear', { description: await textoErro(r) });
+      return false;
+    }
+    const j = (await r.json()) as { afetadas: Array<{ titulo: string }> };
+    if (j.afetadas.length) {
+      toast.warning('Horário bloqueado, mas ele atinge reuniões marcadas', {
+        description: j.afetadas.map((a) => a.titulo).slice(0, 3).join(' · '),
+      });
+    } else toast.success('Horário bloqueado');
+    void carregar();
+    return true;
+  };
+
+  const removerBloqueio = async (ev: EventoDTO) => {
+    const id = ev.id.split(':')[1];
+    const r = await fetch('/api/agenda/bloqueios/' + id, { method: 'DELETE' });
+    if (!r.ok) return toast.error('Não foi possível remover', { description: await textoErro(r) });
+    setDetalhe(null);
+    toast.success('Bloqueio removido');
+    void carregar();
   };
 
   // ------------------------------ Ações do detalhe ------------------------------
@@ -565,6 +603,11 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
         <Button variant="ghost" size="icon" className="hidden md:inline-flex" onClick={() => setAtalhos(true)} aria-label="Atalhos de teclado">
           <Keyboard className="h-5 w-5" />
         </Button>
+        <Button asChild variant="ghost" size="icon" aria-label="Configurações da agenda">
+          <Link href="/agenda/nova/configuracoes">
+            <Settings className="h-5 w-5" />
+          </Link>
+        </Button>
       </header>
 
       <div className="flex min-h-0 flex-1">
@@ -641,6 +684,7 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
             setFormulario({ ...valoresIniciais(rapida.inicio, rapida.fim, v.setor), ...v });
             setRapida(null);
           }}
+          onBloquear={(motivo) => bloquear(rapida.inicio, rapida.fim, motivo)}
         />
       )}
 
@@ -663,6 +707,7 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
             setDetalhe(null);
           }}
           onExcluir={() => setCancelar(detalhe.evento)}
+          onRemoverBloqueio={() => void removerBloqueio(detalhe.evento)}
         />
       )}
 
@@ -674,6 +719,7 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
           clientes={clientes}
           equipe={equipe}
           meId={me.id}
+          modelos={modelos}
           onFechar={() => setFormulario(null)}
           onSalvar={salvarFormulario}
         />

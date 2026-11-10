@@ -6,6 +6,8 @@
 import { createAdminSupabase } from '@/lib/supabase/admin';
 import type { CurrentUser } from '@/lib/auth';
 import {
+  expandirSerie,
+  utcToLocal,
   EXPEDIENTE_PADRAO,
   feriadosNacionaisEntre,
   NIVEIS_PADRAO,
@@ -167,28 +169,67 @@ export async function listarReunioes(user: Usuario, executores: string[], de: Da
 
   const ids = linhas.map((l) => l.id);
   const rotulos = new Map<string, string | null>();
+  const deGrupo = new Set<string>();
   for (let i = 0; i < ids.length; i += 200) {
-    const { data } = await admin.from('agenda_ocorrencias').select('meeting_id, rotulo').in('meeting_id', ids.slice(i, i + 200));
-    for (const o of (data ?? []) as Array<{ meeting_id: string; rotulo: string | null }>) rotulos.set(o.meeting_id, o.rotulo);
+    const { data } = await admin
+      .from('agenda_ocorrencias')
+      .select('meeting_id, rotulo, agenda_series(grupo_id)')
+      .in('meeting_id', ids.slice(i, i + 200));
+    for (const o of (data ?? []) as unknown as Array<{ meeting_id: string; rotulo: string | null; agenda_series: { grupo_id: string | null } | null }>) {
+      rotulos.set(o.meeting_id, o.rotulo);
+      if (pick(o.agenda_series)?.grupo_id) deGrupo.add(o.meeting_id);
+    }
   }
   return linhas
     .filter((l) => new Date(l.scheduled_end_at ?? l.scheduled_start_at).getTime() > de.getTime())
-    .map((l) => reuniaoParaEvento(l, user, rotulos.get(l.id)));
+    .map((l) => {
+      const ev = reuniaoParaEvento(l, user, rotulos.get(l.id));
+      // Encontro de grupo do Impulsão (o cliente da reunião é o da Legacy).
+      return deGrupo.has(l.id) ? { ...ev, calendario: 'impulsao' as const } : ev;
+    });
+}
+
+type LinhaBloqueio = { id: string; executor_id: string; inicio: string; fim: string; dia_inteiro: boolean; motivo: string | null; rrule: string | null; fuso: string | null };
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+/** Bloqueios do período, com os recorrentes (rrule) expandidos em cada data. */
+export async function buscarBloqueios(executores: string[], de: Date, ate: Date): Promise<Array<LinhaBloqueio & { ocorrencia: number }>> {
+  const admin = createAdminSupabase();
+  const [simples, recorrentes] = await Promise.all([
+    admin.from('agenda_bloqueios').select('*').in('executor_id', executores).is('rrule', null).lt('inicio', ate.toISOString()).gt('fim', de.toISOString()),
+    admin.from('agenda_bloqueios').select('*').in('executor_id', executores).not('rrule', 'is', null).lt('inicio', ate.toISOString()),
+  ]);
+  const out: Array<LinhaBloqueio & { ocorrencia: number }> = ((simples.data ?? []) as LinhaBloqueio[]).map((b) => ({ ...b, ocorrencia: 0 }));
+  for (const b of (recorrentes.data ?? []) as LinhaBloqueio[]) {
+    const ini = new Date(b.inicio);
+    const l = utcToLocal(ini, b.fuso || FUSO);
+    try {
+      const ocs = expandirSerie(
+        {
+          rrule: b.rrule!,
+          inicioLocal: `${l.year}-${pad2(l.month)}-${pad2(l.day)}T${pad2(l.hour)}:${pad2(l.minute)}`,
+          fuso: b.fuso || FUSO,
+          duracaoMin: Math.max(1, Math.round((Date.parse(b.fim) - ini.getTime()) / 60_000)),
+        },
+        { de, ate },
+        { maxOcorrencias: 2000 },
+      );
+      ocs.forEach((o, k) => out.push({ ...b, inicio: o.inicio.toISOString(), fim: o.fim.toISOString(), ocorrencia: k }));
+    } catch (e) {
+      console.error('agenda: bloqueio recorrente inválido', b.id, e);
+    }
+  }
+  return out;
 }
 
 /** Bloqueios no período. O motivo só vai para o próprio executor e para admin. */
 export async function listarBloqueios(user: Usuario, executores: string[], de: Date, ate: Date): Promise<EventoDTO[]> {
-  const { data } = await createAdminSupabase()
-    .from('agenda_bloqueios')
-    .select('id, executor_id, inicio, fim, dia_inteiro, motivo')
-    .in('executor_id', executores)
-    .lt('inicio', ate.toISOString())
-    .gt('fim', de.toISOString());
-  return ((data ?? []) as Array<{ id: string; executor_id: string; inicio: string; fim: string; dia_inteiro: boolean; motivo: string | null }>).map(
+  return (await buscarBloqueios(executores, de, ate)).map(
     (b) => {
       const dono = b.executor_id === user.id || user.isAdmin;
       return {
-        id: `bloqueio:${b.id}`,
+        id: `bloqueio:${b.id}:${b.ocorrencia}`,
         tipo: 'bloqueio' as const,
         titulo: dono ? b.motivo?.trim() || 'Bloqueado' : 'Indisponível',
         inicio: new Date(b.inicio).toISOString(),
@@ -224,12 +265,7 @@ export async function contextoExecutor(
   const [exp, regras, bloqueios, reunioes, feriados] = await Promise.all([
     admin.from('agenda_expediente').select('dia_semana, inicio, fim').eq('executor_id', executorId),
     admin.from('agenda_regras_executor').select('*').eq('executor_id', executorId).maybeSingle(),
-    admin
-      .from('agenda_bloqueios')
-      .select('id, inicio, fim')
-      .eq('executor_id', executorId)
-      .lt('inicio', ate.toISOString())
-      .gt('fim', de.toISOString()),
+    buscarBloqueios([executorId], de, ate),
     admin
       .from('meetings')
       .select('id, title, scheduled_start_at, scheduled_end_at')
@@ -253,9 +289,7 @@ export async function contextoExecutor(
   return {
     fuso: FUSO,
     expediente: faixas.length ? faixas : conf.expediente,
-    bloqueios: ((bloqueios.data ?? []) as Array<{ id: string; inicio: string; fim: string }>).map(
-      (b): Bloqueio => ({ id: b.id, inicio: new Date(b.inicio), fim: new Date(b.fim) }),
-    ),
+    bloqueios: bloqueios.map((b): Bloqueio => ({ id: b.id, inicio: new Date(b.inicio), fim: new Date(b.fim) })),
     eventos: ((reunioes.data ?? []) as Array<{ id: string; title: string | null; scheduled_start_at: string; scheduled_end_at: string | null }>).map((m) => {
       const inicio = new Date(m.scheduled_start_at);
       const fim = m.scheduled_end_at ? new Date(m.scheduled_end_at) : new Date(inicio.getTime() + 3_600_000);

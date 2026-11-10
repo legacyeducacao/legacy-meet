@@ -40,6 +40,19 @@ export interface ValoresEvento {
   onboarding: boolean;
   coHostIds: string[];
   guestEmails: string;
+  /** Modelo escolhido (ex.: Legado 1 a 1). */
+  templateId?: string;
+  /** Registra a jornada do Legado (previstos x realizados). */
+  jornadaLegado?: boolean;
+}
+
+export interface ModeloSerie {
+  id: string;
+  nome: string;
+  produto: string;
+  duracao_min: number;
+  encontros_total: number | null;
+  politica_feriado: string;
 }
 
 export interface Membro {
@@ -57,9 +70,11 @@ export function FormularioEvento({
   clientes,
   equipe,
   meId,
+  modelos = [],
   onFechar,
   onSalvar,
 }: {
+  modelos?: ModeloSerie[];
   inicial: ValoresEvento;
   tz: string;
   podeEscolherSetor: boolean;
@@ -199,6 +214,38 @@ export function FormularioEvento({
                   {x === 'executoria' ? 'Executoria' : 'Comercial'}
                 </button>
               ))}
+            </div>
+          )}
+
+          {!edicao && v.setor === 'executoria' && modelos.length > 0 && (
+            <div className="space-y-1.5">
+              <Label htmlFor="f-modelo">Modelo</Label>
+              <select
+                id="f-modelo"
+                className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                value={v.templateId ?? ''}
+                onChange={(e) => {
+                  const m = modelos.find((x) => x.id === e.target.value);
+                  if (!m) return setV((x) => ({ ...x, templateId: undefined, jornadaLegado: false }));
+                  // Preenche a série pelo modelo: semanal no dia escolhido, N encontros, feriado do modelo.
+                  setHoraFim(horaCurta(new Date((inicio ?? inicial.inicio).getTime() + m.duracao_min * 60_000), tz));
+                  setV((x) => ({
+                    ...x,
+                    templateId: m.id,
+                    jornadaLegado: m.produto === 'legado',
+                    repeticao: { ...SEM_REPETICAO, frequencia: 'semanal', diasSemana: [weekdayIso(data)], termino: 'contagem', contagem: m.encontros_total ?? 12 },
+                    politicaFeriado: (['pular', 'cancelar', 'manter'].includes(m.politica_feriado) ? m.politica_feriado : 'pular') as ValoresEvento['politicaFeriado'],
+                  }));
+                }}
+              >
+                <option value="">Personalizado</option>
+                {modelos.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.nome}
+                  </option>
+                ))}
+              </select>
+              {v.jornadaLegado && <p className="text-xs text-muted-foreground">A jornada do cliente fica acompanhada: encontros previstos e realizados, e aviso se ficar em risco.</p>}
             </div>
           )}
 

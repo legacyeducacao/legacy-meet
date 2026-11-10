@@ -4,7 +4,7 @@
  * ocorrência é uma linha em public.meetings com sala própria, setor,
  * anfitriões adicionais e convite no Google Agenda (em segundo plano).
  */
-import { after } from 'next/server';
+import { emSegundoPlano } from '@/lib/segundoPlano';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 import { createCalendarEvent } from '@/lib/calendar';
 
@@ -31,6 +31,10 @@ export interface CriarReunioesInput {
   guestEmails: string[];
   /** Texto gravado em meetings.recurrence_rule quando há mais de uma. */
   recurrenceRule: string | null;
+  /** Continua uma série existente (estender a agenda de um grupo). */
+  recurrenceParentId?: string | null;
+  /** Título por ocorrência (ex.: "Impulsão · Grupo Terça · F1"). */
+  titulos?: string[];
 }
 
 export type CriarReunioesResult =
@@ -41,20 +45,22 @@ export async function criarReunioes(i: CriarReunioesInput): Promise<CriarReunioe
   if (!i.ocorrencias.length) return { ok: false, status: 400, message: 'Nenhuma ocorrência para criar' };
   const ids = i.ocorrencias.map(() => crypto.randomUUID());
   const roomNames = i.ocorrencias.map(() => `meet_${crypto.randomUUID()}`);
-  const isSeries = i.ocorrencias.length > 1;
+  const isSeries = i.ocorrencias.length > 1 || !!i.recurrenceParentId;
+  const parent = i.recurrenceParentId ?? ids[0];
+  const tituloDe = (k: number) => i.titulos?.[k]?.trim() || i.title;
 
   const rows = i.ocorrencias.map((occ, k) => ({
     id: ids[k],
     tenant_id: i.tenantId,
     host_id: i.hostId,
-    title: i.title,
+    title: tituloDe(k),
     room_name: roomNames[k],
     scheduled_start_at: occ.inicio.toISOString(),
     scheduled_end_at: occ.fim.toISOString(),
     status: 'scheduled',
     recording_enabled: i.record,
     auto_transcribe: i.transcribe,
-    recurrence_parent_id: isSeries ? ids[0] : null,
+    recurrence_parent_id: isSeries ? parent : null,
     recurrence_rule: isSeries ? i.recurrenceRule : null,
   }));
 
@@ -115,7 +121,7 @@ export async function criarReunioes(i: CriarReunioesInput): Promise<CriarReunioe
 
   if (attendees.length > 0) {
     const base = (process.env.APP_BASE_URL || '').replace(/\/$/, '');
-    after(async () => {
+    emSegundoPlano(async () => {
       for (let k = 0; k < i.ocorrencias.length; k++) {
         try {
           // A série pode ter sido cancelada/editada nos segundos entre a
@@ -127,7 +133,7 @@ export async function criarReunioes(i: CriarReunioesInput): Promise<CriarReunioe
             .maybeSingle();
           if (!current || current.status !== 'scheduled') continue;
           const eventId = await createCalendarEvent({
-            summary: i.title,
+            summary: tituloDe(k),
             description: base ? `Reunião Legacy Meet.\nLink: ${base}/rooms/${roomNames[k]}` : 'Reunião Legacy Meet.',
             startISO: new Date(current.scheduled_start_at as string).toISOString(),
             endISO: new Date(current.scheduled_end_at as string).toISOString(),

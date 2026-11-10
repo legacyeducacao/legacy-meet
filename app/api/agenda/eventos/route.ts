@@ -7,6 +7,7 @@ import { criarReunioes } from '@/lib/meetingsCore';
 import {
   contagem,
   expandirSerie,
+  localYmd,
   utcToLocal,
   validarConflitos,
   type PoliticaFeriadoSerie,
@@ -74,6 +75,9 @@ type CorpoCriar = {
   /** Admin agendando para outro executor. */
   executorId?: string;
   justificativa?: string;
+  /** Série 1 a 1 do Legado: registra a jornada (encontros previstos x realizados). */
+  jornadaLegado?: boolean;
+  templateId?: string;
 };
 
 /** POST: cria reunião ou série (cada ocorrência vira uma reunião do Meet). */
@@ -200,5 +204,30 @@ export async function POST(req: NextRequest) {
   if (decisao.registrar.length) {
     await registrarSobreposicoes(decisao.registrar, user.id, b.justificativa!.trim(), (ref) => r.ids[Number(ref)] ?? null, serieId);
   }
+
+  if (b.jornadaLegado && rrule && setor === 'executoria' && b.tenantId) {
+    const primeira = localYmd(ocorrencias[0].inicio, FUSO);
+    const ultima = localYmd(ocorrencias[ocorrencias.length - 1].inicio, FUSO);
+    const { data: j, error: ej } = await admin
+      .from('agenda_jornadas')
+      .insert({
+        tenant_id: b.tenantId,
+        produto: 'legado',
+        serie_id: serieId,
+        executor_id: executorId,
+        inicio: primeira,
+        fim_previsto: ultima,
+        encontros_previstos: ocorrencias.length,
+        criado_por: user.id,
+      })
+      .select('id')
+      .single();
+    if (ej) console.error('agenda: falha ao registrar a jornada do Legado', ej);
+    else
+      await admin.from('agenda_jornada_encontros').insert(
+        ocorrencias.map((o, k) => ({ jornada_id: j.id, numero: k + 1, data: localYmd(o.inicio, FUSO), meeting_id: r.ids[k] })),
+      );
+  }
+  if (b.templateId && serieId) await admin.from('agenda_series').update({ template_id: b.templateId }).eq('id', serieId);
   return NextResponse.json({ ids: r.ids, serieId, ocorrencias: r.ids.length });
 }
