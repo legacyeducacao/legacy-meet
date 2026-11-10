@@ -162,9 +162,16 @@ async function jornadasDoPainel(executores: string[] | null) {
   const legado = js.filter((j) => j.produto === 'legado' && j.status === 'ativa');
   const ids = legado.flatMap((j) => j.agenda_jornada_encontros.map((e) => e.meeting_id)).filter(Boolean) as string[];
   const encerradas = new Set<string>();
+  const canceladas = new Set<string>();
   for (let i = 0; i < ids.length; i += 200) {
-    const { data: ms } = await admin.from('meetings').select('id').in('id', ids.slice(i, i + 200)).eq('status', 'ended');
-    for (const m of (ms ?? []) as Array<{ id: string }>) encerradas.add(m.id);
+    const { data: ms } = await admin.from('meetings').select('id, status').in('id', ids.slice(i, i + 200)).in('status', ['ended', 'canceled']);
+    for (const m of (ms ?? []) as Array<{ id: string; status: string }>) (m.status === 'ended' ? encerradas : canceladas).add(m.id);
+    // Aconteceu de fato = tem gravação (muitas ficam "agendadas" quando o executor entra direto pelo link).
+    const { data: gs } = await admin.from('agenda_gravacoes_duracao').select('meeting_id').in('meeting_id', ids.slice(i, i + 200));
+    for (const g of (gs ?? []) as Array<{ meeting_id: string }>) {
+      encerradas.add(g.meeting_id);
+      canceladas.delete(g.meeting_id);
+    }
   }
   const impulsao = js.filter((j) => j.produto === 'impulsao');
   const nomesGrupo = Object.fromEntries(impulsao.map((j) => [j.grupo_id ?? '', j.agenda_grupos?.nome ?? 'Grupo']));
@@ -186,7 +193,13 @@ async function jornadasDoPainel(executores: string[] | null) {
     legado: legado
       .map((j) => {
         const realizados = j.agenda_jornada_encontros.filter((e) => (e.meeting_id && encerradas.has(e.meeting_id)) || e.presenca === 'presente').length;
-        return { cliente: j.client_tenants?.name ?? 'Cliente', ...riscoJornadaLegado({ clienteId: j.id, inicio: j.inicio, fim: j.fim_previsto ?? j.inicio, previstos: j.encontros_previstos, realizados }, hoje), realizados, previstos: j.encontros_previstos };
+        const futuros = j.agenda_jornada_encontros.filter((e) => e.data && e.data >= hoje && !(e.meeting_id && (encerradas.has(e.meeting_id) || canceladas.has(e.meeting_id)))).length;
+        return {
+          cliente: j.client_tenants?.name ?? 'Cliente',
+          ...riscoJornadaLegado({ clienteId: j.id, inicio: j.inicio, fim: j.fim_previsto ?? j.inicio, previstos: j.encontros_previstos, realizados }, hoje, 7, futuros),
+          realizados,
+          previstos: j.encontros_previstos,
+        };
       })
       .sort((a, b) => Number(b.emRisco) - Number(a.emRisco) || b.pendentes - a.pendentes),
   };

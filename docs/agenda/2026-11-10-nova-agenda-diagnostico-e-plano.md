@@ -171,6 +171,12 @@ Os testes obrigatórios do prompt (tabela de 5 semanas e além, datas antes da �
   - `agenda_gravacoes_duracao` preenchida com o histórico (1.899 gravações a partir dos manifestos do MinIO) e atualizada a cada "transcrição pronta" do worker. Botão "Atualizar durações" (admin) busca o que faltar.
   - Painel `/agenda/nova/painel` (ícone de gráfico na agenda): período (semana, mês, 30/90 dias, mês passado, personalizado), executor (admin: todos ou um), produto e cliente; 12 cartões com comparação ao período anterior; horas por semana (agendadas x realizadas); horas por produto; alerta de carga semanal; mapa de calor dia x hora; ranking de executores (admin, clique abre o executor); jornadas do Impulsão (ativos por grupo, x/4, faltas em Aula 2) e do Legado (realizados x previstos, em risco).
   - Realização acima de 100% acontece quando a gravação passa do horário marcado (ou a reunião teve mais de uma parte); é dado real.
+- **Fase 6 concluída (10/11/2026):**
+  - `integracoes/agenda/002_migracao.sql`: `agenda_migracoes` (lote + relatório) e `migracao_id` em séries e jornadas.
+  - `lib/agenda/migracao.ts` + `/api/agenda/migracao` (admin) + aba "Migração" nas configurações: simular (relatório), executar e desfazer o lote. Reuniões não são alteradas.
+  - Executado em produção: lote `4c398fa6-3728-4ed1-b0b0-659be266da24` com 115 séries (1.247 reuniões, todas as que estão em série), 73 jornadas do Legado (61 ativas, 12 concluídas, 766 encontros). Regras: 91 lidas da Agenda antiga, 24 deduzidas das datas. Desfazer testado (lote `9e70f6af…` desfeito e refeito); rodar de novo não duplica.
+  - Painel: jornada do Legado "em risco" quando faltam mais encontros do que os ainda marcados; reunião com gravação conta como realizada (muitas ficam "agendadas" quando o executor entra direto pelo link). Hoje: 26 de 46 jornadas ativas em risco.
+  - **Não migrado (decisão pendente):** turmas do Legado no Plan (`cohort_sessions`, com Zoom, check-in, RSVP e NPS). Trazer para o Meet muda o funcionamento do Plan; ver "Pontos para decidir".
 - Decisões tomadas pelo motor (configuráveis):
   - Carnaval e Corpus Christi são pontos facultativos e **contam como feriado por padrão** (`considerarFacultativos`). Ex.: a terça de Carnaval de 2026 pausa o grupo da terça.
   - Na política "segue", a aula perdida é recuperada na próxima ocorrência dela **em qualquer grupo** (o cliente continua no grupo onde recuperou). Dá para restringir ao mesmo grupo (`recuperarEmOutroGrupo: false`).

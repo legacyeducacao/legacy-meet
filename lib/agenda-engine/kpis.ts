@@ -206,10 +206,11 @@ export interface JornadaLegadoKpi {
  * Jornada do Legado em risco: os encontros que faltam não cabem no tempo que
  * resta na cadência (ex.: faltam 2 semanas e ainda há 3 encontros pendentes).
  */
-export function riscoJornadaLegado(j: JornadaLegadoKpi, hoje: Ymd, intervaloDias = 7) {
+export function riscoJornadaLegado(j: JornadaLegadoKpi, hoje: Ymd, intervaloDias = 7, encontrosFuturos?: number) {
   const pendentes = Math.max(j.previstos - j.realizados, 0);
   const diasRestantes = Math.max(diffDays(hoje, j.fim), 0);
-  const possiveis = Math.floor(diasRestantes / intervaloDias);
+  // Com a agenda em mãos, o que cabe são os encontros ainda marcados; sem ela, estima pela cadência.
+  const possiveis = encontrosFuturos ?? Math.floor(diasRestantes / intervaloDias);
   return {
     clienteId: j.clienteId,
     pendentes,
