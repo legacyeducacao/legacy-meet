@@ -103,16 +103,18 @@ export function AbaRegras() {
           <CardTitle className="text-base">O que cada regra faz</CardTitle>
           <p className="text-sm text-muted-foreground">&quot;Impede salvar&quot;: só admin passa por cima, com motivo. &quot;Avisa&quot;: salva com motivo. Tudo fica registrado.</p>
         </CardHeader>
-        <CardContent className="divide-y rounded-lg border p-0">
-          {Object.entries(c.niveis).map(([k, v]) => (
-            <div key={k} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
-              <span>{NOME_CONFLITO[k] ?? k}</span>
-              <select disabled={!podeEditar} className="h-8 rounded-md border bg-background px-2" value={v} onChange={(e) => set({ niveis: { ...c.niveis, [k]: e.target.value as 'bloqueante' | 'aviso' } })}>
-                <option value="aviso">Avisa</option>
-                <option value="bloqueante">Impede salvar</option>
-              </select>
-            </div>
-          ))}
+        <CardContent>
+          <div className="divide-y rounded-lg border">
+            {Object.entries(c.niveis).map(([k, v]) => (
+              <div key={k} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
+                <span>{NOME_CONFLITO[k] ?? k}</span>
+                <select disabled={!podeEditar} className="h-8 shrink-0 rounded-md border bg-background px-2" value={v} onChange={(e) => set({ niveis: { ...c.niveis, [k]: e.target.value as 'bloqueante' | 'aviso' } })}>
+                  <option value="aviso">Avisa</option>
+                  <option value="bloqueante">Impede salvar</option>
+                </select>
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
 
