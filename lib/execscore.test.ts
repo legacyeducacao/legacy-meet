@@ -73,3 +73,9 @@ describe('motivoForaDoScore', () => {
     expect(motivoForaDoScore({ onboarding: true, noShow: true })).toMatch(/no-show/);
   });
 });
+
+describe('motivoForaDoScore: encontro em grupo', () => {
+  it('encontro em grupo do Impulsão fica de fora', () => {
+    expect(motivoForaDoScore({ onboarding: false, noShow: false, grupo: true })).toMatch(/grupo/);
+  });
+});

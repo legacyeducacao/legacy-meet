@@ -114,12 +114,15 @@ export type ExecutoriaMeeting = {
   onboarding: boolean;
   /** Cliente não compareceu (status no_show): não vai para o ExecScore. */
   noShow: boolean;
+  /** Encontro em grupo do Impulsão (aula, não consultoria 1 a 1). */
+  grupo?: boolean;
 };
 
 /** Por que a reunião não vai para o ExecScore (null = vai). */
-export function motivoForaDoScore(m: Pick<ExecutoriaMeeting, 'onboarding' | 'noShow'>): string | null {
+export function motivoForaDoScore(m: Pick<ExecutoriaMeeting, 'onboarding' | 'noShow' | 'grupo'>): string | null {
   if (m.noShow) return 'no-show: o cliente não compareceu';
   if (m.onboarding) return 'reunião de onboarding';
+  if (m.grupo && process.env.EXECSCORE_AVALIAR_GRUPOS !== '1') return 'encontro em grupo do Impulsão';
   return null;
 }
 
@@ -157,6 +160,14 @@ export async function findExecutoriaMeeting(
   if (exErr) throw new Error(`executor: ${exErr.message}`);
   if (!ex) return null;
 
+  // Reunião gerada por um grupo do Impulsão (agenda nova)?
+  const { data: oc } = await admin
+    .from('agenda_ocorrencias')
+    .select('agenda_series(grupo_id)')
+    .eq('meeting_id', m.id)
+    .maybeSingle();
+  const serieOc = pick((oc as { agenda_series?: { grupo_id: string | null } | { grupo_id: string | null }[] | null } | null)?.agenda_series ?? null);
+
   return {
     meetingId: m.id,
     roomName: m.room_name,
@@ -170,6 +181,7 @@ export async function findExecutoriaMeeting(
     executorName: ex.name,
     onboarding: sec.onboarding === true,
     noShow: m.status === 'no_show',
+    grupo: !!serieOc?.grupo_id,
   };
 }
 

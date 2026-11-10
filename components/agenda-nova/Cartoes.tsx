@@ -35,7 +35,9 @@ export function DetalhesEvento({
   onEditar,
   onDuplicar,
   onExcluir,
+  onRemoverBloqueio,
 }: {
+  onRemoverBloqueio: () => void;
   evento: EventoDTO;
   ancora: Ancora;
   tz: string;
@@ -95,6 +97,11 @@ export function DetalhesEvento({
             </li>
           )}
         </ul>
+        {!reuniao && evento.podeEditar && (
+          <Button size="sm" variant="outline" className="text-destructive" onClick={onRemoverBloqueio}>
+            <Trash2 className="h-4 w-4" /> Remover bloqueio
+          </Button>
+        )}
         {reuniao && (
           <div className="flex flex-wrap gap-2 pt-1">
             {podeEntrar && (
@@ -139,7 +146,9 @@ export function CriacaoRapida({
   onFechar,
   onSalvar,
   onMaisOpcoes,
+  onBloquear,
 }: {
+  onBloquear: (motivo: string) => Promise<boolean>;
   ancora: Ancora;
   inicio: Date;
   fim: Date;
@@ -152,12 +161,20 @@ export function CriacaoRapida({
   onMaisOpcoes: (v: { titulo: string; setor: 'executoria' | 'comercial'; tenantId: string }) => void;
 }) {
   const [titulo, setTitulo] = React.useState('');
+  const [tipo, setTipo] = React.useState<'reuniao' | 'bloqueio'>('reuniao');
   const [s, setS] = React.useState(setor);
   const [tenantId, setTenantId] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [erro, setErro] = React.useState('');
 
   const salvar = async () => {
+    if (tipo === 'bloqueio') {
+      setBusy(true);
+      const ok = await onBloquear(titulo.trim());
+      setBusy(false);
+      if (ok) onFechar();
+      return;
+    }
     if (!titulo.trim()) return setErro('Informe o título.');
     if (s === 'executoria' && !tenantId) return setErro('Selecione o cliente.');
     setErro('');
@@ -176,11 +193,36 @@ export function CriacaoRapida({
           void salvar();
         }}
       >
-        <Input autoFocus placeholder="Adicionar título" value={titulo} onChange={(e) => setTitulo(e.target.value)} className="text-base font-medium" />
+        <div className="flex gap-1 text-sm" role="tablist" aria-label="Tipo">
+          {(
+            [
+              ['reuniao', 'Reunião'],
+              ['bloqueio', 'Bloquear horário'],
+            ] as const
+          ).map(([k, rotulo]) => (
+            <button
+              key={k}
+              type="button"
+              role="tab"
+              aria-selected={tipo === k}
+              onClick={() => setTipo(k)}
+              className={tipo === k ? 'rounded-md bg-primary/10 px-2.5 py-1 font-medium text-primary' : 'rounded-md px-2.5 py-1 text-muted-foreground hover:bg-muted'}
+            >
+              {rotulo}
+            </button>
+          ))}
+        </div>
+        <Input
+          autoFocus
+          placeholder={tipo === 'bloqueio' ? 'Motivo (só você e os admins veem)' : 'Adicionar título'}
+          value={titulo}
+          onChange={(e) => setTitulo(e.target.value)}
+          className="text-base font-medium"
+        />
         <p className="text-sm text-muted-foreground first-letter:uppercase">
           {rotuloDia(localYmd(inicio, tz))} · {faixaHorario(inicio, fim, tz)}
         </p>
-        {podeEscolherSetor && (
+        {tipo === 'reuniao' && podeEscolherSetor && (
           <div className="flex gap-1 rounded-lg bg-muted p-1 text-sm">
             {(['executoria', 'comercial'] as const).map((x) => (
               <button
@@ -194,7 +236,7 @@ export function CriacaoRapida({
             ))}
           </div>
         )}
-        {s === 'executoria' && (
+        {tipo === 'reuniao' && s === 'executoria' && (
           <SearchableSelect
             value={tenantId}
             onValueChange={setTenantId}
@@ -206,9 +248,11 @@ export function CriacaoRapida({
         )}
         {erro && <p className="text-sm text-destructive">{erro}</p>}
         <div className="flex justify-end gap-2 pt-1">
-          <Button type="button" variant="ghost" onClick={() => onMaisOpcoes({ titulo: titulo.trim(), setor: s, tenantId })}>
-            Mais opções
-          </Button>
+          {tipo === 'reuniao' && (
+            <Button type="button" variant="ghost" onClick={() => onMaisOpcoes({ titulo: titulo.trim(), setor: s, tenantId })}>
+              Mais opções
+            </Button>
+          )}
           <Button type="submit" disabled={busy}>
             {busy ? 'Salvando…' : 'Salvar'}
           </Button>
