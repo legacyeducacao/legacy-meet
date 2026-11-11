@@ -253,6 +253,55 @@ export async function statusDasReunioes(meetingIds: string[]): Promise<Map<strin
   return out;
 }
 
+export type ResumoErros = {
+  /** Reuniões que não chegaram ao ExecScore (status erro). */
+  total: number;
+  /** Quantas pararam por falta de créditos no ExecScore (resposta 402). */
+  semCreditos: number;
+  ultimoErro: string | null;
+  desde: string | null;
+};
+
+const SEM_CREDITOS = /402|cr[ée]dito/i;
+
+/** Aviso dos admins: envios com erro (falta de créditos aparece separada). */
+export async function resumoErros(): Promise<ResumoErros> {
+  const vazio: ResumoErros = { total: 0, semCreditos: 0, ultimoErro: null, desde: null };
+  if (!isEnabled()) return vazio;
+  const { data, error } = await createAdminSupabase()
+    .schema('execscore')
+    .from('meet_integracao')
+    .select('ultimo_erro, updated_at')
+    .eq('status', 'erro')
+    .order('updated_at', { ascending: true })
+    .limit(500);
+  if (error) throw new Error(`resumo de erros: ${error.message}`);
+  const linhas = (data ?? []) as Array<{ ultimo_erro: string | null; updated_at: string }>;
+  if (!linhas.length) return vazio;
+  return {
+    total: linhas.length,
+    semCreditos: linhas.filter((l) => SEM_CREDITOS.test(l.ultimo_erro ?? '')).length,
+    ultimoErro: linhas[linhas.length - 1].ultimo_erro,
+    desde: linhas[0].updated_at,
+  };
+}
+
+/**
+ * Admin pediu para reenviar tudo que deu erro (ex.: depois de recarregar os
+ * créditos): volta para a fila com as tentativas zeradas e devolve os ids
+ * (quem chama dispara o envio em segundo plano; o varredor também pega).
+ */
+export async function reabrirErros(): Promise<string[]> {
+  const { data, error } = await createAdminSupabase()
+    .schema('execscore')
+    .from('meet_integracao')
+    .update({ status: 'aguardando', tentativas: 0 })
+    .eq('status', 'erro')
+    .select('meeting_id');
+  if (error) throw new Error(`reabrir erros: ${error.message}`);
+  return ((data ?? []) as Array<{ meeting_id: string }>).map((r) => r.meeting_id);
+}
+
 export async function getIntegracao(meetingId: string): Promise<Integracao | null> {
   const { data, error } = await createAdminSupabase()
     .schema('execscore')

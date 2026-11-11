@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import Image from 'next/image';
+import { AvisoErrosExecScore } from '@/components/execscore/AvisoErrosExecScore';
 import { usePathname, useRouter } from 'next/navigation';
 import { Activity, Calendar, ClipboardList, Home, Users, Video } from 'lucide-react';
 import AppLayout, { type NavSection } from '@/components/patterns/AppLayout';
@@ -101,6 +102,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       }}
       headerActions={<ThemeToggle />}
     >
+      {me?.isAdmin && <AvisoErrosExecScore />}
       {children}
     </AppLayout>
   );
