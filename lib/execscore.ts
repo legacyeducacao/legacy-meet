@@ -262,7 +262,7 @@ export type ResumoErros = {
   desde: string | null;
 };
 
-const SEM_CREDITOS = /402|cr[ée]dito/i;
+const SEM_CREDITOS = /\b402\b|cr[ée]dito/i;
 
 /** Aviso dos admins: envios com erro (falta de créditos aparece separada). */
 export async function resumoErros(): Promise<ResumoErros> {
