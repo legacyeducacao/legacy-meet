@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { MeetingSummary } from '@/lib/meetingSummaryCore';
 import { ResumoReuniao } from './ResumoReuniao';
+import { BaixarPdfButton } from './BaixarPdfButton';
 
 type Estado =
   | { kind: 'loading' }
@@ -66,11 +67,16 @@ export function ResumoCard({ recordingId, transcricaoPronta }: { recordingId: st
           <Sparkles className="h-4 w-4 text-primary" />
           Resumo da reunião
         </CardTitle>
-        {resumo && podeGerar && (
-          <Button variant="ghost" size="sm" type="button" onClick={gerar} disabled={gerando}>
-            {gerando ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
-            {gerando ? 'Refazendo…' : 'Refazer'}
-          </Button>
+        {resumo && (
+          <div className="flex flex-wrap items-center gap-1">
+            <BaixarPdfButton resumo={resumo} />
+            {podeGerar && (
+              <Button variant="ghost" size="sm" type="button" onClick={gerar} disabled={gerando}>
+                {gerando ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                {gerando ? 'Refazendo…' : 'Refazer'}
+              </Button>
+            )}
+          </div>
         )}
       </CardHeader>
       <CardContent>

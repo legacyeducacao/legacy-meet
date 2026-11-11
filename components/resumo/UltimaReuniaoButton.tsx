@@ -14,6 +14,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import type { MeetingSummary } from '@/lib/meetingSummaryCore';
 import { ResumoReuniao } from './ResumoReuniao';
+import { BaixarPdfButton } from './BaixarPdfButton';
 
 /**
  * Agenda: antes de uma reunião da Executoria, o executor abre o resumo da
@@ -69,11 +70,14 @@ export function UltimaReuniaoButton({ meetingId, clientName }: { meetingId: stri
           ) : resumo ? (
             <div className="space-y-4">
               <ResumoReuniao resumo={resumo} />
-              {gravacao && (
-                <Button asChild variant="outline" size="sm">
-                  <Link href={`/gravacoes/${encodeURIComponent(gravacao)}`}>Abrir a gravação</Link>
-                </Button>
-              )}
+              <div className="flex flex-wrap gap-2">
+                {gravacao && (
+                  <Button asChild variant="outline" size="sm">
+                    <Link href={`/gravacoes/${encodeURIComponent(gravacao)}`}>Abrir a gravação</Link>
+                  </Button>
+                )}
+                <BaixarPdfButton resumo={resumo} variant="outline" />
+              </div>
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">
