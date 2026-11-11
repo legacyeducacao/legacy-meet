@@ -130,7 +130,7 @@ export default function Page() {
 
   return (
     <AppShell>
-      <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center">
+      <div className="flex min-h-[calc(100dvh-9rem)] items-center justify-center">
         <div className="w-full max-w-xl">
         <PageHeader title="Seja bem-vindo!" subtitle="Crie uma reunião da Legacy." className="mb-6 animate-in-fade" />
 

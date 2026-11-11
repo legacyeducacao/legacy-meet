@@ -145,7 +145,7 @@ export default function UsuariosClient() {
 
   return (
     <AppShell>
-      <div className="flex flex-col gap-6 lg:h-[calc(100vh-4rem)]">
+      <div className="flex flex-col gap-6 lg:h-[calc(100dvh-9rem)]">
         <PageHeader
           title="Usuários"
           subtitle="Gerencie quem acessa o Legacy Meet."

@@ -184,7 +184,7 @@ export default function GravacoesPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <div className="flex min-h-[calc(100vh-4rem)] flex-col gap-6">
+      <div className="flex min-h-[calc(100dvh-9rem)] flex-col gap-6">
         <PageHeader
           title="Gravações"
           subtitle="Acesse e gerencie todas as reuniões gravadas."

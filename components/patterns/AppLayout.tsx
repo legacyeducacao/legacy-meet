@@ -246,6 +246,8 @@ const AppLayout: React.FC<AppLayoutProps> = ({
             {children}
             {/* Spacer for mobile bottom nav — h-16 nav + safe-area + breathing room */}
             <div className="h-40 md:hidden shrink-0" aria-hidden="true" />
+            {/* Respiro no fim da página no computador (o mesmo do topo, pt-10) */}
+            <div className="hidden h-10 shrink-0 md:block" aria-hidden="true" />
           </div>
         </main>
       </div>
