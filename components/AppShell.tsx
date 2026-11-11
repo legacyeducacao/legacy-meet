@@ -3,7 +3,7 @@
 import * as React from 'react';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
-import { Activity, Calendar, CalendarRange, ClipboardList, Home, Users, Video } from 'lucide-react';
+import { Activity, Calendar, ClipboardList, Home, Users, Video } from 'lucide-react';
 import AppLayout, { type NavSection } from '@/components/patterns/AppLayout';
 import { ThemeToggle } from '@/components/ThemeToggle';
 
@@ -12,7 +12,6 @@ type Me = {
   isStaff: boolean;
   isAdmin: boolean;
   sector: 'comercial' | 'executoria' | 'ambos' | null;
-  agendaNova?: boolean;
 } | null;
 
 type Route = { key: string; href: string; label: string; icon: React.ReactNode };
@@ -20,7 +19,6 @@ type Route = { key: string; href: string; label: string; icon: React.ReactNode }
 const ROUTES: Route[] = [
   { key: 'inicio', href: '/', label: 'Início', icon: <Home size={19} /> },
   { key: 'agenda', href: '/agenda', label: 'Agenda', icon: <Calendar size={19} /> },
-  { key: 'agenda-nova', href: '/agenda/nova', label: 'Agenda nova', icon: <CalendarRange size={19} /> },
   { key: 'gravacoes', href: '/gravacoes', label: 'Gravações', icon: <Video size={19} /> },
   { key: 'nps', href: '/nps', label: 'NPS', icon: <ClipboardList size={19} /> },
   { key: 'usuarios', href: '/admin/usuarios', label: 'Usuários', icon: <Users size={19} /> },
@@ -47,7 +45,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const canNps = !!me && (me.isAdmin || me.sector === 'executoria' || me.sector === 'ambos');
   const visible = ROUTES.filter((r) => {
     if (r.key === 'nps') return canNps;
-    if (r.key === 'agenda-nova') return !!me?.agendaNova;
     if (r.key === 'usuarios' || r.key === 'diagnostico') return !!me?.isAdmin;
     return true;
   });

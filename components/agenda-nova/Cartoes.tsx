@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Clock, Copy, ExternalLink, GraduationCap, Link2, MapPin, Monitor, Pencil, Repeat, Trash2, User, Users, Video } from 'lucide-react';
+import { Clock, Copy, ExternalLink, GraduationCap, History, Link2, MapPin, Monitor, Pencil, Repeat, Trash2, User, UserX, Users, Video } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -37,8 +37,14 @@ export function DetalhesEvento({
   onDuplicar,
   onExcluir,
   onRemoverBloqueio,
+  onUltimaReuniao,
+  onNoShow,
 }: {
   onRemoverBloqueio: () => void;
+  /** Abre o resumo da última reunião com o mesmo cliente. */
+  onUltimaReuniao: () => void;
+  /** Marca (ou desfaz) o no-show. */
+  onNoShow: (desfazer: boolean) => void;
   evento: EventoDTO;
   ancora: Ancora;
   tz: string;
@@ -57,6 +63,11 @@ export function DetalhesEvento({
   const turma = evento.tipo === 'turma';
   const modalidade = turma ? rotuloModalidade(evento.modalidade) : null;
   const podeEntrar = reuniao && !!evento.roomName && (evento.status === 'scheduled' || evento.status === 'live');
+  // No-show: depois do horário de início (cliente não veio); desfazer quando já marcado.
+  const jaComecou = ini.getTime() <= Date.now();
+  const podeNoShow = reuniao && evento.podeEditar && jaComecou && ['scheduled', 'live', 'ended'].includes(evento.status ?? '');
+  const podeDesfazerNoShow = reuniao && evento.podeEditar && evento.status === 'no_show';
+  const temUltima = reuniao && evento.setor === 'executoria' && !!evento.tenantId;
   return (
     <Flutuante ancora={ancora} onClose={onFechar} titulo={evento.titulo} largura={380}>
       <div className="space-y-3 p-4 pr-10">
@@ -153,6 +164,21 @@ export function DetalhesEvento({
             <Button size="sm" variant="outline" onClick={onDuplicar} aria-label="Duplicar">
               <Copy className="h-4 w-4" /> Duplicar
             </Button>
+            {temUltima && (
+              <Button size="sm" variant="outline" onClick={onUltimaReuniao}>
+                <History className="h-4 w-4" /> Última reunião
+              </Button>
+            )}
+            {podeNoShow && (
+              <Button size="sm" variant="outline" className="text-muted-foreground hover:text-destructive" onClick={() => onNoShow(false)}>
+                <UserX className="h-4 w-4" /> No-show
+              </Button>
+            )}
+            {podeDesfazerNoShow && (
+              <Button size="sm" variant="outline" onClick={() => onNoShow(true)}>
+                <UserX className="h-4 w-4" /> Desfazer no-show
+              </Button>
+            )}
             {evento.podeEditar && (
               <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={onExcluir} aria-label="Cancelar reunião">
                 <Trash2 className="h-4 w-4" />

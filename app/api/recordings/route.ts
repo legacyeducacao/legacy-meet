@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { getRoomOwners, listRecordings } from '@/lib/recordings';
+import { statusDasReunioes } from '@/lib/execscore';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,6 +31,7 @@ export async function GET() {
         metaHost: r.metaHost ?? null,
         sector: owner?.sector ?? null,
         noShow: owner?.noShow ?? false,
+        meetingId: owner?.meetingId ?? null,
         coHostIds: owner?.coHostIds ?? [],
         // Excluir é do dono ou admin (comercial vê tudo mas não apaga de colega).
         canDelete: user.isAdmin || (!!owner?.hostId && owner.hostId === user.id),
@@ -49,7 +51,13 @@ export async function GET() {
         (r) => (r.hostId !== null && r.hostId === user.id) || r.coHostIds.includes(user.id),
       );
     }
-    return NextResponse.json(scoped);
+    // Situação do envio ao ExecScore (o card avisa quando deu erro).
+    const execscore = await statusDasReunioes(
+      scoped.filter((r) => r.sector === 'executoria' && r.meetingId).map((r) => r.meetingId as string),
+    ).catch(() => new Map<string, string>());
+    return NextResponse.json(
+      scoped.map(({ meetingId, ...r }) => ({ ...r, execscoreStatus: (meetingId && execscore.get(meetingId)) || null })),
+    );
   } catch (error) {
     return new NextResponse(error instanceof Error ? error.message : 'erro', { status: 500 });
   }

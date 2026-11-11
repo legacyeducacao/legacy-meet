@@ -37,6 +37,8 @@ interface Rec {
   metaHost?: string | null;
   sector?: string | null;
   noShow?: boolean;
+  /** Envio ao ExecScore: aguardando, processando, enviada, erro, descartada. */
+  execscoreStatus?: string | null;
   canDelete?: boolean;
 }
 
@@ -336,6 +338,11 @@ export default function GravacoesPage() {
                       <div className="flex flex-wrap gap-1.5">
                         {rec.storage === 'gdrive' && <Badge variant="secondary">Google Drive</Badge>}
                         {rec.noShow && <Badge variant="destructive">No-show</Badge>}
+                        {rec.execscoreStatus === 'erro' && (
+                          <Badge variant="destructive" title="A transcrição não chegou ao ExecScore. Abra a gravação e reenvie pelos Pilares do ExecScore.">
+                            Erro no envio ao ExecScore
+                          </Badge>
+                        )}
                         {rec.transcriptionStatus === 'failed' ? (
                           <Badge variant="destructive">Transcrição falhou</Badge>
                         ) : (

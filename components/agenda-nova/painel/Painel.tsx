@@ -157,7 +157,7 @@ export function Painel({ me }: { me: { id: string; isAdmin: boolean } }) {
 
   return (
     <div className="space-y-5">
-      <Link href="/agenda/nova" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
+      <Link href="/agenda" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="h-4 w-4" /> Voltar para a agenda
       </Link>
       <div className="flex flex-wrap items-center justify-between gap-2">

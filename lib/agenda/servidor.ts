@@ -27,16 +27,9 @@ export const FUSO = 'America/Sao_Paulo';
 
 type Usuario = Pick<CurrentUser, 'id' | 'isAdmin'>;
 
-/** Pode abrir a agenda nova? Admin sempre; demais com a flag ou com AGENDA_NOVA_TODOS=1. */
+/** Pode usar a agenda? Desde 11/11/2026 a agenda nova é a única: todo usuário logado. */
 export async function podeUsarAgendaNova(user: Usuario | null): Promise<boolean> {
-  if (!user) return false;
-  if (user.isAdmin || process.env.AGENDA_NOVA_TODOS === '1') return true;
-  const { data } = await createAdminSupabase()
-    .from('meet_user_profile')
-    .select('agenda_nova')
-    .eq('user_id', user.id)
-    .maybeSingle();
-  return data?.agenda_nova === true;
+  return !!user;
 }
 
 export interface ConfigEmpresa {

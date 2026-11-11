@@ -224,6 +224,8 @@ async function deleteObject(key: string): Promise<void> {
 
 export type RoomOwner = {
   roomName: string;
+  /** Id da reunião em public.meetings. */
+  meetingId: string;
   hostId: string | null;
   hostName: string | null;
   sector: string | null;
@@ -250,7 +252,7 @@ export async function getRoomOwners(roomNames: string[]): Promise<Map<string, Ro
       admin
         .from('meetings')
         .select(
-          'room_name, title, host_id, status, users:host_id(name), client_tenants:tenant_id(name), meet_meeting_sector(sector), meet_meeting_hosts(user_id)',
+          'id, room_name, title, host_id, status, users:host_id(name), client_tenants:tenant_id(name), meet_meeting_sector(sector), meet_meeting_hosts(user_id)',
         )
         .in('room_name', batch),
     ),
@@ -261,6 +263,7 @@ export async function getRoomOwners(roomNames: string[]): Promise<Map<string, Ro
     else data.push(...(r.data ?? []));
   }
   for (const m of (data ?? []) as Array<{
+    id: string;
     room_name: string;
     title?: string | null;
     host_id: string | null;
@@ -272,6 +275,7 @@ export async function getRoomOwners(roomNames: string[]): Promise<Map<string, Ro
   }>) {
     out.set(m.room_name, {
       roomName: m.room_name,
+      meetingId: m.id,
       hostId: m.host_id,
       hostName: m.users?.name ?? null,
       clientName: m.client_tenants?.name?.trim() || null,

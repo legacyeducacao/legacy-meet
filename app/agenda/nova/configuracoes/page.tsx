@@ -1,18 +1,8 @@
 import { redirect } from 'next/navigation';
-import { getCurrentUser } from '@/lib/auth';
-import { podeUsarAgendaNova } from '@/lib/agenda/servidor';
-import { AppShell } from '@/components/AppShell';
-import { Configuracoes } from '@/components/agenda-nova/config/Configuracoes';
 
 export const dynamic = 'force-dynamic';
 
-export default async function Page() {
-  const user = await getCurrentUser();
-  if (!user) redirect('/login?next=/agenda/nova/configuracoes');
-  if (!(await podeUsarAgendaNova(user))) redirect('/agenda');
-  return (
-    <AppShell>
-      <Configuracoes me={{ id: user.id, isAdmin: user.isAdmin }} />
-    </AppShell>
-  );
+/** Endereço antigo da agenda nova (antes de virar a única agenda). */
+export default function Page() {
+  redirect('/agenda/configuracoes');
 }

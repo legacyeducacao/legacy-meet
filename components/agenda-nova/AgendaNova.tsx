@@ -32,6 +32,7 @@ import { VisaoLista } from './VisaoLista';
 import { CriacaoRapida, DetalhesEvento, type Cliente } from './Cartoes';
 import { FormularioEvento, valoresIniciais, type Membro, type ModeloSerie, type ValoresEvento } from './FormularioEvento';
 import { DialogoAtalhos, DialogoCancelar, DialogoConflitos, DialogoEscopo } from './Dialogos';
+import { UltimaReuniaoDialog } from '@/components/resumo/UltimaReuniaoButton';
 
 export interface MeAgenda {
   id: string;
@@ -76,6 +77,7 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
   const [visao, setVisao] = React.useState<Visao>('semana');
   const [cursor, setCursor] = React.useState<Ymd>(hoje);
   const [eventos, setEventos] = React.useState<EventoDTO[]>([]);
+  const [ultima, setUltima] = React.useState<EventoDTO | null>(null);
   const [feriados, setFeriados] = React.useState<FeriadoDTO[]>([]);
   const [carregando, setCarregando] = React.useState(true);
   const [ocultos, setOcultos] = React.useState<Calendario[]>([]);
@@ -443,6 +445,20 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
       toast.error('Não foi possível copiar', { description: link });
     }
   };
+  const noShow = async (ev: EventoDTO, desfazer: boolean) => {
+    setDetalhe(null);
+    const res = await fetch('/api/meetings/no-show', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: ev.id, undo: desfazer }),
+    });
+    if (!res.ok) return toast.error('Não foi possível atualizar o no-show', { description: await textoErro(res) });
+    const j = (await res.json().catch(() => ({}))) as { status?: EventoDTO['status'] };
+    const status = j.status ?? (desfazer ? 'ended' : 'no_show');
+    setEventos((lista) => lista.map((e) => (e.id === ev.id ? { ...e, status } : e)));
+    if (desfazer) toast.success('No-show desfeito');
+    else toast.success('Marcada como no-show', { action: { label: 'Desfazer', onClick: () => void noShow({ ...ev, status: 'no_show' }, true) } });
+  };
   const valoresDe = (ev: EventoDTO, comId: boolean): ValoresEvento => ({
     ...valoresIniciais(new Date(ev.inicio), new Date(ev.fim), ev.setor ?? setorPadrao),
     ...(comId ? { id: ev.id, recorrente: !!ev.serieId } : {}),
@@ -606,12 +622,12 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
           <Keyboard className="h-5 w-5" />
         </Button>
         <Button asChild variant="ghost" size="icon" aria-label="Painel da agenda">
-          <Link href="/agenda/nova/painel">
+          <Link href="/agenda/painel">
             <BarChart3 className="h-5 w-5" />
           </Link>
         </Button>
         <Button asChild variant="ghost" size="icon" aria-label="Configurações da agenda">
-          <Link href="/agenda/nova/configuracoes">
+          <Link href="/agenda/configuracoes">
             <Settings className="h-5 w-5" />
           </Link>
         </Button>
@@ -715,6 +731,20 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
           }}
           onExcluir={() => setCancelar(detalhe.evento)}
           onRemoverBloqueio={() => void removerBloqueio(detalhe.evento)}
+          onUltimaReuniao={() => {
+            setUltima(detalhe.evento);
+            setDetalhe(null);
+          }}
+          onNoShow={(desfazer) => void noShow(detalhe.evento, desfazer)}
+        />
+      )}
+
+      {ultima && (
+        <UltimaReuniaoDialog
+          meetingId={ultima.id}
+          clientName={ultima.cliente ?? null}
+          open
+          onOpenChange={(v) => !v && setUltima(null)}
         />
       )}
 

@@ -22,6 +22,29 @@ import { BaixarPdfButton } from './BaixarPdfButton';
  */
 export function UltimaReuniaoButton({ meetingId, clientName }: { meetingId: string; clientName: string | null }) {
   const [open, setOpen] = React.useState(false);
+  return (
+    <>
+      <Button variant="outline" size="sm" type="button" onClick={() => setOpen(true)}>
+        <History className="h-4 w-4" />
+        Última reunião
+      </Button>
+      <UltimaReuniaoDialog meetingId={meetingId} clientName={clientName} open={open} onOpenChange={setOpen} />
+    </>
+  );
+}
+
+/** Janela com o resumo da última reunião com o mesmo cliente (usada também pela agenda). */
+export function UltimaReuniaoDialog({
+  meetingId,
+  clientName,
+  open,
+  onOpenChange,
+}: {
+  meetingId: string;
+  clientName: string | null;
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+}) {
   const [estado, setEstado] = React.useState<'loading' | 'erro' | { resumo: MeetingSummary | null }>('loading');
 
   React.useEffect(() => {
@@ -44,12 +67,7 @@ export function UltimaReuniaoButton({ meetingId, clientName }: { meetingId: stri
   const gravacao = resumo?.recordingIds?.[0];
 
   return (
-    <>
-      <Button variant="outline" size="sm" type="button" onClick={() => setOpen(true)}>
-        <History className="h-4 w-4" />
-        Última reunião
-      </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Última reunião{clientName ? ` com ${clientName}` : ''}</DialogTitle>
@@ -87,6 +105,5 @@ export function UltimaReuniaoButton({ meetingId, clientName }: { meetingId: stri
           )}
         </DialogContent>
       </Dialog>
-    </>
   );
 }
