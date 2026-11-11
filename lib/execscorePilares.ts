@@ -23,6 +23,8 @@ export type PilaresInfo =
       /** null = o executor ainda não escolheu (todos ligados). */
       desabilitados: string[] | null;
       status: ExecScoreStatus | null;
+      /** Erro e o sistema já parou de tentar sozinho: só vai reenviando. */
+      esgotado?: boolean;
       avaliacaoId: string | null;
     };
 
@@ -33,6 +35,9 @@ export const STATUS_LABEL: Record<ExecScoreStatus, string> = {
   erro: 'Erro no envio (vamos tentar de novo)',
   descartada: 'Fora do ExecScore',
 };
+
+/** Erro depois da última tentativa automática. */
+export const LABEL_ESGOTADO = 'Erro no envio: salve os pilares para reenviar';
 
 /** Pilares desligados no começo: a escolha salva, sem chaves que não existem mais. */
 export function initialDisabled(desabilitados: string[] | null, pilares: Pilar[]): string[] {

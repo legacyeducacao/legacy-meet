@@ -33,6 +33,11 @@ const MAX_TENTATIVAS = Number(process.env.EXECSCORE_MAX_ATTEMPTS ?? '4');
 const ESPERA_HORAS = Number(process.env.EXECSCORE_PILLAR_WAIT_HOURS ?? '24');
 const FUNCTION_TIMEOUT_MS = Number(process.env.EXECSCORE_FUNCTION_TIMEOUT_MS ?? '300000');
 
+/** O envio deu erro e o varredor já desistiu (só volta se alguém reenviar). */
+export function tentativasEsgotadas(row: { status: string; tentativas: number } | null): boolean {
+  return !!row && row.status === 'erro' && row.tentativas >= MAX_TENTATIVAS;
+}
+
 export function isEnabled(): boolean {
   return !!process.env.EXECSCORE_INTERNAL_SECRET;
 }

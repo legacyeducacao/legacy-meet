@@ -5,6 +5,7 @@ import {
   dispatchMeeting,
   findExecutoriaMeeting,
   getIntegracao,
+  tentativasEsgotadas,
   isEnabled,
   PILARES,
   sanitizeDisabled,
@@ -56,6 +57,8 @@ export async function GET(req: NextRequest) {
       // null = ainda não escolheu (a tela começa com todos ligados)
       desabilitados: row?.pilares_desabilitados ?? null,
       status: row?.status ?? null,
+      // Erro depois da última tentativa automática: a tela pede para reenviar.
+      esgotado: tentativasEsgotadas(row),
       avaliacaoId: row?.evaluation_id ?? null,
     });
   } catch (e) {

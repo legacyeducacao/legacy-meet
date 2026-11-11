@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { PilaresForm } from './PilaresForm';
-import { fetchPilares, STATUS_LABEL, type ExecScoreStatus, type PilaresInfo } from '@/lib/execscorePilares';
+import { fetchPilares, LABEL_ESGOTADO, STATUS_LABEL, type ExecScoreStatus, type PilaresInfo } from '@/lib/execscorePilares';
 
 const STATUS_VARIANT: Record<ExecScoreStatus, 'secondary' | 'default' | 'destructive'> = {
   aguardando: 'secondary',
@@ -61,7 +61,11 @@ export function PilaresExecScoreButton({ room }: { room: string }) {
       ) : info.onboarding ? (
         <Badge variant="secondary">Onboarding · fora do ExecScore</Badge>
       ) : (
-        info.status && <Badge variant={STATUS_VARIANT[info.status]}>{STATUS_LABEL[info.status]}</Badge>
+        info.status && (
+          <Badge variant={STATUS_VARIANT[info.status]}>
+            {info.status === 'erro' && info.esgotado ? LABEL_ESGOTADO : STATUS_LABEL[info.status]}
+          </Badge>
+        )
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
