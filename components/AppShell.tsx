@@ -7,6 +7,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { Activity, Calendar, ClipboardList, Home, Users, Video } from 'lucide-react';
 import AppLayout, { type NavSection } from '@/components/patterns/AppLayout';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { sairDoHub } from '@/lib/legacyHub';
 
 type Me = {
   name: string | null;
@@ -70,6 +71,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const logout = async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
+      await sairDoHub();
     } finally {
       window.location.href = '/login';
     }
