@@ -30,6 +30,7 @@ export default function Page() {
 
   // Setor e permissões do usuário logado
   const [meIsAdmin, setMeIsAdmin] = useState(false);
+  const [meIsStaff, setMeIsStaff] = useState(false);
   const [meSector, setMeSector] = useState<string | null>(null);
 
   useEffect(() => {
@@ -39,15 +40,19 @@ export default function Page() {
         const u = json?.user;
         if (u) {
           setMeIsAdmin(!!u.isAdmin);
+          setMeIsStaff(!!u.isStaff);
           setMeSector(u.sector ?? null);
         }
       })
       .catch(() => {});
   }, []);
 
-  // Derivar abas permitidas
-  const canCom = meIsAdmin || meSector === 'comercial' || meSector === 'ambos';
-  const canExe = meIsAdmin || meSector === 'executoria' || meSector === 'ambos';
+  // Derivar abas permitidas. Todo usuário da Legacy cria reunião: quem ainda
+  // não tem setor definido pelo admin usa as duas abas (o setor continua
+  // decidindo o que a pessoa VÊ em gravações e NPS, não o que ela cria).
+  const semSetor = meIsStaff && !meIsAdmin && !meSector;
+  const canCom = meIsAdmin || meSector === 'comercial' || meSector === 'ambos' || semSetor;
+  const canExe = meIsAdmin || meSector === 'executoria' || meSector === 'ambos' || semSetor;
 
   // Se só uma aba é permitida, fixar o sector nela
   useEffect(() => {

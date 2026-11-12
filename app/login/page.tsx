@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { createBrowserSupabase } from '@/lib/supabase/client';
+import { entrarPeloHub } from '@/lib/legacyHub';
 import LoginPage from '@/components/patterns/LoginPage';
 import { POST_LOGIN_PRELOADER_FLAG } from '@/components/patterns/PostLoginPreloader';
 import { safeNextPath } from '@/lib/safeNext';
@@ -20,11 +21,8 @@ export default function Login() {
       copyright={`© ${new Date().getFullYear()} Legacy Educação`}
       onLogin={async (email, password) => {
         const supabase = createBrowserSupabase();
-        const { error } = await supabase.auth.signInWithPassword({
-          email: email.trim(),
-          password,
-        });
-        if (error) throw new Error('E-mail ou senha inválidos.');
+        // Login único da Legacy (Legacy Hub); mesma tela, mesma sessão do Meet.
+        await entrarPeloHub(supabase, email.trim(), password);
         // Veio do botão "Sou da equipe Legacy" na sala: volta direto para ela.
         const next = safeNextPath(new URLSearchParams(window.location.search).get('next'));
         if (next === '/') {
