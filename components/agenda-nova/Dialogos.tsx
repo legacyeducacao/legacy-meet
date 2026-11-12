@@ -231,6 +231,14 @@ export function DialogoAtalhos({ onFechar }: { onFechar: () => void }) {
             </React.Fragment>
           ))}
         </dl>
+        <div className="space-y-1.5 border-t pt-3 text-sm">
+          <p className="font-medium">Com o mouse</p>
+          <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
+            <li>Arraste uma reunião para outro horário ou outro dia.</li>
+            <li>Solte uma reunião em cima de outra para trocar os horários das duas.</li>
+            <li>Puxe a borda de baixo da reunião para mudar a duração.</li>
+          </ul>
+        </div>
       </DialogContent>
     </Dialog>
   );

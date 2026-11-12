@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { ArrowLeftRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { layoutDia, parseYmd, weekdayIso, type Ymd } from '@/lib/agenda-engine';
 import {
@@ -31,6 +32,23 @@ interface Arraste {
   x0: number;
   y0: number;
   toque: boolean;
+  /** mover: reunião embaixo do ponteiro (soltar ali troca os horários). */
+  trocaCom?: EventoDTO | null;
+}
+
+/** Soltar uma reunião em cima da outra troca os horários das duas. */
+export function podeTrocar(origem: EventoDTO | undefined, alvo: EventoDTO | undefined): alvo is EventoDTO {
+  return (
+    !!origem &&
+    !!alvo &&
+    origem.id !== alvo.id &&
+    origem.tipo === 'reuniao' &&
+    alvo.tipo === 'reuniao' &&
+    origem.podeEditar &&
+    alvo.podeEditar &&
+    !origem.diaInteiro &&
+    !alvo.diaInteiro
+  );
 }
 
 const MIN_DIA = 1440;
@@ -47,8 +65,9 @@ function horaDe(min: number) {
 /**
  * Grade de horas (Dia, 4 dias, Semana). Clique e arraste no vazio cria;
  * arraste no evento move (inclusive para outro dia); a borda de baixo
- * redimensiona. Tudo em passos de 15 minutos. No toque, tocar abre (o
- * arraste fica para a rolagem da tela).
+ * redimensiona. Soltar uma reunião em cima de outra troca os horários das
+ * duas. Tudo em passos de 15 minutos. No toque, tocar abre (o arraste fica
+ * para a rolagem da tela).
  */
 export function GradeHoras({
   dias,
@@ -62,6 +81,7 @@ export function GradeHoras({
   onCriar,
   onAbrir,
   onMover,
+  onTrocar,
   onVerDia,
 }: {
   dias: Ymd[];
@@ -75,12 +95,15 @@ export function GradeHoras({
   onCriar: (inicio: Date, fim: Date, ancora: Ancora) => void;
   onAbrir: (e: EventoDTO, ancora: Ancora) => void;
   onMover: (e: EventoDTO, inicio: Date, fim: Date) => void;
+  onTrocar: (origem: EventoDTO, alvo: EventoDTO) => void;
   onVerDia: (d: Ymd) => void;
 }) {
   const rolagem = React.useRef<HTMLDivElement>(null);
   const colunas = React.useRef<Array<HTMLDivElement | null>>([]);
   const arrasteRef = React.useRef<Arraste | null>(null);
   const [arraste, setArraste] = React.useState<Arraste | null>(null);
+  const eventosRef = React.useRef(eventos);
+  eventosRef.current = eventos;
 
   const feriadoDe = React.useMemo(() => new Map(feriados.map((f) => [f.data, f])), [feriados]);
 
@@ -151,7 +174,16 @@ export function GradeHoras({
       }
       if (a.modo !== 'criar' && !a.evento?.podeEditar) return;
       const p = posicao(e.clientX, e.clientY);
-      const novo = { ...a, diaIdx: a.modo === 'mover' ? p.diaIdx : a.diaIdx0, min: p.min, moveu: a.moveu || longe };
+      let trocaCom: EventoDTO | null = null;
+      if (a.modo === 'mover') {
+        const el = document
+          .elementsFromPoint(e.clientX, e.clientY)
+          .map((x) => (x as HTMLElement).closest?.('[data-evento-id]') as HTMLElement | null)
+          .find((x) => x && x.dataset.eventoId !== a.evento?.id);
+        const alvo = el ? eventosRef.current.find((ev) => ev.id === el.dataset.eventoId) : undefined;
+        if (podeTrocar(a.evento, alvo)) trocaCom = alvo;
+      }
+      const novo = { ...a, diaIdx: a.modo === 'mover' ? p.diaIdx : a.diaIdx0, min: p.min, moveu: a.moveu || longe, trocaCom };
       arrasteRef.current = novo;
       setArraste(novo);
     };
@@ -180,6 +212,10 @@ export function GradeHoras({
         onAbrir(ev, ancora);
         return;
       }
+      if (a.modo === 'mover' && a.trocaCom) {
+        onTrocar(ev, a.trocaCom);
+        return;
+      }
       if (a.modo === 'mover') {
         const ini = clamp(arred(a.min - a.offset), 0, MIN_DIA - SNAP_MIN);
         const inicio = instanteMin(dias[a.diaIdx], ini, tz);
@@ -204,7 +240,7 @@ export function GradeHoras({
       window.removeEventListener('pointerup', soltar);
       window.removeEventListener('pointercancel', cancelar);
     };
-  }, [dias, tz, posicao, onCriar, onAbrir, onMover]);
+  }, [dias, tz, posicao, onCriar, onAbrir, onMover, onTrocar]);
 
   // Prévia do arraste
   let previa: { diaIdx: number; ini: number; fim: number; cor: string; titulo: string } | null = null;
@@ -213,7 +249,7 @@ export function GradeHoras({
       const ini = piso(Math.min(arraste.min0, arraste.min));
       const fim = Math.max(ini + SNAP_MIN, Math.ceil(Math.max(arraste.min0, arraste.min) / SNAP_MIN) * SNAP_MIN);
       previa = { diaIdx: arraste.diaIdx0, ini, fim, cor: '#6366f1', titulo: '(sem título)' };
-    } else if (arraste.evento?.podeEditar) {
+    } else if (arraste.evento?.podeEditar && !arraste.trocaCom) {
       const ev = arraste.evento;
       if (arraste.modo === 'mover') {
         const ini = clamp(arred(arraste.min - arraste.offset), 0, MIN_DIA - SNAP_MIN);
@@ -322,10 +358,12 @@ export function GradeHoras({
                 const cor = corDe(e);
                 const movendo = arraste?.moveu && arraste.evento?.id === e.id && arraste.modo === 'mover';
                 const curto = alt < 40;
+                const alvoTroca = !!arraste?.moveu && arraste.trocaCom?.id === e.id;
                 const passado = Date.parse(e.fim) < agora.getTime();
                 return (
                   <div
                     key={e.id}
+                    data-evento-id={e.id}
                     role="button"
                     tabIndex={0}
                     aria-label={`${e.titulo}, ${faixaHorario(new Date(e.inicio), new Date(e.fim), tz)}`}
@@ -344,6 +382,7 @@ export function GradeHoras({
                       'absolute overflow-hidden rounded-md border-l-[3px] px-1.5 py-0.5 text-left text-[11px] leading-tight shadow-sm outline-none ring-offset-1 transition-[box-shadow,opacity] focus-visible:ring-2 focus-visible:ring-primary',
                       e.podeEditar ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer',
                       selecionadoId === e.id && 'ring-2 ring-primary',
+                      alvoTroca && 'ring-2 ring-primary ring-offset-2',
                       movendo && 'opacity-40',
                       passado && 'opacity-70',
                       e.status === 'no_show' && 'line-through',
@@ -355,9 +394,15 @@ export function GradeHoras({
                       width: `calc(${p.width * 100}% - 4px)`,
                       backgroundColor: `color-mix(in srgb, ${cor} 18%, hsl(var(--card)))`,
                       borderLeftColor: cor,
-                      zIndex: 1 + p.coluna,
+                      zIndex: alvoTroca ? 25 : 1 + p.coluna,
                     }}
                   >
+                    {alvoTroca && (
+                      <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center gap-1 bg-primary/85 px-1 text-[11px] font-semibold text-primary-foreground">
+                        <ArrowLeftRight className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">Trocar horários</span>
+                      </div>
+                    )}
                     <div className={cn('flex min-w-0 gap-1', curto ? 'items-center' : 'flex-col')}>
                       <span className="truncate font-semibold">
                         {e.rotulo && <span className="mr-1 rounded bg-black/10 px-1 dark:bg-white/15">{e.rotulo}</span>}

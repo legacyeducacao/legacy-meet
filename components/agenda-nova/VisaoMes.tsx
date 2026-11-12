@@ -1,17 +1,20 @@
 'use client';
 
 import * as React from 'react';
+import { ArrowLeftRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { diffDays, parseYmd, type Ymd } from '@/lib/agenda-engine';
 import { DIAS_CURTOS, horaCurta, instanteMin, mesmoMes, minutosNoDia, noDia } from '@/lib/agenda/visao';
 import type { EventoDTO, FeriadoDTO } from '@/lib/agenda/tipos';
 import type { Ancora } from './Flutuante';
+import { podeTrocar } from './GradeHoras';
 
 const MAX_POR_DIA = 3;
 
 /**
  * Mês: 6 semanas. Até 3 eventos por dia e "+N mais" (abre o dia). Clique no
- * vazio cria às 09h; arraste um evento para outro dia (mantém o horário).
+ * vazio cria às 09h; arraste um evento para outro dia (mantém o horário)
+ * ou solte em cima de outra reunião para trocar os horários das duas.
  */
 export function VisaoMes({
   dias,
@@ -24,6 +27,7 @@ export function VisaoMes({
   onCriar,
   onAbrir,
   onMover,
+  onTrocar,
   onVerDia,
 }: {
   dias: Ymd[];
@@ -36,6 +40,7 @@ export function VisaoMes({
   onCriar: (inicio: Date, fim: Date, ancora: Ancora) => void;
   onAbrir: (e: EventoDTO, ancora: Ancora) => void;
   onMover: (e: EventoDTO, inicio: Date, fim: Date) => void;
+  onTrocar: (origem: EventoDTO, alvo: EventoDTO) => void;
   onVerDia: (d: Ymd) => void;
 }) {
   const feriadoDe = React.useMemo(() => new Map(feriados.map((f) => [f.data, f])), [feriados]);
@@ -44,6 +49,7 @@ export function VisaoMes({
     [dias, eventos, tz],
   );
   const [alvo, setAlvo] = React.useState<Ymd | null>(null);
+  const [alvoTroca, setAlvoTroca] = React.useState<string | null>(null);
   const arrastado = React.useRef<EventoDTO | null>(null);
 
   const soltar = (dia: Ymd) => {
@@ -122,12 +128,42 @@ export function VisaoMes({
                     ev.dataTransfer.effectAllowed = 'move';
                     ev.dataTransfer.setData('text/plain', e.id);
                   }}
+                  onDragEnd={() => {
+                    arrastado.current = null;
+                    setAlvo(null);
+                    setAlvoTroca(null);
+                  }}
+                  onDragOver={(ev) => {
+                    if (!podeTrocar(arrastado.current ?? undefined, e)) return;
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    setAlvo(null);
+                    setAlvoTroca(e.id);
+                  }}
+                  onDragLeave={() => setAlvoTroca((x) => (x === e.id ? null : x))}
+                  onDrop={(ev) => {
+                    const origem = arrastado.current ?? undefined;
+                    if (!podeTrocar(origem, e)) return;
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    arrastado.current = null;
+                    setAlvo(null);
+                    setAlvoTroca(null);
+                    onTrocar(origem!, e);
+                  }}
                   onClick={(ev) => onAbrir(e, { x: ev.clientX, y: ev.clientY })}
-                  className="flex w-full items-center gap-1 truncate rounded px-1 py-px text-left text-[11px] hover:bg-muted"
-                  title={e.titulo}
+                  className={cn(
+                    'flex w-full items-center gap-1 truncate rounded px-1 py-px text-left text-[11px] hover:bg-muted',
+                    alvoTroca === e.id && 'bg-primary font-semibold text-primary-foreground ring-2 ring-primary hover:bg-primary',
+                  )}
+                  title={alvoTroca === e.id ? 'Soltar aqui troca os horários das duas reuniões' : e.titulo}
                 >
                   <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: corDe(e) }} />
-                  {!e.diaInteiro && <span className="shrink-0 text-muted-foreground">{horaCurta(new Date(e.inicio), tz)}</span>}
+                  {alvoTroca === e.id ? (
+                    <ArrowLeftRight className="h-3 w-3 shrink-0" />
+                  ) : (
+                    !e.diaInteiro && <span className="shrink-0 text-muted-foreground">{horaCurta(new Date(e.inicio), tz)}</span>
+                  )}
                   <span className={cn('truncate', e.status === 'no_show' && 'line-through')}>
                     {e.rotulo ? `${e.rotulo} · ` : ''}
                     {e.titulo}

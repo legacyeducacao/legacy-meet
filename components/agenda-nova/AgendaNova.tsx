@@ -33,6 +33,7 @@ import { CriacaoRapida, DetalhesEvento, type Cliente } from './Cartoes';
 import { FormularioEvento, valoresIniciais, type Membro, type ModeloSerie, type ValoresEvento } from './FormularioEvento';
 import { DialogoAtalhos, DialogoCancelar, DialogoConflitos, DialogoEscopo } from './Dialogos';
 import { UltimaReuniaoDialog } from '@/components/resumo/UltimaReuniaoButton';
+import { trocarHorarios } from '@/lib/agenda/troca';
 
 export interface MeAgenda {
   id: string;
@@ -329,6 +330,50 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
       esc = r;
     }
     await aplicarMudanca(ev, inicio, fim, esc);
+  };
+
+  /** Soltar uma reunião em cima de outra: as duas trocam de horário (só estas ocorrências). */
+  const trocar = async (a: EventoDTO, b: EventoDTO, justificativa?: string): Promise<boolean> => {
+    if (!a.podeEditar || !b.podeEditar || a.id === b.id) return false;
+    const antes = eventos;
+    const t = trocarHorarios(
+      { inicio: Date.parse(a.inicio), fim: Date.parse(a.fim) },
+      { inicio: Date.parse(b.inicio), fim: Date.parse(b.fim) },
+    );
+    const novo = new Map([
+      [a.id, t.a],
+      [b.id, t.b],
+    ]);
+    setEventos((lista) =>
+      lista.map((e) => {
+        const n = novo.get(e.id);
+        return n ? { ...e, inicio: new Date(n.inicio).toISOString(), fim: new Date(n.fim).toISOString() } : e;
+      }),
+    );
+    const res = await fetch('/api/agenda/trocar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ a: a.id, b: b.id, justificativa }),
+    });
+    if (res.status === 409) {
+      setEventos(antes);
+      const resposta = (await res.json()) as RespostaConflito;
+      setConflito({ resposta, salvar: (j) => void trocar(a, b, j) });
+      return false;
+    }
+    if (!res.ok) {
+      setEventos(antes);
+      toast.error('Não foi possível trocar os horários', { description: await textoErro(res) });
+      return false;
+    }
+    const j = (await res.json()) as { anteriores: Array<{ id: string; inicio: string; fim: string; titulo: string | null }> };
+    setConflito(null);
+    toast.success('Horários trocados', {
+      description: `${a.titulo} ⇄ ${b.titulo}`,
+      action: { label: 'Desfazer', onClick: () => void desfazerMovimento(j.anteriores) },
+    });
+    void carregar();
+    return true;
   };
 
   const salvarFormulario = async (v: ValoresEvento, justificativa?: string): Promise<boolean> => {
@@ -648,6 +693,7 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
               onCriar={abrirCriacao}
               onAbrir={abrir}
               onMover={mover}
+              onTrocar={(a, b) => void trocar(a, b)}
               onVerDia={(d) => irPara(d, 'dia')}
             />
           ) : visao === 'lista' ? (
@@ -665,6 +711,7 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
               onCriar={abrirCriacao}
               onAbrir={abrir}
               onMover={mover}
+              onTrocar={(a, b) => void trocar(a, b)}
               onVerDia={(d) => irPara(d, 'dia')}
             />
           )}
