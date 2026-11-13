@@ -52,12 +52,12 @@ describe('togglePilar', () => {
 
 describe('buildSaveBody', () => {
   it('no-show não manda pilares', () => {
-    expect(buildSaveBody('sala', ['a'], true, false)).toEqual({ room: 'sala', noShow: true });
+    expect(buildSaveBody('sala', ['a'], true, false)).toEqual({ room: 'sala', noShow: true, onboarding: false });
   });
   it('onboarding sem no-show não manda pilares', () => {
-    expect(buildSaveBody('sala', ['a'], false, true)).toEqual({ room: 'sala', noShow: false });
+    expect(buildSaveBody('sala', ['a'], false, true)).toEqual({ room: 'sala', noShow: false, onboarding: true });
   });
-  it('reunião comum manda os pilares desligados', () => {
-    expect(buildSaveBody('sala', ['a'], false, false)).toEqual({ room: 'sala', noShow: false, desabilitados: ['a'] });
+  it('reunião comum manda os pilares desligados e desliga o onboarding', () => {
+    expect(buildSaveBody('sala', ['a'], false, false)).toEqual({ room: 'sala', noShow: false, onboarding: false, desabilitados: ['a'] });
   });
 });

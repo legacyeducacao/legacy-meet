@@ -86,16 +86,19 @@ export async function fetchPilares(room: string): Promise<PilaresInfo> {
 
 export type SaveResult = { kind: 'ok' } | { kind: 'forbidden' } | { kind: 'error'; message: string };
 
-/** Corpo do POST: com no-show os pilares não vão (a reunião sai do ExecScore). */
+/**
+ * Corpo do POST: com no-show ou onboarding os pilares não vão (a reunião sai
+ * do ExecScore). O onboarding sempre vai, para corrigir marcação por engano.
+ */
 export function buildSaveBody(
   room: string,
   desabilitados: string[],
   noShow: boolean,
   onboarding: boolean,
 ): Record<string, unknown> {
-  if (noShow) return { room, noShow: true };
-  if (onboarding) return { room, noShow: false };
-  return { room, noShow: false, desabilitados };
+  if (noShow) return { room, noShow: true, onboarding };
+  if (onboarding) return { room, noShow: false, onboarding: true };
+  return { room, noShow: false, onboarding: false, desabilitados };
 }
 
 export async function savePilares(

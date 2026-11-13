@@ -2,12 +2,16 @@ import { after, NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import {
   activePillars,
+  definirOnboarding,
+  descartarEnvio,
   dispatchMeeting,
+  garantirTranscricao,
   findExecutoriaMeeting,
   getIntegracao,
   tentativasEsgotadas,
   isEnabled,
   PILARES,
+  reabrirEnvio,
   sanitizeDisabled,
   savePillarChoice,
   type ExecutoriaMeeting,
@@ -68,16 +72,19 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * Corpo: { room, noShow?, desabilitados? }.
+ * Corpo: { room, noShow?, onboarding?, desabilitados? }.
  * - noShow true: marca no-show (cliente não veio) e a reunião sai do ExecScore.
  * - noShow false com a reunião em no-show: desfaz antes de salvar os pilares.
- * - Reunião de onboarding não tem pilares: só o no-show é registrado.
+ * - onboarding: liga/desliga "Reunião de onboarding" (corrige marcação por
+ *   engano depois da reunião). Onboarding não tem pilares nem vai ao ExecScore;
+ *   desligado, salva os pilares e a reunião volta para a fila.
  */
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as {
     room?: string;
     desabilitados?: unknown;
     noShow?: unknown;
+    onboarding?: unknown;
   } | null;
   try {
     const ctx = await resolve(body?.room ?? null);
@@ -91,8 +98,14 @@ export async function POST(req: NextRequest) {
       const r = await applyNoShow(meetingId, !body.noShow);
       if (!r.ok) return new NextResponse(r.message, { status: r.httpStatus });
     }
+    let onboarding = ctx.meeting.onboarding;
+    if (typeof body?.onboarding === 'boolean' && body.onboarding !== onboarding) {
+      await definirOnboarding(meetingId, body.onboarding);
+      onboarding = body.onboarding;
+      if (onboarding) await descartarEnvio(meetingId, 'reunião de onboarding');
+    }
     if (body?.noShow === true) return NextResponse.json({ ok: true, noShow: true });
-    if (ctx.meeting.onboarding) return NextResponse.json({ ok: true, onboarding: true });
+    if (onboarding) return NextResponse.json({ ok: true, onboarding: true });
 
     let desabilitados;
     try {
@@ -101,6 +114,11 @@ export async function POST(req: NextRequest) {
       return new NextResponse(e instanceof Error ? e.message : 'pilares inválidos', { status: 400 });
     }
     await savePillarChoice(ctx.meeting, desabilitados, ctx.userId);
+    if (ctx.meeting.onboarding) {
+      // Era onboarding: a transcrição pode não estar na fila ainda.
+      await garantirTranscricao(ctx.meeting);
+      await reabrirEnvio(meetingId);
+    }
     // Se a transcrição já estiver pronta, envia agora; senão o worker dispara depois.
     after(() => dispatchMeeting(meetingId).catch((e) => console.error('execscore dispatch', e)));
     return NextResponse.json({ ok: true, desabilitados, ativos: activePillars(desabilitados) });

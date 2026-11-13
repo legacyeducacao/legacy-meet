@@ -12,18 +12,19 @@ import {
   type Pilar,
 } from '@/lib/execscorePilares';
 
-export type PilaresSaved = { desabilitados: string[]; noShow: boolean };
+export type PilaresSaved = { desabilitados: string[]; noShow: boolean; onboarding: boolean };
 
 /**
  * Formulário da saída da reunião: primeiro "o cliente compareceu?" (no-show)
  * e, se compareceu, um Switch por pilar (ligado = será avaliado). Reunião de
- * onboarding não tem pilares. Usado na tela de saída e no Dialog da gravação.
+ * onboarding não tem pilares; a chave de onboarding fica aqui para corrigir
+ * uma marcação feita por engano. Usado na tela de saída e no Dialog da gravação.
  */
 export function PilaresForm({
   room,
   pilares,
   desabilitados,
-  onboarding = false,
+  onboarding: onboardingInicial = false,
   noShow: noShowInicial = false,
   submitLabel = 'Confirmar e enviar',
   onSaved,
@@ -43,6 +44,7 @@ export function PilaresForm({
 }) {
   const [off, setOff] = React.useState<string[]>(() => initialDisabled(desabilitados, pilares));
   const [noShow, setNoShow] = React.useState(noShowInicial);
+  const [onboarding, setOnboarding] = React.useState(onboardingInicial);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
   const ligados = pilares.length - off.length;
@@ -53,7 +55,7 @@ export function PilaresForm({
     setError('');
     const r = await savePilares(room, off, { noShow, onboarding });
     setBusy(false);
-    if (r.kind === 'ok') onSaved({ desabilitados: off, noShow });
+    if (r.kind === 'ok') onSaved({ desabilitados: off, noShow, onboarding });
     else if (r.kind === 'forbidden') onForbidden();
     else setError(r.message);
   };
@@ -75,6 +77,22 @@ export function PilaresForm({
           aria-label="O cliente não compareceu (no-show)"
         />
       </div>
+
+      {!noShow && (
+        <div className="flex min-h-14 items-center justify-between gap-3 rounded-lg border px-4 py-2">
+          <label htmlFor="pilares-onboarding" className="text-sm">
+            <span className="font-medium">Reunião de onboarding</span>
+            <span className="block text-xs text-muted-foreground">Primeira reunião do cliente: não vai para o ExecScore</span>
+          </label>
+          <Switch
+            id="pilares-onboarding"
+            checked={onboarding}
+            disabled={busy}
+            onCheckedChange={setOnboarding}
+            aria-label="Reunião de onboarding"
+          />
+        </div>
+      )}
 
       {noShow && (
         <p className="text-sm text-muted-foreground">

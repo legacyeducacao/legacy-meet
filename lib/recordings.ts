@@ -191,6 +191,12 @@ export async function listJsonKeys(prefix: string): Promise<string[]> {
   return keys;
 }
 
+/** Ids das gravações de uma sala ("<sala>__<timestamp>"), pelos manifestos. */
+export async function recordingIdsDaSala(room: string): Promise<string[]> {
+  const keys = await listJsonKeys(`${MANIFEST_PREFIX}${room}__`);
+  return keys.map((k) => k.slice(MANIFEST_PREFIX.length).replace(/\.json$/, ''));
+}
+
 export async function readJson<T = unknown>(key: string): Promise<T | null> {
   const text = await getObjectText(key);
   if (text == null) return null;
