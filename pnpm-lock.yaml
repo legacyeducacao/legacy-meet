@@ -90,6 +90,9 @@ importers:
         specifier: ^3.0.0
         version: 3.0.0
     devDependencies:
+      '@electric-sql/pglite':
+        specifier: 0.5.12
+        version: 0.5.12
       '@types/node':
         specifier: 24.12.4
         version: 24.12.4
@@ -264,6 +267,9 @@ packages:
     peerDependenciesMeta:
       '@datadog/browser-rum':
         optional: true
+
+  '@electric-sql/pglite@0.5.12':
+    resolution: {integrity: sha512-IiAxv1ld1V9QP0AWsflliDqrGRo+20O+yXOr2fjk6YzBHsCvTPclwQhCB1uZ7eHtPrxUrSllNzWgqy/Ot76PEw==}
 
   '@emnapi/runtime@1.10.0':
     resolution: {integrity: sha512-ewvYlk86xUoGI0zQRNq/mC+16R1QeDlKQy21Ki3oSYXNgLb45GV1P6A0M+/s6nyCuNDqe5VpaY84BzXGwVbwFA==}
@@ -4143,6 +4149,8 @@ snapshots:
   '@datadog/browser-logs@5.35.1':
     dependencies:
       '@datadog/browser-core': 5.35.1
+
+  '@electric-sql/pglite@0.5.12': {}
 
   '@emnapi/runtime@1.10.0':
     dependencies:

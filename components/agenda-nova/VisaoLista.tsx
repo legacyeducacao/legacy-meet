@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import type { Ymd } from '@/lib/agenda-engine';
 import { faixaHorario, noDia, rotuloDia } from '@/lib/agenda/visao';
 import type { EventoDTO, FeriadoDTO } from '@/lib/agenda/tipos';
+import { ocupacaoCurta } from '@/lib/kickoff/evento';
 import type { Ancora } from './Flutuante';
 
 /** Lista corrida (agenda) dos próximos dias, agrupada por dia. */
@@ -66,9 +67,9 @@ export function VisaoLista({
                       {e.rotulo && <span className="mr-1 rounded bg-muted px-1 text-xs">{e.rotulo}</span>}
                       {e.titulo}
                     </span>
-                    {(e.cliente || e.turma || e.executorNome) && (
+                    {(e.cliente || e.turma || e.executorNome || e.kickoff) && (
                       <span className="block truncate text-xs text-muted-foreground">
-                        {[e.cliente || e.turma, e.executorNome].filter(Boolean).join(' · ')}
+                        {[e.cliente || e.turma, e.executorNome, e.kickoff ? `${ocupacaoCurta(e)} empresas` : null].filter(Boolean).join(' · ')}
                       </span>
                     )}
                   </span>

@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 // @ts-ignore
 import { tinykeys } from 'tinykeys';
 import Link from 'next/link';
-import { BarChart3, ChevronLeft, ChevronRight, Keyboard, Loader2, Menu, Plus, Search, Settings } from 'lucide-react';
+import { BarChart3, ChevronLeft, ChevronRight, Keyboard, Loader2, Menu, Plus, Rocket, Search, Settings } from 'lucide-react';
 import { toast } from '@/components/ui/custom-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,12 +33,18 @@ import { CriacaoRapida, DetalhesEvento, type Cliente } from './Cartoes';
 import { FormularioEvento, valoresIniciais, type Membro, type ModeloSerie, type ValoresEvento } from './FormularioEvento';
 import { DialogoAtalhos, DialogoCancelar, DialogoConflitos, DialogoEscopo } from './Dialogos';
 import { UltimaReuniaoDialog } from '@/components/resumo/UltimaReuniaoButton';
+import { passaNoFiltro, type FiltroTipo } from '@/lib/kickoff/evento';
+import { KICKOFF_TIPO } from '@/lib/kickoff/regras';
 
 export interface MeAgenda {
   id: string;
   name: string | null;
   isAdmin: boolean;
   sector: 'comercial' | 'executoria' | 'ambos' | null;
+  /** canSeeComercial(user), calculado no servidor (mesma regra da API). */
+  podeComercial: boolean;
+  /** podeGerenciarKickoff(user), calculado no servidor (mesma regra da API). */
+  podeKickoff: boolean;
 }
 
 const VISOES: Visao[] = ['dia', '4dias', 'semana', 'mes', 'lista'];
@@ -81,6 +87,8 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
   const [feriados, setFeriados] = React.useState<FeriadoDTO[]>([]);
   const [carregando, setCarregando] = React.useState(true);
   const [ocultos, setOcultos] = React.useState<Calendario[]>([]);
+  // Filtro visual dos kickoffs (só para quem gerencia): não muda a disponibilidade.
+  const [filtroTipo, setFiltroTipo] = React.useState<FiltroTipo>('todos');
   const [executoresExtras, setExecutoresExtras] = React.useState<string[]>([]);
   const [busca, setBusca] = React.useState('');
   const [selecionado, setSelecionado] = React.useState<string | null>(null);
@@ -188,10 +196,11 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
     return eventos.filter(
       (e) =>
         !ocultos.includes(e.calendario) &&
+        (!me.podeKickoff || passaNoFiltro(e, filtroTipo)) &&
         !escondidosPendentes.has(e.id) &&
         (!q || `${e.titulo} ${e.cliente ?? ''} ${e.rotulo ?? ''} ${e.executorNome ?? ''} ${e.turma ?? ''}`.toLowerCase().includes(q)),
     );
-  }, [eventos, ocultos, escondidosPendentes, busca]);
+  }, [eventos, ocultos, escondidosPendentes, busca, me.podeKickoff, filtroTipo]);
   const feriadosVisiveis = ocultos.includes('feriados') ? [] : feriados;
 
   const perguntarEscopo = (titulo: string) => new Promise<Escopo | null>((resolver) => setEscopo({ titulo, resolver }));
@@ -218,6 +227,7 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
         templateId: v.templateId,
         jornadaLegado: !!v.jornadaLegado,
         justificativa,
+        ...(v.tipo === KICKOFF_TIPO ? { tipo: KICKOFF_TIPO, capacidade: v.capacidade } : {}),
       }),
     });
     if (res.status === 409) {
@@ -467,6 +477,7 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
     gravar: ev.gravar ?? true,
     transcrever: ev.transcrever ?? true,
     onboarding: ev.onboarding ?? false,
+    ...(ev.tipoEvento === KICKOFF_TIPO ? { tipo: KICKOFF_TIPO, capacidade: ev.kickoff?.capacidade } : {}),
   });
 
   // ------------------------------ Navegação e atalhos ------------------------------
@@ -535,7 +546,7 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
       <MiniCalendario cursor={cursor} hoje={hoje} diasVisiveis={visao === 'lista' ? [] : dias} onEscolher={(d) => irPara(d, visao === 'mes' ? 'dia' : undefined)} />
       <div className="space-y-1">
         <p className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Meus calendários</p>
-        {CALENDARIOS.map((c) => {
+        {CALENDARIOS.filter((c) => c.id !== 'kickoff' || me.podeKickoff).map((c) => {
           const on = !ocultos.includes(c.id);
           return (
             <label key={c.id} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-sm hover:bg-muted">
@@ -551,6 +562,35 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
           );
         })}
       </div>
+      {me.podeKickoff && (
+        <div className="space-y-1">
+          <p className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mostrar</p>
+          <div className="flex rounded-lg border p-0.5" role="radiogroup" aria-label="Filtrar kickoffs">
+            {(
+              [
+                ['todos', 'Todos'],
+                ['comuns', 'Reuniões'],
+                ['kickoffs', 'Kickoffs'],
+              ] as const
+            ).map(([v, rotulo]) => (
+              <button
+                key={v}
+                type="button"
+                role="radio"
+                aria-checked={filtroTipo === v}
+                onClick={() => setFiltroTipo(v)}
+                className={cn(
+                  'flex-1 rounded-md px-2 py-1 text-xs font-medium',
+                  filtroTipo === v ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted',
+                )}
+              >
+                {rotulo}
+              </button>
+            ))}
+          </div>
+          <p className="px-1 text-xs text-muted-foreground">Só muda o que aparece; a disponibilidade continua a mesma.</p>
+        </div>
+      )}
       {me.isAdmin && equipe.length > 0 && (
         <div className="space-y-1">
           <p className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Outros executores</p>
@@ -621,6 +661,13 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
         <Button variant="ghost" size="icon" className="hidden md:inline-flex" onClick={() => setAtalhos(true)} aria-label="Atalhos de teclado">
           <Keyboard className="h-5 w-5" />
         </Button>
+        {me.podeKickoff && (
+          <Button asChild variant="ghost" size="icon" aria-label="Kickoffs Impulsão">
+            <Link href="/agenda/kickoffs">
+              <Rocket className="h-5 w-5" />
+            </Link>
+          </Button>
+        )}
         <Button asChild variant="ghost" size="icon" aria-label="Painel da agenda">
           <Link href="/agenda/painel">
             <BarChart3 className="h-5 w-5" />
@@ -725,10 +772,17 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
             setFormulario(valoresDe(detalhe.evento, true));
             setDetalhe(null);
           }}
-          onDuplicar={() => {
-            setFormulario(valoresDe(detalhe.evento, false));
-            setDetalhe(null);
-          }}
+          // Duplicar copia o setor: reunião do Comercial só para quem tem acesso a ele.
+          onDuplicar={
+            (detalhe.evento.setor === 'comercial' && !me.podeComercial) ||
+            // Duplicar uma sessão de kickoff cria outra sessão de kickoff: só quem gerencia.
+            (detalhe.evento.tipoEvento === KICKOFF_TIPO && !me.podeKickoff)
+              ? undefined
+              : () => {
+                  setFormulario(valoresDe(detalhe.evento, false));
+                  setDetalhe(null);
+                }
+          }
           onExcluir={() => setCancelar(detalhe.evento)}
           onRemoverBloqueio={() => void removerBloqueio(detalhe.evento)}
           onUltimaReuniao={() => {
@@ -753,6 +807,7 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
           inicial={formulario}
           tz={tz}
           podeEscolherSetor={podeEscolherSetor}
+          podeKickoff={me.podeKickoff}
           clientes={clientes}
           equipe={equipe}
           meId={me.id}

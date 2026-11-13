@@ -21,6 +21,7 @@ import {
   type Repeticao,
 } from '@/lib/agenda/visao';
 import type { ConflitoDTO } from '@/lib/agenda/tipos';
+import { CAPACIDADE_MAX, CAPACIDADE_MIN, CAPACIDADE_PADRAO } from '@/lib/kickoff/regras';
 import { ListaConflitos } from './Dialogos';
 import type { Cliente } from './Cartoes';
 
@@ -44,6 +45,10 @@ export interface ValoresEvento {
   templateId?: string;
   /** Registra a jornada do Legado (previstos x realizados). */
   jornadaLegado?: boolean;
+  /** Sessão de kickoff do Impulsão (só para quem gerencia kickoffs). */
+  tipo?: 'kickoff_impulsao';
+  /** Kickoff: empresas por sessão. */
+  capacidade?: number;
 }
 
 export interface ModeloSerie {
@@ -67,6 +72,7 @@ export function FormularioEvento({
   inicial,
   tz,
   podeEscolherSetor,
+  podeKickoff = false,
   clientes,
   equipe,
   meId,
@@ -78,6 +84,8 @@ export function FormularioEvento({
   inicial: ValoresEvento;
   tz: string;
   podeEscolherSetor: boolean;
+  /** Mostra a opção "Kickoff Impulsão" (o servidor confere a permissão de novo). */
+  podeKickoff?: boolean;
   clientes: Cliente[];
   equipe: Membro[];
   meId: string;
@@ -94,6 +102,7 @@ export function FormularioEvento({
   const [erro, setErro] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const edicao = !!v.id;
+  const kickoff = v.tipo === 'kickoff_impulsao';
   const set = <K extends keyof ValoresEvento>(k: K, val: ValoresEvento[K]) => setV((x) => ({ ...x, [k]: val }));
   const rep = v.repeticao;
   const setRep = (r: Partial<Repeticao>) => set('repeticao', { ...rep, ...r });
@@ -162,7 +171,11 @@ export function FormularioEvento({
 
   const salvar = async () => {
     if (!v.titulo.trim()) return setErro('Informe o título.');
-    if (!edicao && v.setor === 'executoria' && !v.tenantId) return setErro('Selecione o cliente.');
+    if (!edicao && !kickoff && v.setor === 'executoria' && !v.tenantId) return setErro('Selecione o cliente.');
+    if (!edicao && kickoff) {
+      const c = v.capacidade ?? CAPACIDADE_PADRAO;
+      if (!Number.isInteger(c) || c < CAPACIDADE_MIN || c > CAPACIDADE_MAX) return setErro('A capacidade deve ser de 1 a 50 empresas.');
+    }
     if (!inicio || !fim) return setErro('Confira a data e os horários.');
     if (conflitos.length && !just.trim()) return setErro('Há conflitos: escreva o motivo para salvar mesmo assim.');
     setErro('');
@@ -187,7 +200,9 @@ export function FormularioEvento({
     <Dialog open onOpenChange={(o) => !o && onFechar()}>
       <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>{edicao ? 'Editar reunião' : 'Nova reunião'}</DialogTitle>
+          <DialogTitle>
+            {edicao ? (kickoff ? 'Editar sessão de kickoff' : 'Editar reunião') : kickoff ? 'Nova sessão de kickoff' : 'Nova reunião'}
+          </DialogTitle>
         </DialogHeader>
 
         <form
@@ -202,7 +217,56 @@ export function FormularioEvento({
             <Input id="f-titulo" autoFocus value={v.titulo} onChange={(e) => set('titulo', e.target.value)} />
           </div>
 
-          {!edicao && podeEscolherSetor && (
+          {!edicao && podeKickoff && (
+            <div className="flex gap-1 rounded-lg bg-muted p-1 text-sm" role="radiogroup" aria-label="Tipo de evento">
+              {(
+                [
+                  ['reuniao', 'Reunião'],
+                  ['kickoff', 'Kickoff Impulsão'],
+                ] as const
+              ).map(([k, rotulo]) => {
+                const ativo = k === 'kickoff' ? kickoff : !kickoff;
+                return (
+                  <button
+                    key={k}
+                    type="button"
+                    role="radio"
+                    aria-checked={ativo}
+                    onClick={() =>
+                      setV((x) =>
+                        k === 'kickoff'
+                          ? { ...x, tipo: 'kickoff_impulsao', setor: 'executoria', tenantId: '', templateId: undefined, jornadaLegado: false, capacidade: x.capacidade ?? CAPACIDADE_PADRAO }
+                          : { ...x, tipo: undefined },
+                      )
+                    }
+                    className={cn('flex-1 rounded-md px-2 py-1', ativo ? 'bg-background font-medium shadow-sm' : 'text-muted-foreground')}
+                  >
+                    {rotulo}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {!edicao && kickoff && (
+            <div className="space-y-1.5">
+              <Label htmlFor="f-capacidade">Empresas por sessão</Label>
+              <Input
+                id="f-capacidade"
+                type="number"
+                min={CAPACIDADE_MIN}
+                max={CAPACIDADE_MAX}
+                className="w-28"
+                value={v.capacidade ?? CAPACIDADE_PADRAO}
+                onChange={(e) => set('capacidade', e.target.value === '' ? undefined : Number(e.target.value))}
+              />
+              <p className="text-xs text-muted-foreground">
+                Sessão coletiva na sua agenda, sem sala do Meet e sem Google Agenda. O Zoom e as reservas das empresas entram nas próximas etapas.
+              </p>
+            </div>
+          )}
+
+          {!edicao && podeEscolherSetor && !kickoff && (
             <div className="flex gap-1 rounded-lg bg-muted p-1 text-sm">
               {(['executoria', 'comercial'] as const).map((x) => (
                 <button
@@ -217,7 +281,7 @@ export function FormularioEvento({
             </div>
           )}
 
-          {!edicao && v.setor === 'executoria' && modelos.length > 0 && (
+          {!edicao && !kickoff && v.setor === 'executoria' && modelos.length > 0 && (
             <div className="space-y-1.5">
               <Label htmlFor="f-modelo">Modelo</Label>
               <select
@@ -249,7 +313,7 @@ export function FormularioEvento({
             </div>
           )}
 
-          {!edicao && v.setor === 'executoria' && (
+          {!edicao && !kickoff && v.setor === 'executoria' && (
             <div className="space-y-1.5">
               <Label>Cliente</Label>
               <SearchableSelect
@@ -376,7 +440,7 @@ export function FormularioEvento({
             </div>
           )}
 
-          {!edicao && (
+          {!edicao && !kickoff && (
             <div className="space-y-3 rounded-lg border p-3">
               {(
                 [

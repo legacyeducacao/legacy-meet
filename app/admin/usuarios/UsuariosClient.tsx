@@ -44,6 +44,8 @@ type UserRow = {
   email: string;
   isAdmin: boolean;
   sector: Sector | null;
+  /** Permissão 'kickoff_impulsao.manage'. */
+  kickoffImpulsao?: boolean;
 };
 
 function getInitials(name: string | null, email: string): string {
@@ -91,13 +93,18 @@ export default function UsuariosClient() {
   React.useEffect(() => { loadUsers(); }, [loadUsers]);
 
   const patchUser = React.useCallback(
-    async (userId: string, isAdmin: boolean, userSector: Sector | null) => {
+    async (userId: string, isAdmin: boolean, userSector: Sector | null, kickoffImpulsao?: boolean) => {
       setSaving((prev) => ({ ...prev, [userId]: true }));
       try {
         const res = await fetch('/api/admin/users', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId, isAdmin, sector: userSector ?? 'ambos' }),
+          body: JSON.stringify({
+            userId,
+            isAdmin,
+            sector: userSector ?? 'ambos',
+            ...(typeof kickoffImpulsao === 'boolean' ? { kickoffImpulsao } : {}),
+          }),
         });
         if (!res.ok) {
           const text = await res.text();
@@ -267,6 +274,7 @@ export default function UsuariosClient() {
                       <TableHead>E-mail</TableHead>
                       <TableHead>Admin</TableHead>
                       <TableHead>Setor</TableHead>
+                      <TableHead title="Gerenciar os kickoffs do Impulsão (admin já tem)">Kickoffs</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -307,6 +315,14 @@ export default function UsuariosClient() {
                               <SelectItem value="ambos">Ambos</SelectItem>
                             </SelectContent>
                           </Select>
+                        </TableCell>
+                        <TableCell>
+                          <Switch
+                            aria-label={`Kickoffs Impulsão: ${u.name ?? u.email}`}
+                            checked={!!u.kickoffImpulsao}
+                            disabled={saving[u.id]}
+                            onCheckedChange={(checked) => patchUser(u.id, u.isAdmin, u.sector, checked)}
+                          />
                         </TableCell>
                       </TableRow>
                     ))}

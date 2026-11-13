@@ -3,12 +3,13 @@
  * Sem dependência de servidor: pode ir para o navegador.
  */
 
-export type Calendario = 'impulsao' | 'legado' | 'comercial' | 'outros' | 'turmas' | 'bloqueios' | 'feriados';
+export type Calendario = 'impulsao' | 'legado' | 'comercial' | 'kickoff' | 'outros' | 'turmas' | 'bloqueios' | 'feriados';
 
 export const CALENDARIOS: Array<{ id: Calendario; nome: string; cor: string }> = [
   { id: 'impulsao', nome: 'Impulsão', cor: '#7c3aed' },
   { id: 'legado', nome: 'Legado', cor: '#2563eb' },
   { id: 'comercial', nome: 'Comercial', cor: '#059669' },
+  { id: 'kickoff', nome: 'Kickoffs Impulsão', cor: '#db2777' },
   { id: 'outros', nome: 'Outras reuniões', cor: '#0891b2' },
   { id: 'turmas', nome: 'Turmas do Legado', cor: '#d97706' },
   { id: 'bloqueios', nome: 'Pessoal / bloqueios', cor: '#64748b' },
@@ -49,6 +50,10 @@ export interface EventoDTO {
   turma?: string | null;
   /** Pode mover, editar e excluir. */
   podeEditar: boolean;
+  /** Sessão de kickoff do Impulsão (reunião da agenda sem sala do Meet). */
+  tipoEvento?: 'kickoff_impulsao';
+  /** Configuração da sessão de kickoff: só para quem gerencia kickoffs. */
+  kickoff?: { capacidade: number; aceitaReservas: boolean; ocupadas: number };
 }
 
 export interface FeriadoDTO {

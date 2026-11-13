@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { getCurrentUser } from '@/lib/auth';
+import { canSeeComercial, getCurrentUser, podeGerenciarKickoff } from '@/lib/auth';
 import { AppShell } from '@/components/AppShell';
 import { AgendaNova } from '@/components/agenda-nova/AgendaNova';
 
@@ -9,9 +9,20 @@ export const dynamic = 'force-dynamic';
 export default async function Page() {
   const user = await getCurrentUser();
   if (!user) redirect('/login?next=/agenda');
+  // Agenda administrativa: só a equipe do Meet (clientes do Plan têm o mesmo login).
+  if (!user.isStaff) redirect('/sem-acesso');
   return (
     <AppShell>
-      <AgendaNova me={{ id: user.id, name: user.name, isAdmin: user.isAdmin, sector: user.sector }} />
+      <AgendaNova
+        me={{
+          id: user.id,
+          name: user.name,
+          isAdmin: user.isAdmin,
+          sector: user.sector,
+          podeComercial: canSeeComercial(user),
+          podeKickoff: podeGerenciarKickoff(user),
+        }}
+      />
     </AppShell>
   );
 }

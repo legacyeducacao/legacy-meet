@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { diffDays, parseYmd, type Ymd } from '@/lib/agenda-engine';
 import { DIAS_CURTOS, horaCurta, instanteMin, mesmoMes, minutosNoDia, noDia } from '@/lib/agenda/visao';
 import type { EventoDTO, FeriadoDTO } from '@/lib/agenda/tipos';
+import { ocupacaoCurta } from '@/lib/kickoff/evento';
 import type { Ancora } from './Flutuante';
 
 const MAX_POR_DIA = 3;
@@ -132,6 +133,7 @@ export function VisaoMes({
                     {e.rotulo ? `${e.rotulo} · ` : ''}
                     {e.titulo}
                   </span>
+                  {e.kickoff && <span className="shrink-0 text-muted-foreground">{ocupacaoCurta(e)}</span>}
                 </button>
               ))}
               {extra > 0 && (

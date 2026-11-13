@@ -13,6 +13,7 @@ import {
   SNAP_MIN,
 } from '@/lib/agenda/visao';
 import type { EventoDTO, FeriadoDTO } from '@/lib/agenda/tipos';
+import { ocupacaoCurta } from '@/lib/kickoff/evento';
 import type { Ancora } from './Flutuante';
 
 type Modo = 'criar' | 'mover' | 'redimensionar';
@@ -366,6 +367,7 @@ export function GradeHoras({
                       <span className="truncate text-muted-foreground">
                         {faixaHorario(new Date(e.inicio), new Date(e.fim), tz)}
                         {!curto && (e.cliente || e.turma) ? ` · ${e.cliente || e.turma}` : ''}
+                        {e.kickoff ? ` · ${ocupacaoCurta(e)} empresas` : ''}
                       </span>
                     </div>
                     {e.podeEditar && (

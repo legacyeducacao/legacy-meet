@@ -1,5 +1,6 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import { createAdminSupabase } from '@/lib/supabase/admin';
+import { lerCapacidades, PERMISSAO_KICKOFF } from '@/lib/kickoff/regras';
 
 export type Sector = 'comercial' | 'executoria' | 'ambos';
 
@@ -11,6 +12,8 @@ export type CurrentUser = {
   isStaff: boolean;
   isAdmin: boolean;
   sector: Sector | null;
+  /** Permissões funcionais do perfil do Meet (ex.: 'kickoff_impulsao.manage'). */
+  capacidades?: string[];
 };
 
 export function canSeeComercial(u: CurrentUser | null): boolean {
@@ -25,6 +28,16 @@ export function canSeeExecutoria(u: CurrentUser | null): boolean {
 
 export function canSeeNps(u: CurrentUser | null): boolean {
   return canSeeExecutoria(u);
+}
+
+/**
+ * Gerencia os kickoffs do Impulsão: equipe do Meet com a permissão
+ * 'kickoff_impulsao.manage' no perfil. O admin global do Meet também pode
+ * (é ele quem concede e revoga a permissão).
+ */
+export function podeGerenciarKickoff(u: Pick<CurrentUser, 'isStaff' | 'isAdmin' | 'capacidades'> | null): boolean {
+  if (!u || !u.isStaff) return false;
+  return u.isAdmin || (u.capacidades ?? []).includes(PERMISSAO_KICKOFF);
 }
 
 export async function getCurrentUser(): Promise<CurrentUser | null> {
@@ -43,9 +56,11 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
 
     // meet_user_profile via service_role (RLS bloqueia a sessão)
     const admin = createAdminSupabase();
+    // select('*'): a coluna capacidades só existe depois da migration do
+    // kickoff; pedir a coluna pelo nome antes disso derrubaria o perfil inteiro.
     const { data: profile } = await admin
       .from('meet_user_profile')
-      .select('is_admin, sector')
+      .select('*')
       .eq('user_id', user.id)
       .maybeSingle();
 
@@ -65,6 +80,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
       isStaff: !!profile || isLegacyStaff,
       isAdmin: profile?.is_admin ?? false,
       sector: (profile?.sector as Sector | undefined) ?? null,
+      capacidades: lerCapacidades(profile),
     };
   } catch {
     return null;

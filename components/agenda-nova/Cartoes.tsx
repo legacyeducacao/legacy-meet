@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { Clock, Copy, ExternalLink, GraduationCap, History, Link2, MapPin, Monitor, Pencil, Repeat, Trash2, User, UserX, Users, Video } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -54,7 +55,8 @@ export function DetalhesEvento({
   onEntrar: () => void;
   onCopiarLink: () => void;
   onEditar: () => void;
-  onDuplicar: () => void;
+  /** Sem a função, o botão Duplicar não aparece (ex.: reunião do Comercial para quem não tem acesso). */
+  onDuplicar?: () => void;
   onExcluir: () => void;
 }) {
   const ini = new Date(evento.inicio);
@@ -65,8 +67,10 @@ export function DetalhesEvento({
   const podeEntrar = reuniao && !!evento.roomName && (evento.status === 'scheduled' || evento.status === 'live');
   // No-show: depois do horário de início (cliente não veio); desfazer quando já marcado.
   const jaComecou = ini.getTime() <= Date.now();
-  const podeNoShow = reuniao && evento.podeEditar && jaComecou && ['scheduled', 'live', 'ended'].includes(evento.status ?? '');
-  const podeDesfazerNoShow = reuniao && evento.podeEditar && evento.status === 'no_show';
+  // Sessão de kickoff: a ausência é por empresa (reservas), não da sessão.
+  const kickoff = evento.tipoEvento === 'kickoff_impulsao';
+  const podeNoShow = reuniao && !kickoff && evento.podeEditar && jaComecou && ['scheduled', 'live', 'ended'].includes(evento.status ?? '');
+  const podeDesfazerNoShow = reuniao && !kickoff && evento.podeEditar && evento.status === 'no_show';
   const temUltima = reuniao && evento.setor === 'executoria' && !!evento.tenantId;
   return (
     <Flutuante ancora={ancora} onClose={onFechar} titulo={evento.titulo} largura={380}>
@@ -104,10 +108,24 @@ export function DetalhesEvento({
             <li className="flex flex-wrap items-center gap-1.5">
               <Clock className="h-4 w-4 text-muted-foreground" />
               {evento.status && STATUS[evento.status] && <Badge variant="outline">{STATUS[evento.status]}</Badge>}
+              {kickoff && <Badge variant="outline">Kickoff Impulsão</Badge>}
               {evento.onboarding && <Badge variant="outline">Onboarding</Badge>}
               <span className="text-xs text-muted-foreground">
-                {evento.gravar ? (evento.transcrever ? 'Grava e transcreve' : 'Grava') : 'Sem gravação'}
+                {kickoff ? 'Zoom (sem sala do Meet)' : evento.gravar ? (evento.transcrever ? 'Grava e transcreve' : 'Grava') : 'Sem gravação'}
               </span>
+            </li>
+          )}
+          {kickoff && evento.kickoff && (
+            <li className="flex items-center gap-2">
+              <Users className="h-4 w-4 text-muted-foreground" /> {evento.kickoff.ocupadas} de {evento.kickoff.capacidade} empresas inscritas
+              {!evento.kickoff.aceitaReservas && <span className="text-xs text-muted-foreground">(sem novas reservas)</span>}
+            </li>
+          )}
+          {kickoff && evento.kickoff && (
+            <li className="flex items-center gap-2">
+              <Link href={`/agenda/kickoffs#sessao-${evento.id}`} className="text-sm text-primary underline-offset-4 hover:underline">
+                Ver empresas e reservas
+              </Link>
             </li>
           )}
           {turma && evento.turma && (
@@ -161,9 +179,11 @@ export function DetalhesEvento({
                 <Pencil className="h-4 w-4" /> Editar
               </Button>
             )}
-            <Button size="sm" variant="outline" onClick={onDuplicar} aria-label="Duplicar">
-              <Copy className="h-4 w-4" /> Duplicar
-            </Button>
+            {onDuplicar && (
+              <Button size="sm" variant="outline" onClick={onDuplicar} aria-label="Duplicar">
+                <Copy className="h-4 w-4" /> Duplicar
+              </Button>
+            )}
             {temUltima && (
               <Button size="sm" variant="outline" onClick={onUltimaReuniao}>
                 <History className="h-4 w-4" /> Última reunião
