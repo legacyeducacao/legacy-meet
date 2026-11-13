@@ -266,19 +266,24 @@ export async function syncForaDoScore(meetingId: string): Promise<void> {
   }
 }
 
-/** Situação do envio ao ExecScore de várias reuniões (lista de gravações). */
+/**
+ * Situação do envio ao ExecScore de várias reuniões (lista de gravações).
+ * "apagada": foi enviada, mas a avaliação foi apagada lá no ExecScore.
+ */
 export async function statusDasReunioes(meetingIds: string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   if (!isEnabled() || !meetingIds.length) return out;
   const admin = createAdminSupabase();
   const lotes = await Promise.all(
     chunkArray([...new Set(meetingIds)], 100).map((ids) =>
-      admin.schema('execscore').from('meet_integracao').select('meeting_id, status').in('meeting_id', ids),
+      admin.schema('execscore').from('meet_integracao').select('meeting_id, status, evaluation_id').in('meeting_id', ids),
     ),
   );
   for (const r of lotes) {
     if (r.error) console.error('execscore: status das reuniões', r.error);
-    for (const row of (r.data ?? []) as Array<{ meeting_id: string; status: string }>) out.set(row.meeting_id, row.status);
+    for (const row of (r.data ?? []) as Array<{ meeting_id: string; status: string; evaluation_id: string | null }>) {
+      out.set(row.meeting_id, row.status === 'enviada' && !row.evaluation_id ? 'apagada' : row.status);
+    }
   }
   return out;
 }

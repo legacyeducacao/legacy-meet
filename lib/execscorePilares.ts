@@ -29,7 +29,7 @@ export type PilaresInfo =
     };
 
 export const STATUS_LABEL: Record<ExecScoreStatus, string> = {
-  aguardando: 'Aguardando transcrição',
+  aguardando: 'Na fila do ExecScore',
   processando: 'Avaliando',
   enviada: 'Enviada ao ExecScore',
   erro: 'Erro no envio (vamos tentar de novo)',

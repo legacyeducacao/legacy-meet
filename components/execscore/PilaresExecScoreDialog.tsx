@@ -63,7 +63,11 @@ export function PilaresExecScoreButton({ room }: { room: string }) {
       ) : (
         info.status && (
           <Badge variant={STATUS_VARIANT[info.status]}>
-            {info.status === 'erro' && info.esgotado ? LABEL_ESGOTADO : STATUS_LABEL[info.status]}
+            {info.status === 'erro' && info.esgotado
+              ? LABEL_ESGOTADO
+              : info.status === 'enviada' && !info.avaliacaoId
+                ? 'Avaliação apagada no ExecScore'
+                : STATUS_LABEL[info.status]}
           </Badge>
         )
       )}
