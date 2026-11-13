@@ -666,11 +666,13 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
         <Button variant="ghost" size="icon" className="hidden md:inline-flex" onClick={() => setAtalhos(true)} aria-label="Atalhos de teclado">
           <Keyboard className="h-5 w-5" />
         </Button>
-        <Button asChild variant="ghost" size="icon" aria-label="Painel da agenda">
-          <Link href="/agenda/painel">
-            <BarChart3 className="h-5 w-5" />
-          </Link>
-        </Button>
+        {me.isAdmin && (
+          <Button asChild variant="ghost" size="icon" aria-label="Painel da agenda">
+            <Link href="/agenda/painel">
+              <BarChart3 className="h-5 w-5" />
+            </Link>
+          </Button>
+        )}
         <Button asChild variant="ghost" size="icon" aria-label="Configurações da agenda">
           <Link href="/agenda/configuracoes">
             <Settings className="h-5 w-5" />

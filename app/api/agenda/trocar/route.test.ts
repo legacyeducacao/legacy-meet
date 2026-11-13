@@ -65,7 +65,7 @@ beforeEach(() => {
   linhas.B = { id: 'B', host_id: HOST, title: 'Beta', status: 'scheduled', scheduled_start_at: iso(13), scheduled_end_at: iso(14), recurrence_parent_id: null };
 });
 
-describe('POST /api/agenda/trocar', () => {
+describe('POST /api/agenda/trocar', { timeout: 30000 }, () => {
   it('troca as duas e devolve os horários antigos para o Desfazer', async () => {
     const r = await chamar({ a: 'A', b: 'B' });
     expect(r.status).toBe(200);

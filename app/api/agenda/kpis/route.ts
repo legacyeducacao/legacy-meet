@@ -10,18 +10,19 @@ const ymd = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
  * GET ?de=YYYY-MM-DD&ate=YYYY-MM-DD&executor=<id>|todos&produto=&tenantId=
- * Executor vê só o próprio painel; admin (gestor) vê todos e o ranking.
+ * Só admin (gestão) vê o painel: todos os executores ou um deles.
  */
 export async function GET(req: NextRequest) {
   const a = await usuarioAgenda();
   if (a.res) return a.res;
+  if (!a.user.isAdmin) return new NextResponse('O painel da agenda é só para admins', { status: 403 });
   const sp = req.nextUrl.searchParams;
   const de = sp.get('de') ?? '';
   const ate = sp.get('ate') ?? '';
   if (!ymd.test(de) || !ymd.test(ate) || ate < de) return new NextResponse('Período inválido', { status: 400 });
   if (diffDays(de, ate) > 366) return new NextResponse('Período de no máximo 1 ano', { status: 400 });
   const pedido = sp.get('executor');
-  const executores = a.user.isAdmin ? (pedido && pedido !== 'todos' ? [pedido] : pedido === 'todos' ? null : [a.user.id]) : [a.user.id];
+  const executores = pedido && pedido !== 'todos' ? [pedido] : pedido === 'todos' ? null : [a.user.id];
   try {
     const painel = await montarPainel({
       periodo: { de, ate },

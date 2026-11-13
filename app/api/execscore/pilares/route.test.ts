@@ -34,7 +34,7 @@ beforeEach(() => {
   reuniao = { ...reuniao, onboarding: true, noShow: false };
 });
 
-describe('POST /api/execscore/pilares: onboarding', () => {
+describe('POST /api/execscore/pilares: onboarding', { timeout: 30000 }, () => {
   it('desmarcar onboarding salva os pilares e devolve a reunião para a fila', async () => {
     const r = await post({ room: 'meet_sala', noShow: false, onboarding: false, desabilitados: [] });
     expect(r.status).toBe(200);

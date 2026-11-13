@@ -44,6 +44,35 @@ export interface Filtros {
   tenantId?: string | null;
 }
 
+/**
+ * Quem é executor de fato: setor Executoria no cadastro do Meet ou quem
+ * conduziu reunião da Executoria no período. O time Comercial fica de fora.
+ */
+async function executoresDaAgenda(de: Date, ate: Date): Promise<Array<{ id: string; nome: string }>> {
+  const admin = createAdminSupabase();
+  const [perfis, reunioes] = await Promise.all([
+    admin.from('meet_user_profile').select('user_id').eq('sector', 'executoria'),
+    admin
+      .from('meetings')
+      .select('host_id, meet_meeting_sector!inner(sector)')
+      .eq('meet_meeting_sector.sector', 'executoria')
+      .gte('scheduled_start_at', de.toISOString())
+      .lt('scheduled_start_at', ate.toISOString())
+      .limit(10000),
+  ]);
+  if (perfis.error) console.error('painel: perfis', perfis.error.message);
+  if (reunioes.error) console.error('painel: reuniões da Executoria', reunioes.error.message);
+  const ids = new Set<string>([
+    ...((perfis.data ?? []) as Array<{ user_id: string }>).map((r) => r.user_id),
+    ...((reunioes.data ?? []) as Array<{ host_id: string | null }>).map((r) => r.host_id).filter((x): x is string => !!x),
+  ]);
+  if (!ids.size) return [];
+  const { data: nomes } = await admin.from('users').select('id, name').in('id', [...ids]);
+  return ((nomes ?? []) as Array<{ id: string; name: string | null }>)
+    .map((u) => ({ id: u.id, nome: u.name?.trim() || 'Sem nome' }))
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+}
+
 export async function montarPainel(f: Filtros) {
   const admin = createAdminSupabase();
   const anterior = periodoAnterior(f.periodo);
@@ -92,7 +121,12 @@ export async function montarPainel(f: Filtros) {
       remarcadaPor: (remarcada.get(l.id) as ReuniaoKpi['remarcadaPor']) ?? null,
     };
   });
-  const filtradas = f.produto ? reunioes.filter((r) => r.produto === f.produto) : reunioes;
+  const listaExecutores = await executoresDaAgenda(de, ate);
+  const ehExecutor = new Set(listaExecutores.map((e) => e.id));
+  // "Todos os executores": só quem é executor (o Comercial não entra nos números).
+  const filtradas = (f.produto ? reunioes.filter((r) => r.produto === f.produto) : reunioes).filter(
+    (r) => !!f.executores || ehExecutor.has(r.host),
+  );
   const gravacoes: GravacaoKpi[] = durs.map((d) => ({ reuniaoId: d.meeting_id, inicio: new Date(d.inicio ?? 0), duracaoSeg: d.duracao_seg }));
 
   // Reunião antiga sem anfitrião não entra (host null quebraria a busca de nomes).
@@ -131,6 +165,8 @@ export async function montarPainel(f: Filtros) {
     mapa: mapaOcupacao(noPeriodo, FUSO),
     limiteSemanal: cfg.regras.maxHorasSemana ?? null,
     jornadas: await jornadasDoPainel(f.executores),
+    /** Para o filtro "Executor" (sempre a equipe toda da Executoria). */
+    listaExecutores,
   };
 }
 
