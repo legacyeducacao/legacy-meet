@@ -21,6 +21,7 @@ import {
   type ReuniaoKpi,
 } from '@/lib/agenda-engine';
 import { calendarioDe, carregarConfig, contextoExecutor, FUSO } from './servidor';
+import { sessoesDeKickoff } from '@/lib/kickoff/servidor';
 
 type Linha = {
   id: string;
@@ -60,7 +61,11 @@ export async function montarPainel(f: Filtros) {
   if (f.tenantId) q = q.eq('tenant_id', f.tenantId);
   const { data, error } = await q;
   if (error) throw new Error(error.message);
-  const linhas = (data ?? []) as unknown as Linha[];
+  const todas = (data ?? []) as unknown as Linha[];
+  // Sessões de kickoff do Impulsão ficam fora dos indicadores: são da empresa
+  // organizadora interna e acontecem no Zoom (sem gravação do Meet).
+  const kickoffs = await sessoesDeKickoff(todas.map((l) => l.id));
+  const linhas = todas.filter((l) => !kickoffs.has(l.id));
   const ids = linhas.map((l) => l.id);
 
   const lotes = <T,>(fn: (fatia: string[]) => PromiseLike<{ data: T[] | null }>) =>

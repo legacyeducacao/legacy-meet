@@ -4,7 +4,9 @@
  * Só roda no servidor (service_role).
  */
 import { createAdminSupabase } from '@/lib/supabase/admin';
-import type { CurrentUser } from '@/lib/auth';
+import { podeGerenciarKickoff, type CurrentUser } from '@/lib/auth';
+import { marcarEventoKickoff } from '@/lib/kickoff/evento';
+import { sessoesDeKickoff } from '@/lib/kickoff/servidor';
 import {
   expandirSerie,
   utcToLocal,
@@ -25,11 +27,15 @@ import { sessaoParaEvento, type LinhaSessaoTurma } from './turmas';
 
 export const FUSO = 'America/Sao_Paulo';
 
-type Usuario = Pick<CurrentUser, 'id' | 'isAdmin'>;
+type Usuario = Pick<CurrentUser, 'id' | 'isAdmin'> & Partial<Pick<CurrentUser, 'isStaff' | 'capacidades'>>;
 
-/** Pode usar a agenda? Desde 11/11/2026 a agenda nova é a única: todo usuário logado. */
-export async function podeUsarAgendaNova(user: Usuario | null): Promise<boolean> {
-  return !!user;
+/**
+ * Pode usar a agenda (telas e rotas /api/agenda)? Só a equipe do Meet (isStaff).
+ * O login é o mesmo do Legacy Plan, então ter sessão não basta. As regras
+ * específicas (admin, carteira, Comercial/Executoria) continuam em cada rota.
+ */
+export async function podeUsarAgendaNova(user: Pick<CurrentUser, 'isStaff'> | null): Promise<boolean> {
+  return !!user?.isStaff;
 }
 
 export interface ConfigEmpresa {
@@ -174,10 +180,15 @@ export async function listarReunioes(user: Usuario, executores: string[], de: Da
       if (pick(o.agenda_series)?.grupo_id) deGrupo.add(o.meeting_id);
     }
   }
+  // Sessões de kickoff do Impulsão (reuniões marcadas em agenda_kickoff_sessoes).
+  const kickoffs = await sessoesDeKickoff(ids);
+  const gerenciaKickoff = podeGerenciarKickoff({ isStaff: user.isStaff ?? false, isAdmin: user.isAdmin, capacidades: user.capacidades });
   return linhas
     .filter((l) => new Date(l.scheduled_end_at ?? l.scheduled_start_at).getTime() > de.getTime())
     .map((l) => {
       const ev = reuniaoParaEvento(l, user, rotulos.get(l.id));
+      const kickoff = kickoffs.get(l.id);
+      if (kickoff) return marcarEventoKickoff(ev, kickoff, gerenciaKickoff);
       // Encontro de grupo do Impulsão (o cliente da reunião é o da Legacy).
       return deGrupo.has(l.id) ? { ...ev, calendario: 'impulsao' as const } : ev;
     });

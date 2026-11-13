@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { isMeetingHost } from '@/lib/meetingHosts';
 import { applyNoShow } from '@/lib/noShow';
+import { ehSessaoDeKickoff, SO_PELA_AGENDA } from '@/lib/kickoff/servidor';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 
 export const dynamic = 'force-dynamic';
@@ -24,6 +25,8 @@ export async function POST(req: NextRequest) {
   // Anfitrião adicional (ex.: o Closer marcado pelo SDR) também pode.
   if (!user.isAdmin && !(await isMeetingHost({ id, host_id: meeting.host_id }, user.id)))
     return new NextResponse('Não autorizado', { status: 403 });
+  // Kickoff: a ausência é por empresa (reservas), não da sessão inteira.
+  if (await ehSessaoDeKickoff(id)) return new NextResponse(SO_PELA_AGENDA, { status: 409 });
 
   const r = await applyNoShow(id, !!undo);
   if (!r.ok) return new NextResponse(r.message, { status: r.httpStatus });

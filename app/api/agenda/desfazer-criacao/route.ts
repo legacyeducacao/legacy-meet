@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 import { deleteCalendarEvent } from '@/lib/calendar';
 import { podeUsarAgendaNova } from '@/lib/agenda/servidor';
+import { sessoesComReservas } from '@/lib/kickoff/reservas';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,6 +30,11 @@ export async function POST(req: NextRequest) {
     .gte('created_at', limite);
   const apagar = ((data ?? []) as Array<{ id: string; host_id: string }>).filter((m) => user.isAdmin || m.host_id === user.id).map((m) => m.id);
   if (!apagar.length) return new NextResponse('Não dá mais para desfazer', { status: 409 });
+  // Sessão de kickoff que já recebeu reserva (mesmo cancelada) não se apaga: o
+  // histórico fica. Conferido ANTES de apagar qualquer coisa; o banco também recusa.
+  if ((await sessoesComReservas(apagar)).length) {
+    return new NextResponse('Uma das sessões de kickoff já tem reservas: cancele a sessão em vez de desfazer', { status: 409 });
+  }
 
   const { data: secs } = await admin.from('meet_meeting_sector').select('calendar_event_id').in('meeting_id', apagar);
   await admin.from('agenda_series').delete().in('recurrence_parent_id', apagar);

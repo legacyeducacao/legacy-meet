@@ -4,6 +4,7 @@ import { createAdminSupabase } from '@/lib/supabase/admin';
 import { deleteCalendarEvent } from '@/lib/calendar';
 import { podeUsarAgendaNova } from '@/lib/agenda/servidor';
 import { resolverAlvos } from '@/lib/agenda/alvos';
+import { cancelarSessoes } from '@/lib/kickoff/reservas';
 import type { Escopo, Origem } from '@/lib/agenda/tipos';
 
 export const dynamic = 'force-dynamic';
@@ -25,10 +26,17 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const ids = r.alvos.map((a) => a.id);
 
   const admin = createAdminSupabase();
-  const { error } = await admin.from('meetings').update({ status: 'canceled' }).in('id', ids).eq('status', 'scheduled');
-  if (error) return new NextResponse('Falha ao cancelar: ' + error.message, { status: 500 });
-  await admin.from('agenda_cancelamentos').insert(ids.map((m) => ({ meeting_id: m, origem, usuario_id: user.id })));
-  await admin.from('agenda_ocorrencias').update({ status: 'cancelada' }).in('meeting_id', ids);
+  // Sessão de kickoff: cancela numa transação do banco, com a trava da sessão. Com
+  // empresa inscrita, recusa (cancelar junto com as reservas é decisão explícita,
+  // na seção Kickoffs Impulsão). 503 = reservas ainda não instaladas: caminho comum.
+  const k = r.kickoff ? await cancelarSessoes(user.id, ids, { comReservas: false, origem }) : null;
+  if (k && !k.ok && k.status !== 503) return new NextResponse(k.message, { status: k.status });
+  if (!k?.ok) {
+    const { error } = await admin.from('meetings').update({ status: 'canceled' }).in('id', ids).eq('status', 'scheduled');
+    if (error) return new NextResponse('Falha ao cancelar: ' + error.message, { status: 500 });
+    await admin.from('agenda_cancelamentos').insert(ids.map((m) => ({ meeting_id: m, origem, usuario_id: user.id })));
+    await admin.from('agenda_ocorrencias').update({ status: 'cancelada' }).in('meeting_id', ids);
+  }
 
   after(async () => {
     const { data: secs } = await admin.from('meet_meeting_sector').select('calendar_event_id').in('meeting_id', ids);

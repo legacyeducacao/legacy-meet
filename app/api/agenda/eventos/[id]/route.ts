@@ -6,6 +6,7 @@ import { dividirSerie, utcToLocal, validarConflitos } from '@/lib/agenda-engine'
 import { contextoExecutor, FUSO, podeUsarAgendaNova, registrarSobreposicoes } from '@/lib/agenda/servidor';
 import { decidirConflitos } from '@/lib/agenda/regras';
 import { fimDe, resolverAlvos } from '@/lib/agenda/alvos';
+import { remarcarSessoes } from '@/lib/kickoff/reservas';
 import type { Escopo, Origem } from '@/lib/agenda/tipos';
 
 export const dynamic = 'force-dynamic';
@@ -75,7 +76,19 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   }
 
   const admin = createAdminSupabase();
-  for (const n of novos) {
+  // Sessão de kickoff: tudo numa transação do banco, com a trava da sessão. Com
+  // empresa inscrita, o horário não muda (remanejar ou cancelar as reservas antes).
+  let viaKickoff = false;
+  if (r.kickoff) {
+    const k = await remarcarSessoes(
+      user.id,
+      novos.map((n) => ({ id: n.a.id, inicio: new Date(n.ini).toISOString(), fim: new Date(n.fim).toISOString(), titulo: titulo ?? null })),
+    );
+    // 503 = reservas ainda não instaladas: não há reserva a proteger; segue o caminho comum.
+    if (!k.ok && k.status !== 503) return new NextResponse(k.message, { status: k.status });
+    viaKickoff = k.ok;
+  }
+  for (const n of viaKickoff ? [] : novos) {
     const { error } = await admin
       .from('meetings')
       .update({

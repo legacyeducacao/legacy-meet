@@ -3,6 +3,7 @@ import { after } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 import { deleteCalendarEvent } from '@/lib/calendar';
+import { ehSessaoDeKickoff, SO_PELA_AGENDA } from '@/lib/kickoff/servidor';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,6 +29,8 @@ export async function POST(req: NextRequest) {
   if (!meeting) return new NextResponse('Reunião não encontrada', { status: 404 });
   if (!user.isAdmin && meeting.host_id !== user.id)
     return new NextResponse('Não autorizado', { status: 403 });
+  // Sessão de kickoff (pode ter empresas inscritas): só pela agenda nova.
+  if (await ehSessaoDeKickoff(id)) return new NextResponse(SO_PELA_AGENDA, { status: 409 });
 
   // Reuniões a cancelar: só esta, ou esta + futuras da mesma série.
   let targetIds = [id];
