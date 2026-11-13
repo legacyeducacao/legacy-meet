@@ -2,7 +2,8 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
 // Rotas PÚBLICAS (sem login): login, sala, obrigado, e APIs usadas por convidados/CRM/worker.
-const PUBLIC_PREFIXES = ['/login', '/rooms', '/obrigado'];
+// /impulsao: agendamento do kickoff pelo link do convite (o código da URL é a credencial).
+const PUBLIC_PREFIXES = ['/login', '/rooms', '/obrigado', '/impulsao'];
 const PUBLIC_API_PREFIXES = [
   '/api/connection-details', '/api/room/', '/api/meetings', '/api/record/', '/api/auth/',
   '/api/nps/context', '/api/nps/submit', '/api/telemetry',
@@ -13,6 +14,9 @@ const PUBLIC_API_PREFIXES = [
   // Worker -> integração ExecScore (valida X-Execscore-Worker-Secret na rota).
   // /api/execscore/pilares NÃO entra aqui: exige o executor logado.
   '/api/execscore/transcricao-pronta', '/api/execscore/varrer',
+  // Agendamento público do kickoff: valida o código do convite no banco, com limite
+  // de tentativas por origem. A gestão dos convites fica em /api/agenda/kickoffs (login).
+  '/api/impulsao/',
 ];
 
 function isPublic(path: string) {
