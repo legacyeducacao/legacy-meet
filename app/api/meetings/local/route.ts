@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
+import { autorizarEmpresaDaReuniao } from '@/lib/meetingTenantAccess';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 
 export const dynamic = 'force-dynamic';
@@ -18,10 +19,12 @@ export async function POST(req: NextRequest) {
     onboarding?: boolean;
   };
   const sector = body.sector === 'comercial' ? 'comercial' : 'executoria';
+  // A empresa não vem só do corpo: equipe, setor e carteira são conferidos aqui.
+  const acesso = await autorizarEmpresaDaReuniao(user, sector, body.tenantId);
+  if (!acesso.ok) return new NextResponse(acesso.message, { status: acesso.status });
+  const tenantId = acesso.tenantId;
   const title = (body.title ?? '').trim();
   if (!title) return new NextResponse('Título da reunião é obrigatório', { status: 400 });
-  const tenantId = sector === 'comercial' ? process.env.MEET_COMMERCIAL_TENANT_ID! : body.tenantId;
-  if (!tenantId) return new NextResponse('Cliente (tenant) obrigatório para Executoria', { status: 400 });
 
   const roomName = `meet_${crypto.randomUUID()}`;
   const now = new Date();
