@@ -427,7 +427,13 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
     };
     const timer = window.setTimeout(() => enviar(), ESPERA_CANCELAR_MS);
     pendentes.current.set(chave, { timer, enviar });
-    toast(ids.length > 1 ? `${ids.length} reuniões canceladas` : 'Reunião cancelada', {
+    const aviso =
+      esc === 'todas'
+        ? 'Todas as reuniões da série canceladas'
+        : esc === 'seguintes'
+          ? 'Esta e as próximas reuniões da série canceladas'
+          : 'Reunião cancelada';
+    toast(aviso, {
       duration: ESPERA_CANCELAR_MS,
       action: {
         label: 'Desfazer',
@@ -547,7 +553,10 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
       'Shift+?': k(() => setAtalhos(true)),
       Delete: k(() => {
         const ev = eventos.find((e) => e.id === selecionado);
-        if (ev?.podeEditar && ev.tipo === 'reuniao') setCancelar(ev);
+        if (ev?.podeEditar && ev.tipo === 'reuniao') {
+          setCancelar(ev);
+          setDetalhe(null);
+        }
       }),
       Escape: () => {
         setRapida(null);
@@ -778,7 +787,11 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
             setFormulario(valoresDe(detalhe.evento, false));
             setDetalhe(null);
           }}
-          onExcluir={() => setCancelar(detalhe.evento)}
+          onExcluir={() => {
+            // Fecha o cartão: ele fica por cima das janelas e escondia as opções.
+            setCancelar(detalhe.evento);
+            setDetalhe(null);
+          }}
           onRemoverBloqueio={() => void removerBloqueio(detalhe.evento)}
           onUltimaReuniao={() => {
             setUltima(detalhe.evento);

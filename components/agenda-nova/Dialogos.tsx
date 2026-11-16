@@ -16,7 +16,7 @@ function Opcoes<T extends string>({
   opcoes,
 }: {
   nome: string;
-  valor: T;
+  valor: T | '';
   onChange: (v: T) => void;
   opcoes: Array<{ v: T; rotulo: string }>;
 }) {
@@ -85,7 +85,8 @@ export function DialogoCancelar({
   onConfirmar: (escopo: Escopo, origem: Origem) => void;
   onCancelar: () => void;
 }) {
-  const [escopo, setEscopo] = React.useState<Escopo>('esta');
+  // Reunião que se repete: a pessoa escolhe o que cancelar (nada marcado de início).
+  const [escopo, setEscopo] = React.useState<Escopo | ''>(recorrente ? '' : 'esta');
   const [origem, setOrigem] = React.useState<Origem>('cliente');
   return (
     <Dialog open onOpenChange={(o) => !o && onCancelar()}>
@@ -94,7 +95,21 @@ export function DialogoCancelar({
           <DialogTitle>Cancelar reunião</DialogTitle>
           <DialogDescription className="truncate">{titulo}</DialogDescription>
         </DialogHeader>
-        {recorrente && <Opcoes nome="escopo" valor={escopo} onChange={setEscopo} opcoes={ESCOPOS} />}
+        {recorrente && (
+          <div className="space-y-2">
+            <Label>Esta reunião se repete. O que você quer cancelar?</Label>
+            <Opcoes
+              nome="escopo"
+              valor={escopo}
+              onChange={setEscopo}
+              opcoes={[
+                { v: 'esta', rotulo: 'Somente esta reunião' },
+                { v: 'seguintes', rotulo: 'Esta e todas as próximas' },
+                { v: 'todas', rotulo: 'Todas as reuniões da série' },
+              ]}
+            />
+          </div>
+        )}
         <div className="space-y-2">
           <Label>Quem pediu o cancelamento?</Label>
           <Opcoes
@@ -112,8 +127,8 @@ export function DialogoCancelar({
           <Button variant="outline" onClick={onCancelar}>
             Voltar
           </Button>
-          <Button variant="destructive" onClick={() => onConfirmar(escopo, origem)}>
-            Cancelar reunião
+          <Button variant="destructive" disabled={!escopo} onClick={() => escopo && onConfirmar(escopo, origem)}>
+            {escopo === 'seguintes' || escopo === 'todas' ? 'Cancelar reuniões' : 'Cancelar reunião'}
           </Button>
         </DialogFooter>
       </DialogContent>
