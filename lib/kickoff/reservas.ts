@@ -38,6 +38,8 @@ export interface ReservaDTO {
   /** Comparecimento registrado (não é conclusão). */
   presenca: Presenca | null;
   presencaEm: string | null;
+  /** Quem registrou a presença: à mão ou pela sincronização do Zoom (E3). */
+  presencaOrigem: 'manual' | 'zoom' | null;
   concluidaEm: string | null;
   /** Participação não concluída: quando e por quê. */
   interrompidaEm: string | null;
@@ -62,6 +64,7 @@ type LinhaReserva = {
   status: StatusReserva;
   presenca: Presenca | null;
   presenca_em: string | null;
+  presenca_origem?: 'manual' | 'zoom' | null;
   concluida_em: string | null;
   interrompida_em: string | null;
   motivo_interrupcao: string | null;
@@ -83,6 +86,7 @@ const paraDTO = (l: LinhaReserva, reagendadas: Set<string>): ReservaDTO => {
     status: l.status,
     presenca: l.presenca,
     presencaEm: l.presenca_em,
+    presencaOrigem: l.presenca_origem ?? null,
     concluidaEm: l.concluida_em,
     interrompidaEm: l.interrompida_em,
     motivoInterrupcao: l.motivo_interrupcao,
@@ -118,7 +122,7 @@ async function listarReservasEmLotes(sessaoIds: string[]): Promise<ReservaDTO[] 
     const { data, error } = await admin
       .from('agenda_kickoff_reservas')
       .select(
-        'id, meeting_id, tenant_id, participante_nome, participante_email, participante_telefone, status, presenca, presenca_em, concluida_em, interrompida_em, motivo_interrupcao, origem_reserva_id, criado_em, atualizado_em, cancelada_em, motivo_cancelamento, client_tenants(name)',
+        'id, meeting_id, tenant_id, participante_nome, participante_email, participante_telefone, status, presenca, presenca_em, presenca_origem, concluida_em, interrompida_em, motivo_interrupcao, origem_reserva_id, criado_em, atualizado_em, cancelada_em, motivo_cancelamento, client_tenants(name)',
       )
       .in('meeting_id', sessaoIds.slice(i, i + 200))
       .order('criado_em');

@@ -334,11 +334,11 @@ export function FormularioEvento({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="f-ini">Início</Label>
-              <Input id="f-ini" type="time" step={900} value={horaIni} onChange={(e) => e.target.value && setHoraIni(e.target.value)} />
+              <Input id="f-ini" type="time" value={horaIni} onChange={(e) => e.target.value && setHoraIni(e.target.value)} />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="f-fim">Fim</Label>
-              <Input id="f-fim" type="time" step={900} value={horaFim} onChange={(e) => e.target.value && setHoraFim(e.target.value)} />
+              <Input id="f-fim" type="time" value={horaFim} onChange={(e) => e.target.value && setHoraFim(e.target.value)} />
             </div>
           </div>
 

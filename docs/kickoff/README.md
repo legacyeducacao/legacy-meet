@@ -1037,7 +1037,7 @@ Código: `lib/zoom/api.ts` (cliente, com as três operações de inscrição), `
 
 ### Cuidados para a E3 (presença automática)
 
-- **Quem é quem:** o participante aparece no Zoom com `#CÓDIGO` no nome; o código leva à empresa (`codigo_empresa` da inscrição, 8 primeiros hexadecimais do `tenant_id`). Não identificar por nome, CNPJ ou e-mail.
+- **Quem é quem:** o participante aparece no Zoom com `#CÓDIGO` no nome; o código leva à empresa (`codigo_empresa` da inscrição, 8 primeiros hexadecimais do `tenant_id`). Não identificar por nome, CNPJ ou e-mail. *(Superado na E3: a empresa é reconhecida pelo `registrant_id` do relatório; ver "Zoom E3".)*
 - **Código repetido:** o prefixo de 8 hexadecimais não tem garantia de ser único. Hoje não há repetição (254 empresas, conferido em 13/11/2026). A E3 deve tratar dois `tenant_id` com o mesmo código na mesma sala como caso para revisão manual.
 - **Inscrições que o Meet não entrega mais continuam válidas no Zoom:** reserva cancelada, e-mail trocado (inscrição substituída) e sala antiga. A E3 precisa cruzar o participante com a **reserva ativa da sessão**, e não só com a existência da inscrição.
 - **Sessão:** a mesma sala serve todas as sessões. A E3 identifica cada execução pelo UUID da instância e pelo horário, e compara com a sessão da reserva.
@@ -1051,6 +1051,64 @@ Código: `lib/zoom/api.ts` (cliente, com as três operações de inscrição), `
 2. Criar a sala exclusiva do Impulsão no Zoom, verificar e ativar (E1).
 3. Definir as três variáveis do Zoom no servidor.
 4. **Primeira inscrição real:** fazer com uma reserva de teste controlada, porque os escopos de escrita nunca foram exercitados e o comportamento do Zoom ao inscrever um e-mail já inscrito foi tirado da documentação e do CS, não de um teste real aqui.
+
+## Zoom E3: presença pelo Zoom
+
+**Status:** implementada localmente (branch `feat/kickoff-e3`), sem commit. Migration `008` **não aplicada**.
+
+A equipe clica **"Sincronizar presença do Zoom"** no cartão da sessão (seção Kickoffs Impulsão), depois que a sessão começa. Não há rotina automática. O Zoom é só lido; nada é criado nem alterado.
+
+### Execução do Zoom x sessão do Meet
+
+- A mesma reunião recorrente serve todas as sessões, então o Meeting ID não basta. O servidor lista as execuções passadas da sala (`GET /past_meetings/{id}/instances`, cada uma com UUID próprio) e lê o relatório de cada uma (`GET /report/meetings/{uuid}`: início, fim e e-mail do anfitrião).
+- **Janela da sessão:** de 30 min antes do início até 30 min depois do fim (a mesma janela de entrada da E2). A execução que cruza a janela é associada à sessão e gravada em `agenda_kickoff_zoom_execucoes`. Isso cobre reunião aberta cedo, começo atrasado e término antes ou depois do horário.
+- Tudo é comparado em instantes absolutos (UTC). O fuso America/Sao_Paulo só aparece na tela.
+- **Sessões vizinhas:** quando as janelas de duas sessões de kickoff se sobrepõem, a entrada que fica **inteira** no trecho comum é ambígua. Ela vai para conferência ("Conferir"), nunca para presença automática. A entrada que passa por um trecho só desta sessão vale.
+- **Sem execução:** a sessão fica sem registro. Relatório ainda não gerado, ou sessão ainda na janela, aparece como "o relatório ainda pode mudar".
+
+### Participante x empresa
+
+- **Evidência principal:** o relatório de participantes, pedido com `include_fields=registrant_id`, traz o identificador da inscrição de quem entrou pelo link individual. Ele leva à inscrição da E2 e daí à empresa. Conferido com dados reais em 16/11/2026: o `registrant_id` do relatório é o gravado pela E2.
+- **Alternativa pelo e-mail:** só registra presença quando o e-mail da entrada é o de uma inscrição Zoom **pronta, ligada à reserva desta sessão, não substituída**, na sala da execução. O e-mail que existe só no cadastro do participante vai para "Conferir", sem alterar a presença.
+- **Nome sozinho nunca basta,** nem com o `#CÓDIGO`: o nome só aparece como pista em "Não identificados no Zoom". Isso também evita o risco de código repetido entre empresas.
+- **A empresa precisa ter reserva NESTA sessão.** Se entrou mas a reserva é de outra sessão, aparece em "a reserva não é desta sessão" e nada é registrado.
+- Reconexões somam entradas. O tempo é a união dos trechos dentro da janela; o que se sobrepõe não conta duas vezes.
+- Não contam: entradas em sala de espera e a conta do anfitrião.
+
+### O que é registrado
+
+| Situação da reserva | Resultado |
+|---|---|
+| Ativa, sem presença, evidência confiável e não ambígua | `presente`, origem `zoom` (histórico: "Compareceu · pela sincronização do Zoom") |
+| Já com "presente" (à mão, por sincronização anterior, concluída ou interrompida) | nada muda ("já registrada") |
+| Presença corrigida à mão antes (histórico `presenca_corrigida`) | nada muda ("mantida") |
+| "Não compareceu" registrado à mão, mas o Zoom mostra participação | nada muda; aparece para conferir |
+| Entrada ambígua entre sessões vizinhas | nada muda; aparece para conferir |
+| Ativa sem participação identificada | continua sem registro; **nunca vira ausência** |
+
+- Não há tempo mínimo de participação nesta versão. A duração fica guardada em `agenda_kickoff_zoom_presencas`, para consulta.
+- A conclusão do kickoff continua sendo ato do Marcelo.
+- **Repetir é seguro:** a associação e a evidência são atualizadas no lugar (chaves únicas), e a presença só é gravada uma vez.
+
+### Modelo (migration 008)
+
+- `agenda_kickoff_zoom_execucoes`: sessão ↔ execução do Zoom (UUID, início, fim, participantes, se cruza outra sessão, relatório ok ou indisponível).
+- `agenda_kickoff_zoom_presencas`: evidência por reserva e sessão (registrantes, execuções, entradas, duração, resultado da última sincronização, quando a sincronização registrou).
+- `agenda_kickoff_zoom_presenca_contexto(sessão, usuário)`: só leitura. Devolve a sessão, as sessões vizinhas, as salas, as inscrições e as reservas, sem link de entrada.
+- `agenda_kickoff_zoom_presenca_aplicar(sessão, execuções, empresas, usuário)`: confere a permissão e confere a evidência com as inscrições (não confia só no servidor). Usa a mesma fila das escritas do kickoff e grava pela mesma tabela de reservas, com os mesmos gatilhos de regra e de histórico da M2.
+- Tudo só para `service_role`, com RLS ligado e sem policies.
+
+### Escopos do Zoom
+
+Os escopos usados já estão no app atual: `meeting:read:list_past_instances:admin`, `report:read:meeting:admin` e `report:read:list_meeting_participants:admin`. As três leituras foram conferidas com o Zoom real em 16/11/2026.
+
+Código: `lib/zoom/api.ts` (leituras de relatório), `lib/kickoff/zoomPresenca.ts` (regras puras), `lib/kickoff/zoomPresencaServidor.ts` (servidor), `components/agenda-nova/kickoffs/PresencaZoomSessao.tsx` (botão e resumo), rota `POST /api/agenda/kickoffs/sessoes/<id>` com `{ "acao": "sincronizarPresenca" }`.
+
+### Limitações
+
+- O Zoom só lista a execução depois que ela termina, e o relatório pode levar alguns minutos para sair. Durante a sessão, a sincronização em geral não encontra nada.
+- Quem entra sem o link individual (link genérico, sem login, com outro e-mail) aparece em "Não identificados" e precisa de registro à mão.
+- As salas consultadas são as que têm inscrição das empresas da sessão. Se nenhuma empresa tem inscrição, é consultada a sala ativa.
 
 ## Instalação
 
@@ -1080,6 +1138,7 @@ Código: `lib/zoom/api.ts` (cliente, com as três operações de inscrição), `
 12. **Antes de publicar a E1:** definir `ZOOM_ACCOUNT_ID`, `ZOOM_CLIENT_ID` e `ZOOM_CLIENT_SECRET` no servidor (mesmos valores do app do Plan); criar a sala exclusiva do Impulsão no Zoom; com autorização, verificar e ativar na seção. Em 13/11/2026 as três variáveis foram definidas **só no ambiente local**, para a validação de leitura (seção "Conexão real com o Zoom").
 13. **Feito em 13/11/2026:** `integracoes/kickoff/007_kickoff_zoom_inscricoes.sql` aplicada pelo SQL Editor (sem registro no histórico automático de migrations; conferências em "Migration 007 aplicada").
 14. **Antes de publicar a E2:** os passos 9 e 12 (os endereços da reunião usam `KICKOFF_PUBLIC_BASE_URL`, e as rotas públicas usam `KICKOFF_ORIGEM_SECRET`); uma sala ativa; e a primeira inscrição real feita com uma reserva de teste controlada (seção "Antes de usar de verdade").
+15. **Pendente (E3):** aplicar `integracoes/kickoff/008_kickoff_zoom_presenca.sql` pelo SQL Editor, com autorização. É aditiva; sem ela, o botão "Sincronizar presença do Zoom" responde que a presença pelo Zoom ainda não foi instalada (503) e nada mais muda.
 
 Enquanto o passo 4 não for feito no servidor, nenhuma sessão de kickoff pode ser criada em produção: a criação é recusada, com mensagem clara. Até 12/11/2026, nenhuma sessão, reserva ou convite foi criado. O código da M2 e da M3 também ainda não foi publicado (sem commit).
 
