@@ -1,18 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { gestorDeKickoff } from '@/lib/kickoff/rota';
-import { meetingIdDaSalaAtiva } from '@/lib/kickoff/zoomSalaServidor';
+import { linkDeAnfitriaoDaSala, meetingIdDaSalaAtiva } from '@/lib/kickoff/zoomSalaServidor';
 
 export const dynamic = 'force-dynamic';
 
+const SEM_RASTRO = { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' };
+
 /**
- * Atalho da EQUIPE para abrir a sala Zoom dos kickoffs (botão no cartão da sessão,
- * na agenda). Só quem gerencia kickoffs. Encaminha ao endereço da reunião no Zoom
- * (zoom.us/j/<Meeting ID da sala ativa>): quem estiver logado no Zoom com a conta
- * dona da reunião (ou como anfitrião alternativo) inicia como anfitrião.
+ * Atalho da EQUIPE para entrar na sala Zoom dos kickoffs COMO ANFITRIÃO (botão
+ * "Entrar na reunião" no cartão da sessão, na agenda). Só quem gerencia kickoffs.
  *
- * Não chama a API do Zoom e não usa o link de início do anfitrião (start_url), que
- * é uma credencial. Não é o acesso das empresas: elas entram pelo link individual,
- * em /impulsao/reuniao/<código>.
+ * A reunião pertence a uma conta Zoom geral da Legacy; não dá para exigir que quem
+ * conduz esteja logado nela. Por isso o servidor pede ao Zoom, a cada clique, o link
+ * de início do anfitrião (start_url, só leitura da reunião) e encaminha para ele:
+ * quem clica inicia a reunião como anfitrião, sem login no Zoom.
+ *
+ * O start_url é CREDENCIAL (vale por cerca de 2 horas): nunca é guardado, mostrado
+ * em tela, devolvido em JSON ou escrito em log. Só existe no cabeçalho Location
+ * desta resposta. Se o Zoom não responder ou a integração não estiver configurada,
+ * cai no endereço comum da reunião (zoom.us/j/<id>), em que o Zoom pede login.
+ *
+ * Não é o acesso das empresas: elas entram pelo link individual, em
+ * /impulsao/reuniao/<código>.
  */
 export async function GET(req: NextRequest) {
   const g = await gestorDeKickoff();
@@ -23,7 +32,8 @@ export async function GET(req: NextRequest) {
     const destino = req.nextUrl.clone();
     destino.pathname = '/agenda/kickoffs';
     destino.search = '';
-    return NextResponse.redirect(destino, { status: 302, headers: { 'Cache-Control': 'no-store' } });
+    return NextResponse.redirect(destino, { status: 302, headers: SEM_RASTRO });
   }
-  return new NextResponse(null, { status: 302, headers: { Location: `https://zoom.us/j/${meetingId}`, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' } });
+  const comoAnfitriao = await linkDeAnfitriaoDaSala(meetingId);
+  return new NextResponse(null, { status: 302, headers: { ...SEM_RASTRO, Location: comoAnfitriao ?? `https://zoom.us/j/${meetingId}` } });
 }

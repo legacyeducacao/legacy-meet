@@ -153,7 +153,7 @@ export function DetalhesEvento({
                 <Video className="h-4 w-4" /> Entrar na reunião
               </a>
             </Button>
-            <p className="text-xs text-muted-foreground">Abre a sala no Zoom. Para iniciar como anfitrião, esteja logado no Zoom com a conta da reunião.</p>
+            <p className="text-xs text-muted-foreground">Abre a sala no Zoom como anfitrião, sem precisar de login no Zoom.</p>
           </div>
         )}
         {turma && (

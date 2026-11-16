@@ -248,6 +248,25 @@ export async function estadoDaSala(env = process.env): Promise<EstadoDaSalaZoom>
   };
 }
 
+/**
+ * Link de início do anfitrião (start_url) da sala, pedido ao Zoom na hora (GET da
+ * reunião, só leitura). É CREDENCIAL: quem o abre inicia a reunião como anfitrião.
+ * Nunca guardar, logar nem devolver em JSON. null = integração sem credenciais, Zoom
+ * fora do ar ou resposta que não é um endereço https do Zoom.
+ */
+export async function linkDeAnfitriaoDaSala(meetingId: string, env = process.env): Promise<string | null> {
+  const c = credenciaisDoZoom(env);
+  if (!c.ok) return null;
+  try {
+    const url = (await clienteZoom(c.credenciais).getMeeting(meetingId)).start_url;
+    if (typeof url !== 'string' || url.length > 4000) return null;
+    const u = new URL(url);
+    return u.protocol === 'https:' && !u.username && !u.password && /^([a-z0-9-]+\.)*zoom\.us$/i.test(u.hostname) ? url : null;
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Ativar e verificar de novo (gravam pelas funções da 006)
 // ---------------------------------------------------------------------------

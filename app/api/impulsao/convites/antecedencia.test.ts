@@ -41,6 +41,7 @@ import { GET as abrir } from './[codigo]/route';
 import { POST as agendar } from './[codigo]/agendar/route';
 import { GET as entrarComoEquipe } from '@/app/api/agenda/kickoffs/zoom/entrar/route';
 import { ANTECEDENCIA_MINIMA_MIN, dentroDaAntecedencia } from '@/lib/kickoff/publico';
+import { _esquecerClienteZoom } from '@/lib/kickoff/zoomSalaServidor';
 
 const CODIGO = 'abcdefghjkmn';
 const SESSAO = '22222222-2222-4222-8222-222222222222';
@@ -117,19 +118,91 @@ describe('GET /api/agenda/kickoffs/zoom/entrar (atalho da equipe para a sala)', 
     }
   });
 
-  it('quem gerencia kickoffs (ou admin) é encaminhado à sala ativa no Zoom, sem chamar a API do Zoom', async () => {
-    const zoom = vi.fn();
-    vi.stubGlobal('fetch', zoom);
+  const INICIO = 'https://us02web.zoom.us/s/81234567890?zak=CREDENCIAL-DO-ANFITRIAO';
+  /** Zoom falso: token e leitura da reunião; qualquer outra chamada (ou método que não seja leitura) falha. */
+  function zoomFalso(reuniao: unknown, status = 200) {
+    const chamadas: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        const u = String(url);
+        const metodo = (init?.method ?? 'GET').toUpperCase();
+        chamadas.push(`${metodo} ${u.replace(/\?.*$/, '')}`);
+        if (u.startsWith('https://zoom.us/oauth/token')) return new Response(JSON.stringify({ access_token: 'tok', expires_in: 3600 }), { status: 200 });
+        if (metodo === 'GET' && u === 'https://api.zoom.us/v2/meetings/81234567890') return new Response(JSON.stringify(reuniao), { status });
+        throw new Error(`chamada externa inesperada: ${metodo} ${u}`);
+      }),
+    );
+    return chamadas;
+  }
+  const comCredenciais = () => {
+    process.env.ZOOM_ACCOUNT_ID = 'conta';
+    process.env.ZOOM_CLIENT_ID = 'cliente';
+    process.env.ZOOM_CLIENT_SECRET = 'segredo';
+    _esquecerClienteZoom();
+  };
+  const semCredenciais = () => {
+    delete process.env.ZOOM_ACCOUNT_ID;
+    delete process.env.ZOOM_CLIENT_ID;
+    delete process.env.ZOOM_CLIENT_SECRET;
+    _esquecerClienteZoom();
+  };
+
+  it('quem gerencia kickoffs (ou admin) entra COMO ANFITRIÃO: o link de início vem do Zoom na hora e só aparece no Location', async () => {
+    comCredenciais();
+    const chamadas = zoomFalso({ id: 81234567890, type: 8, start_url: INICIO, join_url: 'https://zoom.us/j/81234567890' });
+    const logs = (['log', 'info', 'warn', 'error'] as const).map((m) => vi.spyOn(console, m).mockImplementation(() => undefined));
     state.sala = '81234567890';
     for (const user of [equipe({ capacidades: ['kickoff_impulsao.manage'] }), equipe({ isAdmin: true })]) {
       state.user = user;
       const res = await abrirSala();
       expect(res.status).toBe(302);
-      expect(res.headers.get('location')).toBe('https://zoom.us/j/81234567890');
+      expect(res.headers.get('location')).toBe(INICIO);
+      expect(await res.text()).toBe('');
       expect(res.headers.get('cache-control')).toContain('no-store');
+      expect(res.headers.get('referrer-policy')).toBe('no-referrer');
     }
-    expect(zoom).not.toHaveBeenCalled();
+    // Só leitura no Zoom: o token e o GET da reunião. Nada é criado nem alterado.
+    expect(chamadas.filter((c) => !c.startsWith('POST https://zoom.us/oauth/token'))).toEqual(['GET https://api.zoom.us/v2/meetings/81234567890', 'GET https://api.zoom.us/v2/meetings/81234567890']);
+    expect(JSON.stringify(logs.flatMap((l) => l.mock.calls))).not.toContain('CREDENCIAL');
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    semCredenciais();
+  });
+
+  it('sem login ou sem a permissão, o Zoom nem é consultado', async () => {
+    comCredenciais();
+    const chamadas = zoomFalso({ id: 81234567890, type: 8, start_url: INICIO });
+    state.sala = '81234567890';
+    for (const user of [null, equipe({}), equipe({ isStaff: false, role: 'CLIENT' })]) {
+      state.user = user;
+      const res = await abrirSala();
+      expect(res.headers.get('location')).toBeNull();
+    }
+    expect(chamadas).toEqual([]);
+    vi.unstubAllGlobals();
+    semCredenciais();
+  });
+
+  it('Zoom fora do ar, sem credenciais ou link estranho: cai no endereço comum da reunião (o Zoom pede login)', async () => {
+    state.user = equipe({ isAdmin: true });
+    state.sala = '81234567890';
+    // Sem credenciais: nem chama o Zoom.
+    semCredenciais();
+    let chamadas = zoomFalso({});
+    expect((await abrirSala()).headers.get('location')).toBe('https://zoom.us/j/81234567890');
+    expect(chamadas).toEqual([]);
+    // Zoom com erro, resposta sem o link, ou link que não é do Zoom.
+    comCredenciais();
+    for (const [reuniao, status] of [[{ code: 3001 }, 404], [{ id: 1, type: 8 }, 200], [{ id: 1, type: 8, start_url: 'https://zoom.us.exemplo.com/s/1?zak=x' }, 200], [{ id: 1, type: 8, start_url: 'http://zoom.us/s/1?zak=x' }, 200]] as const) {
+      _esquecerClienteZoom();
+      chamadas = zoomFalso(reuniao, status);
+      const res = await abrirSala();
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe('https://zoom.us/j/81234567890');
+    }
+    vi.unstubAllGlobals();
+    semCredenciais();
   });
 
   it('sem sala ativa (ou com um valor estranho no banco): vai para a seção Kickoffs, que explica', async () => {
