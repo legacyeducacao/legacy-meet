@@ -139,8 +139,8 @@ export function SalaZoomKickoff() {
           <Video className="h-4 w-4" /> Sala Zoom
         </h2>
         <p className="text-sm text-muted-foreground">
-          Uma reunião recorrente do Zoom, exclusiva do Impulsão, serve todas as sessões de kickoff. O Meet só consulta a reunião: nada é criado nem
-          alterado no Zoom. Os links individuais das empresas entram na etapa seguinte.
+          Uma reunião recorrente do Zoom, exclusiva do Impulsão, serve todas as sessões de kickoff. Aqui o Meet só consulta a reunião: a
+          configuração dela não é alterada no Zoom. Cada empresa com reserva recebe uma inscrição individual nesta sala.
         </p>
       </div>
 
@@ -235,8 +235,8 @@ export function SalaZoomKickoff() {
             <DialogTitle>Trocar a sala Zoom</DialogTitle>
             <DialogDescription>
               A sala {ativa ? idLegivel(ativa.meetingId) : ''} deixa de ser usada e fica no histórico. As próximas sessões passam a usar a sala{' '}
-              {v ? idLegivel(v.meetingId) : ''}. Quando os links individuais existirem (etapa seguinte), as empresas já inscritas precisarão de um novo
-              link.
+              {v ? idLegivel(v.meetingId) : ''}. As empresas com reserva ativa precisarão de um novo acesso na sala nova: use “Gerar acesso Zoom” em
+              cada reserva. O endereço da reunião que elas já receberam continua o mesmo.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">

@@ -189,18 +189,24 @@ export function AgendamentoPublico({ codigo }: { codigo: string }) {
 /** Marca da Legacy no alto; conteúdo largo (agendamento) ou estreito (avisos). */
 export function Moldura({ largo = false, children }: { largo?: boolean; children: React.ReactNode }) {
   const largura = largo ? 'max-w-6xl' : 'max-w-xl';
+  // O estilo global do Meet trava a rolagem da página (html e body com overflow
+  // oculto, por causa da sala de vídeo). Por isso esta moldura é quem rola: sem
+  // isso, no celular o conteúdo abaixo da primeira tela fica inalcançável.
   return (
-    <div className="flex min-h-screen flex-col bg-gradient-to-br from-background via-muted/40 to-background text-foreground">
-      <header className={cn('mx-auto flex w-full items-center gap-3 px-4 pt-5 sm:px-6 sm:pt-8', largura)}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/favicon.svg" alt="" className="size-9 rounded-lg" />
-        <div className="leading-tight">
-          <p className="text-sm font-semibold">Legacy Executoria</p>
-          <p className="text-xs text-muted-foreground">Impulsão Empresarial</p>
-        </div>
-      </header>
-      <main className={cn('mx-auto w-full flex-1 px-4 py-5 sm:px-6 sm:py-8', largura)}>{children}</main>
-      <footer className="px-4 pb-6 text-center text-xs text-muted-foreground">Link individual da sua empresa. Compartilhe só com quem vai participar.</footer>
+    <div className="h-dvh w-full overflow-y-auto bg-background text-foreground">
+      <div className="flex min-h-full flex-col bg-gradient-to-br from-background via-muted/40 to-background">
+        <header className={cn('mx-auto flex w-full items-center gap-3 px-4 pt-5 sm:px-6 sm:pt-8', largura)}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/favicon.svg" alt="" className="size-9 rounded-lg" />
+          <div className="leading-tight">
+            <p className="text-sm font-semibold">Legacy Executoria</p>
+            <p className="text-xs text-muted-foreground">Impulsão Empresarial</p>
+          </div>
+        </header>
+        <main className={cn('mx-auto w-full flex-1 px-4 py-5 sm:px-6 sm:py-8', largura)}>{children}</main>
+        {/* <p>, e não <footer>: o estilo global pinta todo <footer> com o fundo escuro da sala de vídeo. */}
+        <p className="px-4 pb-6 text-center text-xs text-muted-foreground">Link individual da sua empresa. Compartilhe só com quem vai participar.</p>
+      </div>
     </div>
   );
 }

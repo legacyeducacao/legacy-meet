@@ -76,7 +76,7 @@ export function KickoffsImpulsao() {
         <h1 className="text-2xl font-bold tracking-tight">Kickoffs Impulsão</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Sessões coletivas de kickoff, na mesma agenda das outras reuniões, e as empresas inscritas em cada uma. Para criar uma sessão: na agenda, Criar →
-          Mais opções → Kickoff Impulsão.
+          Kickoff Impulsão.
         </p>
       </div>
 

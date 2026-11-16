@@ -195,7 +195,7 @@ A permissão não depende de nome nem de e-mail. Se o responsável pelos kickoff
 
 ## Como a sessão se liga à agenda
 
-- **Criar:** na agenda, **Criar → Mais opções → Kickoff Impulsão**. Escolher data, horário, repetição e quantas empresas por sessão (padrão 5).
+- **Criar:** na agenda, **Criar → Kickoff Impulsão** (ao clicar direto num horário da grade, o caminho é **Mais opções → Kickoff Impulsão**). Escolher data, horário, repetição e quantas empresas por sessão (padrão 5).
 - **O que é gravado:**
   - uma reunião em `meetings` por ocorrência, com:
     - anfitrião = quem criou (admin pode indicar outro pela API);

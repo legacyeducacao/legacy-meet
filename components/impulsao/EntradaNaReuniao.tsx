@@ -23,7 +23,7 @@ const ERRO_GENERICO = 'Não foi possível abrir a página da reunião agora. Ver
 /** O que aconteceu quando a tentativa de entrar voltou para esta página. */
 const AVISO_DO_RETORNO: Record<string, string> = {
   expirou: 'A página ficou aberta por um tempo. Clique em "Entrar na reunião" de novo.',
-  pendente: 'Ainda não foi possível entrar. Confira abaixo a situação da sua reunião.',
+  pendente: 'Ainda não foi possível entrar. Tente de novo em instantes; se continuar, fale com o time da Legacy.',
   recusa: 'Não foi possível entrar com este link.',
   falha: 'Não foi possível entrar agora. Tente de novo em instantes.',
 };
