@@ -14,6 +14,20 @@
  */
 import type { AcessoPublico } from './zoomAcessoRegras';
 
+/**
+ * Antecedência mínima do agendamento feito PELA EMPRESA: a página pública não
+ * oferece, e o servidor recusa, sessão que comece em menos de 15 minutos. Evita a
+ * corrida de confirmar um horário que começa enquanto a pessoa preenche os dados.
+ * Não vale para a equipe, que pode inscrever uma empresa até o início da sessão.
+ */
+export const ANTECEDENCIA_MINIMA_MIN = 15;
+
+/** A sessão ainda pode ser agendada pela empresa agora? (data ilegível não esconde nada: o banco decide) */
+export function dentroDaAntecedencia(inicio: string, agora: number = Date.now()): boolean {
+  const t = Date.parse(inicio);
+  return !Number.isFinite(t) || t - agora >= ANTECEDENCIA_MINIMA_MIN * 60_000;
+}
+
 /** Alfabeto sem 0/o, 1/l/i, 12 caracteres (mesmo check do banco). */
 const CODIGO_DO_CONVITE = /^[a-hj-km-np-z2-9]{12}$/;
 

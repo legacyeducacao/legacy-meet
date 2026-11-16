@@ -145,7 +145,7 @@ export function KickoffsImpulsao() {
               </Linha>
               <Linha rotulo="Agendamento pela empresa">
                 Pelo link individual do convite (/impulsao/agendar/…), sem login. A empresa escolhe um horário com vaga; as regras são as mesmas da
-                reserva feita aqui.
+                reserva feita aqui. Pelo link, o agendamento fecha 15 minutos antes do início da sessão; a equipe pode inscrever até o início.
               </Linha>
               <Linha rotulo="Avisos às empresas">Nenhum e-mail ou WhatsApp é enviado automaticamente nesta etapa: a equipe envia o link.</Linha>
             </dl>

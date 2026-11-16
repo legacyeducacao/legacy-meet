@@ -138,6 +138,17 @@ export interface EstadoDaSalaZoom {
 
 const TABELA_FALTANDO = new Set(['42P01', 'PGRST205', 'PGRST202', '42883']);
 
+/** Meeting ID da sala ativa (só dígitos), ou null se não houver. Só o banco; não chama o Zoom. */
+export async function meetingIdDaSalaAtiva(): Promise<string | null> {
+  try {
+    const { data, error } = await createAdminSupabase().from('agenda_kickoff_zoom_salas').select('zoom_meeting_id').eq('ativa', true).maybeSingle();
+    const id = (data as { zoom_meeting_id?: unknown } | null)?.zoom_meeting_id;
+    return !error && typeof id === 'string' && /^\d{9,12}$/.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
 type LinhaSala = {
   id: string;
   zoom_meeting_id: string;

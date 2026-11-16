@@ -12,6 +12,7 @@ import { ehUuid, empresasInternas, type Resultado } from './reservas';
 import { enderecoPublico, linkOficial } from './enderecoPublico';
 import {
   RECUSAS,
+  dentroDaAntecedencia,
   ehCodigoDeConvite,
   linkDoAgendamento,
   type AnfitriaoPublico,
@@ -123,9 +124,23 @@ export async function abrirConvite(codigoDaUrl: string, origem: string): Promise
   try {
     const { data, error } = await createAdminSupabase().rpc('agenda_kickoff_publico_convite', { p_codigo: codigo, p_origem: origem });
     if (error) return null;
-    return paginaPublica(data);
+    const pagina = paginaPublica(data);
+    // Antecedência mínima: sessão que começa em menos de 15 minutos não é oferecida.
+    if (pagina?.status === 'ok') pagina.sessoes = pagina.sessoes.filter((s) => dentroDaAntecedencia(s.starts_at));
+    return pagina;
   } catch {
     return null;
+  }
+}
+
+/** A sessão começa em menos tempo que a antecedência mínima? (false se não der para saber) */
+async function semAntecedencia(sessaoId: string): Promise<boolean> {
+  try {
+    const { data, error } = await createAdminSupabase().from('meetings').select('scheduled_start_at').eq('id', sessaoId).maybeSingle();
+    const inicio = (data as { scheduled_start_at?: unknown } | null)?.scheduled_start_at;
+    return !error && typeof inicio === 'string' && !dentroDaAntecedencia(inicio);
+  } catch {
+    return false;
   }
 }
 
@@ -139,6 +154,10 @@ export async function agendarPeloConvite(
   if (!ehCodigoDeConvite(codigo)) return { status: 'convite_invalido' };
   if (!ehUuid(pedido.sessaoId)) return { status: 'sessao_indisponivel' };
   const campo = (v: unknown) => (typeof v === 'string' ? v.slice(0, 300) : null);
+  // Antecedência mínima: recusa aqui a sessão que começa em menos de 15 minutos (a
+  // página pode ter ficado aberta). Se não der para ler o horário, segue: o banco
+  // continua recusando sessão que já começou.
+  if (await semAntecedencia(pedido.sessaoId)) return { status: 'sessao_indisponivel' };
   try {
     const { data, error } = await createAdminSupabase().rpc('agenda_kickoff_publico_agendar', {
       p_codigo: codigo,

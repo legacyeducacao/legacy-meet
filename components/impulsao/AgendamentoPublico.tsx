@@ -36,7 +36,8 @@ import { mostrarNaTela, visaoInicial, type VisaoDoCalendario } from '@/lib/kicko
 
 const ERRO_GENERICO = 'Não foi possível abrir o agendamento agora. Verifique a conexão e tente de novo.';
 /** O horário recusado era o último: não há calendário para onde voltar. */
-const SEM_O_HORARIO_ESCOLHIDO = 'O horário que você escolheu não está mais disponível: ele começou ou lotou enquanto você preenchia os dados.';
+const SEM_O_HORARIO_ESCOLHIDO =
+  'O horário que você escolheu não está mais disponível: ele lotou ou já estava em cima da hora (os agendamentos fecham 15 minutos antes do início).';
 
 async function lerConvite(codigo: string): Promise<RespostaDoConvite> {
   const r = await fetch(`/api/impulsao/convites/${encodeURIComponent(codigo)}`, { cache: 'no-store' });

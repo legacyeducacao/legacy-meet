@@ -145,6 +145,17 @@ export function DetalhesEvento({
             </li>
           )}
         </ul>
+        {/* Atalho da equipe para a sala Zoom (só quem gerencia kickoffs recebe evento.kickoff). */}
+        {kickoff && evento.kickoff && evento.status === 'scheduled' && (
+          <div className="space-y-1 pt-1">
+            <Button size="sm" asChild>
+              <a href="/api/agenda/kickoffs/zoom/entrar" target="_blank" rel="noopener noreferrer">
+                <Video className="h-4 w-4" /> Entrar na reunião
+              </a>
+            </Button>
+            <p className="text-xs text-muted-foreground">Abre a sala no Zoom. Para iniciar como anfitrião, esteja logado no Zoom com a conta da reunião.</p>
+          </div>
+        )}
         {turma && (
           <div className="space-y-2 pt-1">
             {evento.link && (
