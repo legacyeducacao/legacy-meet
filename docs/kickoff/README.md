@@ -567,6 +567,8 @@ O link entregue ao cliente é montado **no servidor**, a partir de `KICKOFF_PUBL
 
 **Exigência externa, NÃO verificada:** `cf-connecting-ip` só é confiável se o servidor **aceitar tráfego apenas da Cloudflare**. Se o IP do servidor puder ser acessado direto (sem passar pela Cloudflare), quem souber esse IP pode mandar qualquer `cf-connecting-ip` e trocar de "origem" a cada pedido. Para fechar isso, uma destas, fora do Meet: firewall do servidor liberando 80/443 só para as faixas de IP da Cloudflare, ou Authenticated Origin Pulls (certificado da Cloudflare exigido no Traefik). **Não foi conferido nesta etapa e não se pode declarar a proteção por origem como validada em produção** até alguém testar um pedido direto ao IP do servidor.
 
+**Pendência para a equipe de infraestrutura (conferido em 16/11/2026):** um pedido direto ao servidor, sem passar pela Cloudflare, foi atendido (HTTPS 200, inclusive com o cabeçalho `cf-connecting-ip` forjado). Ou seja, hoje o limite de tentativas **por origem** pode ser contornado por quem souber o IP do servidor. Não bloqueia a publicação: os limites por convite e o tamanho do código continuam valendo. Ação mínima sugerida: restringir o roteador **do Meet** no Traefik/EasyPanel às faixas de IP da Cloudflare. Fechar a porta 443 inteira no firewall não serve, porque o LiveKit usa o mesmo servidor sem a Cloudflare.
+
 **O que continua valendo mesmo se a origem for contornada:** o limite de 10 agendamentos por convite em 15 minutos, a regra de uma reserva por empresa e o espaço de códigos (~7,9·10¹⁷). Com Cloudflare na frente, as regras de rate limit da própria Cloudflare também podem ser usadas (não configuradas).
 
 ### Migration 005
