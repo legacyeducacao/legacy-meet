@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>Definir senha | Legacy</title>
+<!--
+  Página única de senha do Legacy Hub. É a MESMA em todos os apps da Legacy
+  (/definir-senha.html). O e-mail do Hub ("esqueci a senha" ou primeiro acesso)
+  traz o link para esta página no app de onde a pessoa pediu:
+    <app>/definir-senha.html#hub_token=<token>&hub_tipo=recovery|invite
+  A senha é gravada no Legacy Hub e passa a valer em todos os sistemas.
+  O token só é usado quando a pessoa clica em "Salvar" (leitores de link dos
+  e-mails não consomem o link).
+-->
+<style>
+  :root { --azul: #0b1f4b; --azul2: #1d4ed8; --texto: #1f2937; --suave: #6b7280; --borda: #d1d5db; --fundo: #f3f5f9; --erro: #b91c1c; --ok: #047857; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px;
+         background: var(--fundo); color: var(--texto); font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  .cartao { width: 100%; max-width: 420px; background: #fff; border-radius: 14px; padding: 32px 28px;
+            box-shadow: 0 10px 30px rgba(11, 31, 75, .08); }
+  .marca { font-weight: 800; letter-spacing: .08em; color: var(--azul); font-size: 14px; text-transform: uppercase; margin-bottom: 20px; }
+  h1 { font-size: 22px; margin: 0 0 8px; color: var(--azul); }
+  p { margin: 0 0 18px; line-height: 1.5; color: var(--suave); font-size: 15px; }
+  label { display: block; font-size: 14px; font-weight: 600; margin: 14px 0 6px; }
+  input { width: 100%; padding: 12px 14px; border: 1px solid var(--borda); border-radius: 8px; font-size: 16px; }
+  input:focus { outline: 2px solid var(--azul2); outline-offset: 1px; border-color: transparent; }
+  button, .botao { display: block; width: 100%; margin-top: 22px; padding: 13px; border: 0; border-radius: 8px; background: var(--azul);
+                   color: #fff; font-size: 16px; font-weight: 600; cursor: pointer; text-align: center; text-decoration: none; }
+  button[disabled] { opacity: .6; cursor: wait; }
+  .aviso { font-size: 14px; border-radius: 8px; padding: 10px 12px; margin-top: 16px; display: none; }
+  .aviso.erro { display: block; background: #fef2f2; color: var(--erro); }
+  .aviso.ok { display: block; background: #ecfdf5; color: var(--ok); }
+  .dica { font-size: 13px; color: var(--suave); margin-top: 6px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main class="cartao">
+  <div class="marca">Legacy</div>
+
+  <section id="formulario">
+    <h1 id="titulo">Defina sua nova senha</h1>
+    <p>A senha vale em todos os sistemas da Legacy.</p>
+    <form id="form" novalidate>
+      <label for="senha">Nova senha</label>
+      <input id="senha" type="password" autocomplete="new-password" minlength="8" required>
+      <div class="dica">Mínimo de 8 caracteres.</div>
+      <label for="confirmacao">Confirme a nova senha</label>
+      <input id="confirmacao" type="password" autocomplete="new-password" minlength="8" required>
+      <button id="salvar" type="submit">Salvar senha</button>
+      <div id="aviso" class="aviso" role="alert"></div>
+    </form>
+  </section>
+
+  <section id="pronto" hidden>
+    <h1>Senha salva</h1>
+    <p>Pronto. Use o seu e-mail e a nova senha para entrar em qualquer sistema da Legacy.</p>
+    <a class="botao" href="/">Entrar</a>
+  </section>
+
+  <section id="invalido" hidden>
+    <h1>Link inválido</h1>
+    <p id="invalido-texto">Este link já foi usado ou expirou. Volte para a tela de login e peça um novo em "Esqueci a senha".</p>
+    <a class="botao" href="/">Ir para o login</a>
+  </section>
+</main>
+
+<script>
+(function () {
+  var HUB_URL = "https://uckiaomlxakqmtvxkyfk.supabase.co";
+  var HUB_KEY = "sb_publishable_d1-9XsjBSEk5jwxXLNhOUw_uHWFDHAi"; // chave publicável: é pública por natureza
+
+  var params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  var token = params.get("hub_token");
+  var tipo = params.get("hub_tipo") === "invite" ? "invite" : "recovery";
+  // Tira o token da barra de endereço e do histórico.
+  if (window.location.hash) history.replaceState(null, "", window.location.pathname);
+
+  var $ = function (id) { return document.getElementById(id); };
+  function mostrar(id) { ["formulario", "pronto", "invalido"].forEach(function (s) { $(s).hidden = s !== id; }); }
+  function erro(msg) { var a = $("aviso"); a.className = "aviso erro"; a.textContent = msg; }
+
+  if (tipo === "invite") { $("titulo").textContent = "Crie sua senha de acesso"; document.title = "Criar senha | Legacy"; }
+  if (!token) { mostrar("invalido"); return; }
+
+  function chamar(caminho, opcoes) {
+    opcoes.headers = Object.assign({ "content-type": "application/json", apikey: HUB_KEY }, opcoes.headers || {});
+    return fetch(HUB_URL + "/auth/v1" + caminho, opcoes).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (corpo) { return { ok: r.ok, status: r.status, corpo: corpo }; });
+    });
+  }
+  function codigo(c) { return (c && (c.error_code || c.code || c.error)) || ""; }
+
+  var sessao = null; // o link só é usado uma vez: guarda a sessão se a primeira tentativa de senha falhar
+
+  $("form").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var senha = $("senha").value, conf = $("confirmacao").value;
+    $("aviso").className = "aviso";
+    if (senha.length < 8) return erro("A senha precisa ter pelo menos 8 caracteres.");
+    if (senha !== conf) return erro("As duas senhas não são iguais.");
+    $("salvar").disabled = true;
+
+    var passo = sessao ? Promise.resolve({ ok: true, corpo: sessao })
+                       : chamar("/verify", { method: "POST", body: JSON.stringify({ type: tipo, token_hash: token }) });
+    passo.then(function (v) {
+      if (!v.ok || !v.corpo.access_token) { mostrar("invalido"); return null; }
+      sessao = v.corpo;
+      return chamar("/user", { method: "PUT", headers: { authorization: "Bearer " + sessao.access_token },
+                               body: JSON.stringify({ password: senha }) });
+    }).then(function (u) {
+      if (!u) return;
+      if (!u.ok) {
+        var c = codigo(u.corpo);
+        if (c === "same_password") erro("A nova senha precisa ser diferente da atual.");
+        else if (c === "weak_password") erro("Senha fraca. Use letras e números, com pelo menos 8 caracteres.");
+        else if (u.status === 401 || u.status === 403) { mostrar("invalido"); return; }
+        else erro("Não foi possível salvar a senha. Tente de novo em instantes.");
+        $("salvar").disabled = false;
+        return;
+      }
+      // Encerra a sessão usada só para trocar a senha.
+      chamar("/logout?scope=local", { method: "POST", headers: { authorization: "Bearer " + sessao.access_token } }).catch(function () {});
+      mostrar("pronto");
+    }).catch(function () {
+      erro("Sem conexão. Confira a internet e tente de novo.");
+      $("salvar").disabled = false;
+    });
+  });
+})();
+</script>
+</body>
+</html>

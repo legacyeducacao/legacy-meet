@@ -10,7 +10,7 @@
 // Rede de segurança: se o Hub não reconhecer a pessoa ou a troca falhar por
 // motivo técnico, o login segue pelo caminho antigo. O Meet é sistema interno:
 // o caminho antigo só vale para e-mail corporativo.
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { AuthError, createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 const HUB_URL = 'https://uckiaomlxakqmtvxkyfk.supabase.co';
 // Chave publicável: é pública por natureza.
@@ -77,9 +77,43 @@ export async function entrarPeloHub(meet: SupabaseClient, email: string, passwor
     refresh_token: corpo.refresh_token!,
   });
   if (error) throw new Error('E-mail ou senha inválidos.');
+  // Colaborador: a senha local acompanha a do Hub (o caminho antigo não aceita senha velha).
+  if (senhaPeloHub(email)) await meet.auth.updateUser({ password }).catch(() => undefined);
 }
 
 /** Sai também do Hub (só neste navegador). */
 export async function sairDoHub(): Promise<void> {
   await hub().auth.signOut({ scope: 'local' }).catch(() => undefined);
+}
+
+
+// ---------------------------------------------------------------------------
+// Senha de colaborador: mora no Legacy Hub e vale em todos os sistemas.
+// O e-mail sai pelo Hub (Resend) e o link abre /definir-senha.html neste app
+// (página única, a mesma em todos os apps da Legacy). Cliente continua com o
+// "esqueci a senha" do próprio app.
+// ---------------------------------------------------------------------------
+
+/** E-mail corporativo: a senha é a do Legacy Hub. */
+export function senhaPeloHub(email: string): boolean {
+  return email.trim().toLowerCase().endsWith('@legacyeducacaocorp.com.br')
+}
+
+/** "Esqueci a senha" pelo Hub. Mesmo formato de resposta do resetPasswordForEmail. */
+export async function esqueciASenhaNoHub(
+  email: string,
+): Promise<{ data: Record<string, never>; error: null } | { data: null; error: AuthError }> {
+  const voltar = `${window.location.origin}/definir-senha.html`
+  try {
+    const resp = await fetch(`${HUB_URL}/auth/v1/recover?redirect_to=${encodeURIComponent(voltar)}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', apikey: HUB_KEY },
+      body: JSON.stringify({ email: email.trim().toLowerCase() }),
+    })
+    if (resp.ok) return { data: {}, error: null }
+    const corpo = (await resp.json().catch(() => ({}))) as { msg?: string; message?: string; error_code?: string }
+    return { data: null, error: new AuthError(corpo.msg ?? corpo.message ?? 'Não foi possível enviar o e-mail.', resp.status, corpo.error_code) }
+  } catch {
+    return { data: null, error: new AuthError('Não foi possível enviar o e-mail. Confira a internet e tente de novo.', 0) }
+  }
 }

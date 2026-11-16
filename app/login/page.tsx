@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { createBrowserSupabase } from '@/lib/supabase/client';
-import { entrarPeloHub } from '@/lib/legacyHub';
+import { entrarPeloHub, esqueciASenhaNoHub, senhaPeloHub } from '@/lib/legacyHub';
 import LoginPage from '@/components/patterns/LoginPage';
 import { POST_LOGIN_PRELOADER_FLAG } from '@/components/patterns/PostLoginPreloader';
 import { safeNextPath } from '@/lib/safeNext';
@@ -36,7 +36,9 @@ export default function Login() {
       }}
       onForgotPassword={async (email) => {
         const supabase = createBrowserSupabase();
-        const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        const { error } = senhaPeloHub(email.trim())
+      ? await esqueciASenhaNoHub(email.trim())
+      : await supabase.auth.resetPasswordForEmail(email.trim(), {
           redirectTo: `${window.location.origin}/login`,
         });
         if (error) throw new Error('Não foi possível enviar o e-mail de recuperação.');
