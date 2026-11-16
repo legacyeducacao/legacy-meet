@@ -4,6 +4,7 @@ import { createAdminSupabase } from '@/lib/supabase/admin';
 import { changeCalendarAttendees, updateCalendarEvent } from '@/lib/calendar';
 import { diffCoHosts, listTeamMembers, normalizeCoHostIds } from '@/lib/meetingHosts';
 import { syncForaDoScore } from '@/lib/execscore';
+import { ehSessaoDeKickoff, SO_PELA_AGENDA } from '@/lib/kickoff/servidor';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,6 +36,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   if (!meeting) return new NextResponse('Reunião não encontrada', { status: 404 });
   if (!user.isAdmin && meeting.host_id !== user.id)
     return new NextResponse('Não autorizado', { status: 403 });
+  // Sessão de kickoff (pode ter empresas inscritas): só pela agenda nova.
+  if (await ehSessaoDeKickoff(id)) return new NextResponse(SO_PELA_AGENDA, { status: 409 });
 
   const update: Record<string, unknown> = {};
   const title = (body.title ?? '').trim();

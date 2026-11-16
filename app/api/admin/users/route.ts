@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { createAdminSupabase } from '@/lib/supabase/admin';
+import { alternarCapacidade, lerCapacidades, PERMISSAO_KICKOFF } from '@/lib/kickoff/regras';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,9 +15,11 @@ export async function GET() {
   const admin = createAdminSupabase();
   // Só usuários internos do Meet: e-mail do domínio @legacyeducacaocorp.com.br
   // (evita listar clientes do Legacy Plan que compartilham a tabela `users`).
+  // meet_user_profile(*): a coluna capacidades só existe depois da migration do
+  // kickoff; pedir pelo nome antes disso derrubaria a lista inteira.
   const { data } = await admin
     .from('users')
-    .select('id, name, email, role, meet_user_profile(is_admin, sector, agenda_nova)')
+    .select('id, name, email, role, meet_user_profile(*)')
     .ilike('email', '%@legacyeducacaocorp.com.br')
     .order('name');
   const users = ((data ?? []) as any[]).map((u) => {
@@ -28,6 +31,7 @@ export async function GET() {
       isAdmin: p?.is_admin ?? false,
       sector: (p?.sector as Sector | undefined) ?? null,
       agendaNova: p?.agenda_nova === true,
+      kickoffImpulsao: lerCapacidades(p).includes(PERMISSAO_KICKOFF),
     };
   });
   return NextResponse.json({ users });
@@ -76,11 +80,18 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const me = await getCurrentUser();
   if (!me?.isAdmin) return new NextResponse('Não autorizado', { status: 401 });
-  const { userId, isAdmin, sector, agendaNova } = (await req.json().catch(() => ({}))) as {
-    userId?: string; isAdmin?: boolean; sector?: string; agendaNova?: boolean;
+  const { userId, isAdmin, sector, agendaNova, kickoffImpulsao } = (await req.json().catch(() => ({}))) as {
+    userId?: string; isAdmin?: boolean; sector?: string; agendaNova?: boolean; kickoffImpulsao?: boolean;
   };
   if (!userId) return new NextResponse('userId obrigatório', { status: 400 });
   const admin = createAdminSupabase();
+  // Permissão do kickoff: só mexe em capacidades quando vier no corpo, e sem
+  // apagar as outras capacidades que o perfil já tiver.
+  let capacidades: string[] | undefined;
+  if (typeof kickoffImpulsao === 'boolean') {
+    const { data: atual } = await admin.from('meet_user_profile').select('*').eq('user_id', userId).maybeSingle();
+    capacidades = alternarCapacidade(lerCapacidades(atual), PERMISSAO_KICKOFF, kickoffImpulsao);
+  }
   const { error } = await admin
     .from('meet_user_profile')
     .upsert({
@@ -89,6 +100,7 @@ export async function PATCH(req: NextRequest) {
       sector: asSector(sector),
       // Liberação da agenda nova (teste): só muda quando vier no corpo.
       ...(typeof agendaNova === 'boolean' ? { agenda_nova: agendaNova } : {}),
+      ...(capacidades ? { capacidades } : {}),
       updated_at: new Date().toISOString(),
     });
   if (error) return new NextResponse('Falha ao salvar: ' + error.message, { status: 500 });

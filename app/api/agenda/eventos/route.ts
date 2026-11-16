@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
+import { autorizarEmpresaDaReuniao } from '@/lib/meetingTenantAccess';
+import { KICKOFF_TIPO } from '@/lib/kickoff/regras';
+import { prepararKickoff, registrarSessoesKickoff } from '@/lib/kickoff/servidor';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 import { listTeamMembers, normalizeCoHostIds } from '@/lib/meetingHosts';
 import { parseGuestEmails } from '@/lib/guestEmails';
@@ -35,7 +38,8 @@ const pad = (n: number) => String(n).padStart(2, '0');
 /** GET ?de=ISO&ate=ISO&executores=id,id : reuniões, bloqueios, turmas do Legado e feriados do período. */
 export async function GET(req: NextRequest) {
   const user = await getCurrentUser();
-  if (!user || !(await podeUsarAgendaNova(user))) return new NextResponse('Não autorizado', { status: 403 });
+  // Só a equipe do Meet: o login é o mesmo do Plan, e a resposta traz links de reuniões e aulas.
+  if (!user || !user.isStaff || !(await podeUsarAgendaNova(user))) return new NextResponse('Não autorizado', { status: 403 });
   const de = new Date(req.nextUrl.searchParams.get('de') ?? '');
   const ate = new Date(req.nextUrl.searchParams.get('ate') ?? '');
   if (isNaN(de.getTime()) || isNaN(ate.getTime()) || ate <= de) return new NextResponse('Período inválido', { status: 400 });
@@ -88,6 +92,10 @@ type CorpoCriar = {
   /** Série 1 a 1 do Legado: registra a jornada (encontros previstos x realizados). */
   jornadaLegado?: boolean;
   templateId?: string;
+  /** Sessão de kickoff do Impulsão (sem sala do Meet, sem Google Agenda). */
+  tipo?: 'kickoff_impulsao';
+  /** Kickoff: empresas por sessão (1 a 50; padrão 5). */
+  capacidade?: number;
 };
 
 /** POST: cria reunião ou série (cada ocorrência vira uma reunião do Meet). */
@@ -96,11 +104,27 @@ export async function POST(req: NextRequest) {
   if (!user || !(await podeUsarAgendaNova(user))) return new NextResponse('Não autorizado', { status: 403 });
   const b = ((await req.json().catch(() => null)) ?? {}) as CorpoCriar;
 
+  const kickoff = b.tipo === KICKOFF_TIPO;
+  const setor = kickoff ? 'executoria' : b.setor === 'comercial' ? 'comercial' : 'executoria';
+  let tenantId: string;
+  let capacidade = 0;
+  if (kickoff) {
+    // Kickoff do Impulsão: permissão própria e empresa organizadora interna
+    // (do ambiente, nunca do corpo). As empresas participantes vêm nas reservas.
+    const k = await prepararKickoff(user, b.capacidade);
+    if (!k.ok) return new NextResponse(k.message, { status: k.status });
+    tenantId = k.tenantId;
+    capacidade = k.capacidade;
+  } else {
+    // A empresa não vem só do corpo: equipe, setor e carteira são conferidos aqui.
+    // Admin agendando para outro executor (executorId) continua liberado pela regra de admin.
+    const acesso = await autorizarEmpresaDaReuniao(user, setor, b.tenantId);
+    // 400 = sem cliente: mantém a mensagem que o formulário da agenda já mostra.
+    if (!acesso.ok) return new NextResponse(acesso.status === 400 ? 'Selecione o cliente' : acesso.message, { status: acesso.status });
+    tenantId = acesso.tenantId;
+  }
   const titulo = (b.titulo ?? '').trim();
   if (!titulo) return new NextResponse('Informe o título', { status: 400 });
-  const setor = b.setor === 'comercial' ? 'comercial' : 'executoria';
-  const tenantId = setor === 'comercial' ? process.env.MEET_COMMERCIAL_TENANT_ID! : b.tenantId;
-  if (!tenantId) return new NextResponse('Selecione o cliente', { status: 400 });
   const inicio = new Date(b.inicio ?? '');
   const fim = new Date(b.fim ?? '');
   if (isNaN(inicio.getTime()) || isNaN(fim.getTime()) || fim <= inicio) {
@@ -146,7 +170,8 @@ export async function POST(req: NextRequest) {
   const decisao = decidirConflitos(conflitos, user.isAdmin, b.justificativa);
   if (!decisao.ok) return NextResponse.json(decisao.resposta, { status: 409 });
 
-  const guests = parseGuestEmails(b.guestEmails);
+  // Kickoff não convida ninguém pelo Google Agenda.
+  const guests = kickoff ? { emails: [] as string[], invalid: [] as string[] } : parseGuestEmails(b.guestEmails);
   if (guests.invalid.length) return new NextResponse(`E-mail inválido: ${guests.invalid.join(', ')}`, { status: 400 });
   const team = await listTeamMembers();
   const coHostIds = normalizeCoHostIds(b.coHostIds, new Set(team.map((m) => m.id)), executorId);
@@ -159,17 +184,27 @@ export async function POST(req: NextRequest) {
     tenantId,
     title: titulo,
     ocorrencias: ocorrencias.map((o) => ({ inicio: o.inicio, fim: o.fim })),
-    record: b.gravar !== false,
-    transcribe: b.transcrever !== false,
-    onboarding: b.onboarding === true,
+    // Kickoff: sem gravação/transcrição do Meet (usa Zoom) e fora do ExecScore (onboarding).
+    record: kickoff ? false : b.gravar !== false,
+    transcribe: kickoff ? false : b.transcrever !== false,
+    onboarding: kickoff ? true : b.onboarding === true,
     coHostIds,
     team,
     guestEmails: guests.emails,
     recurrenceRule: rrule ? `rrule:${rrule}` : null,
+    googleAgenda: !kickoff,
   });
   if (!r.ok) return new NextResponse(r.message, { status: r.status });
 
   const admin = createAdminSupabase();
+  if (kickoff) {
+    const marcadas = await registrarSessoesKickoff(r.ids, capacidade, user.id);
+    if (!marcadas.ok) {
+      // Sem a marcação, seriam reuniões comuns da empresa organizadora: desfaz.
+      await admin.from('meetings').delete().in('id', r.ids);
+      return new NextResponse('Falha ao registrar a sessão de kickoff: ' + marcadas.message, { status: 500 });
+    }
+  }
   let serieId: string | null = null;
   if (rrule) {
     const { data: serie, error } = await admin
@@ -187,9 +222,9 @@ export async function POST(req: NextRequest) {
         defasagem: b.defasagem ?? 0,
         politica_feriado: b.politicaFeriado ?? 'manter',
         horizonte_meses: cfg.horizonteMeses,
-        gravar: b.gravar !== false,
-        transcrever: b.transcrever !== false,
-        onboarding: b.onboarding === true,
+        gravar: kickoff ? false : b.gravar !== false,
+        transcrever: kickoff ? false : b.transcrever !== false,
+        onboarding: kickoff ? true : b.onboarding === true,
         recurrence_parent_id: r.ids[0],
         criado_por: user.id,
       })
@@ -215,13 +250,13 @@ export async function POST(req: NextRequest) {
     await registrarSobreposicoes(decisao.registrar, user.id, b.justificativa!.trim(), (ref) => r.ids[Number(ref)] ?? null, serieId);
   }
 
-  if (b.jornadaLegado && rrule && setor === 'executoria' && b.tenantId) {
+  if (!kickoff && b.jornadaLegado && rrule && setor === 'executoria') {
     const primeira = localYmd(ocorrencias[0].inicio, FUSO);
     const ultima = localYmd(ocorrencias[ocorrencias.length - 1].inicio, FUSO);
     const { data: j, error: ej } = await admin
       .from('agenda_jornadas')
       .insert({
-        tenant_id: b.tenantId,
+        tenant_id: tenantId,
         produto: 'legado',
         serie_id: serieId,
         executor_id: executorId,
@@ -238,6 +273,6 @@ export async function POST(req: NextRequest) {
         ocorrencias.map((o, k) => ({ jornada_id: j.id, numero: k + 1, data: localYmd(o.inicio, FUSO), meeting_id: r.ids[k] })),
       );
   }
-  if (b.templateId && serieId) await admin.from('agenda_series').update({ template_id: b.templateId }).eq('id', serieId);
+  if (!kickoff && b.templateId && serieId) await admin.from('agenda_series').update({ template_id: b.templateId }).eq('id', serieId);
   return NextResponse.json({ ids: r.ids, serieId, ocorrencias: r.ids.length });
 }

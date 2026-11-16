@@ -35,6 +35,8 @@ export interface CriarReunioesInput {
   recurrenceParentId?: string | null;
   /** Título por ocorrência (ex.: "Impulsão · Grupo Terça · F1"). */
   titulos?: string[];
+  /** false = sem evento nem convite no Google Agenda (ex.: kickoff do Impulsão). Padrão: true. */
+  googleAgenda?: boolean;
 }
 
 export type CriarReunioesResult =
@@ -90,6 +92,10 @@ export async function criarReunioes(i: CriarReunioesInput): Promise<CriarReunioe
       return { ok: false, status: 500, message: 'Falha ao registrar os anfitriões: ' + hostsError.message };
     }
   }
+
+  // Sem Google Agenda (kickoff do Impulsão): nem evento, nem convite, nem
+  // leitura do e-mail da empresa para convidar.
+  if (i.googleAgenda === false) return { ok: true, ids, roomNames };
 
   // Google Agenda: um evento por ocorrência (com o link daquela sala), criados
   // em SEGUNDO PLANO: uma série de 52 não pode travar a resposta. Erros são

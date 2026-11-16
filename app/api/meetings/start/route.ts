@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { isMeetingHost } from '@/lib/meetingHosts';
+import { ehSessaoDeKickoff } from '@/lib/kickoff/servidor';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 
 export const dynamic = 'force-dynamic';
@@ -24,6 +25,9 @@ export async function POST(req: NextRequest) {
   // Anfitrião adicional (ex.: o Closer marcado pelo SDR) também pode.
   if (!user.isAdmin && !(await isMeetingHost({ id, host_id: meeting.host_id }, user.id)))
     return new NextResponse('Não autorizado', { status: 403 });
+  // Sessão de kickoff do Impulsão acontece no Zoom: nunca abre sala do Meet.
+  if (await ehSessaoDeKickoff(id))
+    return new NextResponse('Sessão de kickoff do Impulsão: não usa a sala do Meet', { status: 409 });
 
   // started_at marca que a reunião de fato aconteceu — é o que decide, no
   // desfazer de um no-show, se ela volta para 'ended' ou para 'scheduled'.

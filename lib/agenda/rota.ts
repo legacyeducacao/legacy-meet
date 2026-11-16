@@ -1,4 +1,4 @@
-/** Acesso das rotas /api/agenda: usuário logado com a agenda nova liberada. */
+/** Acesso das rotas /api/agenda: equipe do Meet logada (podeUsarAgendaNova). */
 import { NextResponse } from 'next/server';
 import { getCurrentUser, type CurrentUser } from '@/lib/auth';
 import { podeUsarAgendaNova } from './servidor';
