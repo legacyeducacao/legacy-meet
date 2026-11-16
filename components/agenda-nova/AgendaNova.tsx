@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { BarChart3, ChevronLeft, ChevronRight, Keyboard, Loader2, Menu, Plus, Rocket, Search, Settings } from 'lucide-react';
 import { toast } from '@/components/ui/custom-toast';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
@@ -643,6 +644,14 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
             ))}
           </div>
           <p className="px-1 text-xs text-muted-foreground">Só muda o que aparece; a disponibilidade continua a mesma.</p>
+          {/* Entrada da seção, com o nome escrito: o foguete da barra sozinho passava despercebido. */}
+          <Link
+            href="/agenda/kickoffs"
+            className="mt-2 inline-flex items-center gap-1 rounded px-1 py-1 text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          >
+            Gerenciar kickoffs
+            <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+          </Link>
         </div>
       )}
       {me.isAdmin && equipe.length > 0 && (
@@ -716,11 +725,18 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
           <Keyboard className="h-5 w-5" />
         </Button>
         {me.podeKickoff && (
-          <Button asChild variant="ghost" size="icon" aria-label="Kickoffs Impulsão">
-            <Link href="/agenda/kickoffs">
-              <Rocket className="h-5 w-5" />
-            </Link>
-          </Button>
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button asChild variant="ghost" size="icon" aria-label="Kickoffs Impulsão">
+                  <Link href="/agenda/kickoffs">
+                    <Rocket className="h-5 w-5" />
+                  </Link>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Kickoffs Impulsão</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         )}
         {me.isAdmin && (
           <Button asChild variant="ghost" size="icon" aria-label="Painel da agenda">
