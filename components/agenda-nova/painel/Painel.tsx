@@ -24,6 +24,7 @@ type Painel = {
   mapa: number[][];
   limiteSemanal: number | null;
   gestor: boolean;
+  listaExecutores?: Array<{ id: string; nome: string }>;
   jornadas: {
     impulsao: { ativosPorGrupo: Array<{ grupo: string; clientes: number }>; progresso: Array<{ clienteId: string; concluidos: number; total: number }>; faltaramAula2: string[] };
     legado: Array<{ cliente: string; pendentes: number; possiveis: number; diasRestantes: number; emRisco: boolean; realizados: number; previstos: number }>;
@@ -115,7 +116,6 @@ export function Painel({ me }: { me: { id: string; isAdmin: boolean } }) {
   const cores = escuro ? COR.escuro : COR.claro;
 
   React.useEffect(() => {
-    if (me.isAdmin) fetch('/api/team').then((r) => r.json()).then((j) => setEquipe(j.members ?? [])).catch(() => {});
     fetch('/api/clients').then((r) => r.json()).then((j) => setClientes(j.clients ?? [])).catch(() => {});
   }, [me.isAdmin]);
 
@@ -126,7 +126,9 @@ export function Painel({ me }: { me: { id: string; isAdmin: boolean } }) {
     fetch(`/api/agenda/kpis?${qs}`, { cache: 'no-store', signal: ctrl.signal })
       .then(async (r) => {
         if (!r.ok) throw new Error((await r.text()) || 'Erro');
-        setP(await r.json());
+        const j = (await r.json()) as Painel;
+        setP(j);
+        if (j.listaExecutores?.length) setEquipe(j.listaExecutores.map((e) => ({ id: e.id, name: e.nome })));
       })
       .catch((e) => e.name !== 'AbortError' && toast.error('Não foi possível carregar o painel', { description: e.message }))
       .finally(() => !ctrl.signal.aborted && setCarregando(false));
@@ -188,10 +190,7 @@ export function Painel({ me }: { me: { id: string; isAdmin: boolean } }) {
         {me.isAdmin && (
           <select className="h-9 rounded-md border bg-background px-2 text-sm" value={executor} onChange={(e) => setExecutor(e.target.value)} aria-label="Executor">
             <option value="todos">Todos os executores</option>
-            <option value={me.id}>Eu</option>
-            {equipe
-              .filter((m) => m.id !== me.id)
-              .map((m) => (
+            {equipe.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.name}
                 </option>

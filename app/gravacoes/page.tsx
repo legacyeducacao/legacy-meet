@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import React, { useEffect, useMemo, useState } from 'react';
 import { toast } from '@/components/ui/custom-toast';
-import { Search, ChevronLeft, ChevronRight, Trash2, Video } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, Trash2, Video, CheckCircle2, Clock, AlertTriangle, MinusCircle } from 'lucide-react';
 import { AppShell } from '@/components/AppShell';
 import { PageHeader } from '@/components/patterns/PageHeader';
 import { EmptyState } from '@/components/patterns/EmptyState';
@@ -59,6 +59,48 @@ function formatDate(iso: string): string {
 function formatDuration(seconds: number): string {
   if (!seconds) return '—';
   return `${Math.round(seconds / 60)} min`;
+}
+
+/**
+ * Selo do ExecScore no card da gravação (só reuniões da Executoria de
+ * executores ligados ao ExecScore). Sem linha na fila: não mostra nada.
+ */
+function SeloExecScore({ status }: { status?: string | null }) {
+  if (!status) return null;
+  if (status === 'enviada')
+    return (
+      <Badge className="bg-emerald-600 text-white dark:bg-emerald-600/80" title="A avaliação desta reunião está no ExecScore.">
+        <CheckCircle2 /> Enviada ao ExecScore
+      </Badge>
+    );
+  if (status === 'aguardando' || status === 'processando')
+    return (
+      <Badge
+        variant="outline"
+        title="Vai sozinha quando a transcrição terminar e os pilares forem escolhidos (ou 24 h depois da transcrição). Para mandar já, abra a gravação e salve os Pilares do ExecScore."
+      >
+        <Clock /> {status === 'processando' ? 'Sendo avaliada no ExecScore' : 'Na fila do ExecScore'}
+      </Badge>
+    );
+  if (status === 'erro')
+    return (
+      <Badge variant="destructive" title="A transcrição não chegou ao ExecScore. Abra a gravação e reenvie pelos Pilares do ExecScore.">
+        <AlertTriangle /> Erro no envio ao ExecScore
+      </Badge>
+    );
+  if (status === 'apagada')
+    return (
+      <Badge variant="outline" className="text-muted-foreground" title="Foi enviada, mas a avaliação foi apagada no ExecScore.">
+        <MinusCircle /> Avaliação apagada no ExecScore
+      </Badge>
+    );
+  if (status === 'descartada')
+    return (
+      <Badge variant="outline" className="text-muted-foreground" title="Onboarding ou no-show: não vai para o ExecScore.">
+        <MinusCircle /> Fora do ExecScore
+      </Badge>
+    );
+  return null;
 }
 
 export default function GravacoesPage() {
@@ -338,11 +380,7 @@ export default function GravacoesPage() {
                       <div className="flex flex-wrap gap-1.5">
                         {rec.storage === 'gdrive' && <Badge variant="secondary">Google Drive</Badge>}
                         {rec.noShow && <Badge variant="destructive">No-show</Badge>}
-                        {rec.execscoreStatus === 'erro' && (
-                          <Badge variant="destructive" title="A transcrição não chegou ao ExecScore. Abra a gravação e reenvie pelos Pilares do ExecScore.">
-                            Erro no envio ao ExecScore
-                          </Badge>
-                        )}
+                        <SeloExecScore status={rec.execscoreStatus} />
                         {rec.transcriptionStatus === 'failed' ? (
                           <Badge variant="destructive">Transcrição falhou</Badge>
                         ) : (

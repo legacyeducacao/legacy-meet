@@ -51,7 +51,7 @@ export async function GET() {
         (r) => (r.hostId !== null && r.hostId === user.id) || r.coHostIds.includes(user.id),
       );
     }
-    // Situação do envio ao ExecScore (o card avisa quando deu erro).
+    // Situação do envio ao ExecScore (selo no card: enviada, na fila, erro...).
     const execscore = await statusDasReunioes(
       scoped.filter((r) => r.sector === 'executoria' && r.meetingId).map((r) => r.meetingId as string),
     ).catch(() => new Map<string, string>());

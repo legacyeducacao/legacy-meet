@@ -8,8 +8,8 @@ export const dynamic = 'force-dynamic';
 export default async function Page() {
   const user = await getCurrentUser();
   if (!user) redirect('/login?next=/agenda/painel');
-  // Agenda administrativa: só a equipe do Meet (clientes do Plan têm o mesmo login).
-  if (!user.isStaff) redirect('/sem-acesso');
+  // Painel da agenda é só para admins (gestão).
+  if (!user.isAdmin) redirect('/agenda');
   return (
     <AppShell>
       <Painel me={{ id: user.id, isAdmin: user.isAdmin }} />

@@ -63,7 +63,11 @@ export function PilaresExecScoreButton({ room }: { room: string }) {
       ) : (
         info.status && (
           <Badge variant={STATUS_VARIANT[info.status]}>
-            {info.status === 'erro' && info.esgotado ? LABEL_ESGOTADO : STATUS_LABEL[info.status]}
+            {info.status === 'erro' && info.esgotado
+              ? LABEL_ESGOTADO
+              : info.status === 'enviada' && !info.avaliacaoId
+                ? 'Avaliação apagada no ExecScore'
+                : STATUS_LABEL[info.status]}
           </Badge>
         )
       )}
@@ -74,7 +78,7 @@ export function PilaresExecScoreButton({ room }: { room: string }) {
             <DialogTitle>Pilares do ExecScore</DialogTitle>
             <DialogDescription>
               {info.onboarding
-                ? 'Reunião de onboarding: não vai para o ExecScore. Aqui você marca ou desfaz o no-show.'
+                ? 'Reunião de onboarding: não vai para o ExecScore. Se foi marcada por engano, desligue a chave de onboarding e salve os pilares.'
                 : 'Desligue os pilares que não foram tratados nesta reunião. Salvar de novo reabre a avaliação e o ExecScore refaz a nota.'}
             </DialogDescription>
           </DialogHeader>
@@ -91,9 +95,11 @@ export function PilaresExecScoreButton({ room }: { room: string }) {
               toast.success(
                 r.noShow
                   ? 'No-show registrado. A reunião não vai para o ExecScore.'
-                  : info.onboarding
-                    ? 'Salvo.'
-                    : 'Pilares salvos. A avaliação será refeita no ExecScore.',
+                  : r.onboarding
+                    ? 'Salvo como onboarding. A reunião não vai para o ExecScore.'
+                    : info.onboarding
+                      ? 'Onboarding desmarcado. A reunião vai para o ExecScore.'
+                      : 'Pilares salvos. A avaliação será refeita no ExecScore.',
               );
               load();
             }}

@@ -14,7 +14,7 @@
  * Uma reunião gera uma única avaliação; reprocessos atualizam a mesma.
  */
 import { createAdminSupabase } from '@/lib/supabase/admin';
-import { getManifest, getObjectText, type RecordingManifest } from '@/lib/recordings';
+import { getManifest, getObjectText, recordingIdsDaSala, type RecordingManifest } from '@/lib/recordings';
 import { chunkArray } from '@/lib/chunk';
 
 export const PILARES = [
@@ -217,6 +217,35 @@ export async function reabrirEnvio(meetingId: string): Promise<void> {
 }
 
 /**
+ * Reunião que ficou fora da fila (ex.: marcada como onboarding quando a
+ * transcrição terminou, antes da linha existir) ganha a transcrição registrada
+ * agora, para poder ser enviada.
+ */
+export async function garantirTranscricao(meeting: ExecutoriaMeeting): Promise<void> {
+  const row = await getIntegracao(meeting.meetingId);
+  if (row?.recording_ids?.length) return;
+  for (const id of await recordingIdsDaSala(meeting.roomName)) {
+    const m = await getManifest(id);
+    if (m?.transcriptionStatus !== 'complete') continue;
+    await rpc('meet_registrar_transcricao', {
+      p_meeting_id: meeting.meetingId,
+      p_executor_id: meeting.executorId,
+      p_recording_id: id,
+    });
+  }
+}
+
+/** Liga/desliga "Reunião de onboarding" (só Executoria). */
+export async function definirOnboarding(meetingId: string, onboarding: boolean): Promise<void> {
+  const { error } = await createAdminSupabase()
+    .from('meet_meeting_sector')
+    .update({ onboarding })
+    .eq('meeting_id', meetingId)
+    .eq('sector', 'executoria');
+  if (error) throw new Error(`onboarding: ${error.message}`);
+}
+
+/**
  * Onboarding ou no-show mudou: tira da fila ou devolve e tenta enviar. Nunca
  * lança (quem chama já salvou a mudança principal; aqui é só a integração).
  */
@@ -228,6 +257,7 @@ export async function syncForaDoScore(meetingId: string): Promise<void> {
     const motivo = motivoForaDoScore(meeting);
     if (motivo) await descartarEnvio(meetingId, motivo);
     else {
+      await garantirTranscricao(meeting);
       await reabrirEnvio(meetingId);
       await dispatchMeeting(meetingId);
     }
@@ -236,19 +266,24 @@ export async function syncForaDoScore(meetingId: string): Promise<void> {
   }
 }
 
-/** Situação do envio ao ExecScore de várias reuniões (lista de gravações). */
+/**
+ * Situação do envio ao ExecScore de várias reuniões (lista de gravações).
+ * "apagada": foi enviada, mas a avaliação foi apagada lá no ExecScore.
+ */
 export async function statusDasReunioes(meetingIds: string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   if (!isEnabled() || !meetingIds.length) return out;
   const admin = createAdminSupabase();
   const lotes = await Promise.all(
     chunkArray([...new Set(meetingIds)], 100).map((ids) =>
-      admin.schema('execscore').from('meet_integracao').select('meeting_id, status').in('meeting_id', ids),
+      admin.schema('execscore').from('meet_integracao').select('meeting_id, status, evaluation_id').in('meeting_id', ids),
     ),
   );
   for (const r of lotes) {
     if (r.error) console.error('execscore: status das reuniões', r.error);
-    for (const row of (r.data ?? []) as Array<{ meeting_id: string; status: string }>) out.set(row.meeting_id, row.status);
+    for (const row of (r.data ?? []) as Array<{ meeting_id: string; status: string; evaluation_id: string | null }>) {
+      out.set(row.meeting_id, row.status === 'enviada' && !row.evaluation_id ? 'apagada' : row.status);
+    }
   }
   return out;
 }
@@ -336,17 +371,19 @@ export async function registerTranscriptReady(
 
   const meeting = await findExecutoriaMeeting({ roomName: room });
   if (!meeting) return { status: 'ignorada', motivo: 'não é reunião de executor do ExecScore' };
-  const fora = motivoForaDoScore(meeting);
-  if (fora) {
-    await descartarEnvio(meeting.meetingId, fora);
-    return { status: 'ignorada', motivo: fora };
-  }
 
+  // Registra mesmo fora do score (onboarding/no-show): se for desmarcado
+  // depois, a reunião volta para a fila com a transcrição já conhecida.
   await rpc('meet_registrar_transcricao', {
     p_meeting_id: meeting.meetingId,
     p_executor_id: meeting.executorId,
     p_recording_id: recordingId,
   });
+  const fora = motivoForaDoScore(meeting);
+  if (fora) {
+    await descartarEnvio(meeting.meetingId, fora);
+    return { status: 'ignorada', motivo: fora };
+  }
   return { status: 'registrada', meetingId: meeting.meetingId };
 }
 

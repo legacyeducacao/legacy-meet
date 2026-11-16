@@ -40,7 +40,6 @@ const clienteDoPlan = mk({ id: 'cli-a', isStaff: false, sector: null, role: 'CLI
 
 const paginas = [
   { nome: '/agenda', Page: AgendaPage, login: '/login?next=/agenda' },
-  { nome: '/agenda/painel', Page: PainelPage, login: '/login?next=/agenda/painel' },
   { nome: '/agenda/configuracoes', Page: ConfiguracoesPage, login: '/login?next=/agenda/configuracoes' },
 ];
 
@@ -70,6 +69,26 @@ describe('Páginas da agenda: só a equipe do Meet', () => {
       await expect(Page()).resolves.toBeTruthy();
     });
   }
+});
+
+describe('/agenda/painel: só admins do Meet (gestão)', () => {
+  it('sem sessão vai para o login (com o retorno de antes)', async () => {
+    await expect(PainelPage()).rejects.toThrow('REDIRECT /login?next=/agenda/painel');
+  });
+
+  it('equipe que não é admin e cliente do Plan voltam para /agenda (que barra quem não é da equipe)', async () => {
+    for (const user of [executor, comercial, clienteDoPlan]) {
+      state.user = user;
+      await expect(PainelPage()).rejects.toThrow('REDIRECT /agenda');
+    }
+    state.user = clienteDoPlan;
+    await expect(AgendaPage()).rejects.toThrow('REDIRECT /sem-acesso');
+  });
+
+  it('admin abre a página', async () => {
+    state.user = admin;
+    await expect(PainelPage()).resolves.toBeTruthy();
+  });
 });
 
 describe('/agenda: a opção Comercial segue a regra do servidor (canSeeComercial)', () => {

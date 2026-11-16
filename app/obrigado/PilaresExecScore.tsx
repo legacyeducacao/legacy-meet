@@ -55,7 +55,7 @@ export function PilaresExecScore({ room }: { room: string }) {
   if (done) {
     const texto = done.noShow
       ? 'No-show registrado. A reunião não vai para o ExecScore.'
-      : info.onboarding
+      : done.onboarding
         ? 'Reunião de onboarding registrada. Quando a transcrição terminar, o resumo aparece na gravação.'
         : 'Assim que a transcrição terminar, a avaliação aparece no seu ExecScore e o resumo na gravação.';
     return (
@@ -81,7 +81,7 @@ export function PilaresExecScore({ room }: { room: string }) {
           )}
           <p className="text-sm text-muted-foreground">
             {info.onboarding
-              ? 'Se o cliente não apareceu, marque o no-show abaixo.'
+              ? 'Reunião marcada como onboarding. Se não for, desligue a chave abaixo. Se o cliente não apareceu, marque o no-show.'
               : 'Desligue os pilares que não foram tratados nesta reunião. A transcrição vai sozinha para o seu ExecScore.'}
           </p>
         </div>
