@@ -35,6 +35,9 @@ import type { AcessoPublico } from '@/lib/kickoff/zoomAcessoRegras';
 import { mostrarNaTela, visaoInicial, type VisaoDoCalendario } from '@/lib/kickoff/publicoCalendario';
 
 const ERRO_GENERICO = 'Não foi possível abrir o agendamento agora. Verifique a conexão e tente de novo.';
+/** O horário recusado era o último: não há calendário para onde voltar. */
+const SEM_O_HORARIO_ESCOLHIDO =
+  'O horário que você escolheu não está mais disponível: ele lotou ou já estava em cima da hora (os agendamentos fecham 15 minutos antes do início).';
 
 async function lerConvite(codigo: string): Promise<RespostaDoConvite> {
   const r = await fetch(`/api/impulsao/convites/${encodeURIComponent(codigo)}`, { cache: 'no-store' });
@@ -89,6 +92,9 @@ export function AgendamentoPublico({ codigo }: { codigo: string }) {
   const [agendada, setAgendada] = React.useState<{ reserva: ReservaPublica; jaExistia: boolean; acesso: AcessoPublico | undefined } | null>(null);
   const [recusa, setRecusa] = React.useState<RecusaDoConvite | null>(null);
   const [concluida, setConcluida] = React.useState(false);
+  // Fica aqui (e não no formulário) porque, quando o horário recusado era o último,
+  // a lista relida vem vazia, o formulário sai da tela e o aviso sumia junto.
+  const [avisoDoHorario, setAvisoDoHorario] = React.useState<string | null>(null);
 
   if (!resposta) {
     return (
@@ -158,9 +164,10 @@ export function AgendamentoPublico({ codigo }: { codigo: string }) {
         <PainelDuplo lateral={<PainelDoAnfitriao pagina={pagina} anfitriao={null} duracao={null} />}>
           <div className="space-y-6">
             <Titulo>Agende seu kickoff</Titulo>
+            {avisoDoHorario && <AvisoNaPagina texto={`${SEM_O_HORARIO_ESCOLHIDO} O agendamento não foi feito.`} />}
             <div className="space-y-2 rounded-2xl border border-dashed border-border p-6 text-center">
               <CalendarClock className="mx-auto size-8 text-muted-foreground" aria-hidden />
-              <p className="text-lg font-medium">Ainda não há horários abertos</p>
+              <p className="text-lg font-medium">{avisoDoHorario ? 'Não há outros horários abertos agora' : 'Ainda não há horários abertos'}</p>
               <p className="text-base text-muted-foreground">
                 Novas turmas são abertas com frequência. Abra este link de novo em alguns dias ou fale com o time da Legacy.
               </p>
@@ -181,6 +188,8 @@ export function AgendamentoPublico({ codigo }: { codigo: string }) {
         onRecusa={setRecusa}
         onConcluida={() => setConcluida(true)}
         onRecarregar={() => void recarregar()}
+        avisoDoHorario={avisoDoHorario}
+        onAvisoDoHorario={setAvisoDoHorario}
       />
     </Moldura>
   );
@@ -341,6 +350,8 @@ function Formulario({
   onRecusa,
   onConcluida,
   onRecarregar,
+  avisoDoHorario,
+  onAvisoDoHorario: setAvisoDoHorario,
 }: {
   codigo: string;
   pagina: PaginaDoConvite;
@@ -349,6 +360,9 @@ function Formulario({
   onRecusa: (r: RecusaDoConvite) => void;
   onConcluida: () => void;
   onRecarregar: () => void;
+  /** Aviso de que o horário escolhido caiu; mora no componente de cima. */
+  avisoDoHorario: string | null;
+  onAvisoDoHorario: (aviso: string | null) => void;
 }) {
   const hoje = hojeEmSaoPaulo();
   const [visao, setVisao] = React.useState<VisaoDoCalendario>(() => visaoInicial(telaLarga()));
@@ -358,7 +372,6 @@ function Formulario({
   const [p, setP] = React.useState({ nome: '', email: '', telefone: '' });
   const [enviando, setEnviando] = React.useState(false);
   const [aviso, setAviso] = React.useState<string | null>(null);
-  const [avisoDoHorario, setAvisoDoHorario] = React.useState<string | null>(null);
   // Se a lista foi relida e o horário sumiu, a escolha deixa de valer.
   const sessao = pagina.sessoes.find((s) => s.id === escolhida) ?? null;
   const naConfirmacao = etapa === 'confirmar' && sessao !== null;

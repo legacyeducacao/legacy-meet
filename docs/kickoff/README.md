@@ -520,6 +520,8 @@ O middleware libera só `/impulsao/*` e `/api/impulsao/*`. A busca de empresas (
 
 A página mostra só sessões de kickoff da agenda do Meet que estão agendadas, futuras (até 180 dias), abertas para reservas e com vaga. Nada é gerado pela página; a recorrência continua sendo a da agenda.
 
+**Antecedência mínima (15 minutos):** pelo link, a empresa só agenda sessão que comece dali a 15 minutos ou mais. A página não oferece as outras, e o servidor recusa a confirmação se o prazo passou enquanto a pessoa preenchia (ela vê o aviso de que o horário não está mais disponível e que o agendamento não foi feito, mesmo quando aquele era o último horário). A regra fica no servidor do Meet (`ANTECEDENCIA_MINIMA_MIN`, em `lib/kickoff/publico.ts`), não no banco, e **não vale para a equipe**, que pode inscrever uma empresa até o início da sessão.
+
 | Situação | O que o visitante vê |
 |---|---|
 | Carregando | "Carregando os horários…" |
@@ -1029,6 +1031,7 @@ Aplicada **manualmente pelo SQL Editor do Supabase**, pelo responsável pelo pro
 | `POST /api/impulsao/convites/[codigo]/agendar` | Não | Como na M3; depois de gravar a reserva, garante a inscrição e devolve `acesso` |
 | `POST /api/agenda/kickoffs/reservas/[id]` com `{acao: 'gerarAcesso'}` | Sim (gestor) | Gera ou recupera o acesso da reserva e o endereço da Legacy |
 | `GET /api/agenda/kickoffs` | Sim (gestor) | Como antes, mais `zoom` (estrutura, integração, sala) e `acesso` em cada reserva ativa |
+| `GET /api/agenda/kickoffs/zoom/entrar` | Sim (gestor) | Atalho da **equipe**: o botão "Entrar na reunião" do cartão da sessão, na agenda. Faz a pessoa entrar na sala ativa **como anfitrião, sem login no Zoom**: a cada clique o servidor lê a reunião no Zoom (só leitura), pega o link de início do anfitrião (`start_url`) e encaminha para ele. Esse link é credencial (vale cerca de 2 horas): não é guardado, não vai para tela, JSON nem log; só existe no cabeçalho `Location`. Se o Zoom não responder ou faltarem as credenciais, cai em `zoom.us/j/<Meeting ID>`, em que o Zoom pede login. **Consequência:** quem tem a permissão de kickoff inicia a reunião com os poderes da conta Zoom dona da sala |
 
 Código: `lib/zoom/api.ts` (cliente, com as três operações de inscrição), `lib/kickoff/zoomInscricao.ts` (identidade no Zoom e orquestração, sem rede nem banco), `lib/kickoff/zoomAcessoRegras.ts` (estados e janela de horário, usados pelas telas; não importa o cliente Zoom), `lib/kickoff/zoomAcesso.ts` (servidor), `lib/kickoff/entradaToken.ts` (passe e conferência de origem), `components/impulsao/EntradaNaReuniao.tsx` e `BotaoEntrarNaReuniao.tsx` (página de entrada), `components/impulsao/AcessoDaReuniao.tsx` e `components/agenda-nova/kickoffs/AcessoZoomReserva.tsx` (telas).
 

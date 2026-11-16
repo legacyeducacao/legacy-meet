@@ -138,6 +138,17 @@ export interface EstadoDaSalaZoom {
 
 const TABELA_FALTANDO = new Set(['42P01', 'PGRST205', 'PGRST202', '42883']);
 
+/** Meeting ID da sala ativa (só dígitos), ou null se não houver. Só o banco; não chama o Zoom. */
+export async function meetingIdDaSalaAtiva(): Promise<string | null> {
+  try {
+    const { data, error } = await createAdminSupabase().from('agenda_kickoff_zoom_salas').select('zoom_meeting_id').eq('ativa', true).maybeSingle();
+    const id = (data as { zoom_meeting_id?: unknown } | null)?.zoom_meeting_id;
+    return !error && typeof id === 'string' && /^\d{9,12}$/.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
 type LinhaSala = {
   id: string;
   zoom_meeting_id: string;
@@ -235,6 +246,25 @@ export async function estadoDaSala(env = process.env): Promise<EstadoDaSalaZoom>
       em: h.em,
     })),
   };
+}
+
+/**
+ * Link de início do anfitrião (start_url) da sala, pedido ao Zoom na hora (GET da
+ * reunião, só leitura). É CREDENCIAL: quem o abre inicia a reunião como anfitrião.
+ * Nunca guardar, logar nem devolver em JSON. null = integração sem credenciais, Zoom
+ * fora do ar ou resposta que não é um endereço https do Zoom.
+ */
+export async function linkDeAnfitriaoDaSala(meetingId: string, env = process.env): Promise<string | null> {
+  const c = credenciaisDoZoom(env);
+  if (!c.ok) return null;
+  try {
+    const url = (await clienteZoom(c.credenciais).getMeeting(meetingId)).start_url;
+    if (typeof url !== 'string' || url.length > 4000) return null;
+    const u = new URL(url);
+    return u.protocol === 'https:' && !u.username && !u.password && /^([a-z0-9-]+\.)*zoom\.us$/i.test(u.hostname) ? url : null;
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
