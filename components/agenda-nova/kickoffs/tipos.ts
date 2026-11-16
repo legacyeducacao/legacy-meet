@@ -10,6 +10,7 @@ export interface ReservaTela {
   status: StatusReserva;
   presenca: Presenca | null;
   presencaEm: string | null;
+  presencaOrigem?: 'manual' | 'zoom' | null;
   interrompidaEm: string | null;
   motivoInterrupcao: string | null;
   concluidaEm: string | null;

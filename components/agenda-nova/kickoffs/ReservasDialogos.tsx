@@ -587,7 +587,7 @@ interface EventoHistorico {
   motivo: string | null;
   sessaoDe: { id: string; inicio: string | null } | null;
   sessaoPara: { id: string; inicio: string | null } | null;
-  dados: { antes?: Record<string, string | null>; depois?: Record<string, string | null> } | null;
+  dados: { antes?: Record<string, string | null>; depois?: Record<string, string | null>; origem?: string } | null;
 }
 
 const ACAO: Record<EventoHistorico['acao'], string> = {
@@ -647,6 +647,7 @@ function Historico({ reserva }: { reserva: ReservaTela }) {
                   {PRESENCA_ROTULO[(h.dados.depois.presenca ?? 'nenhuma') as keyof typeof PRESENCA_ROTULO]}&quot;
                 </div>
               )}
+              {h.acao === 'presenca_registrada' && h.dados?.origem === 'zoom' && <div className="text-xs">Pela sincronização do Zoom</div>}
               {h.motivo && <div className="text-xs">Motivo: {h.motivo}</div>}
             </li>
           ))}

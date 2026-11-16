@@ -121,6 +121,44 @@ export interface ZoomRegistrant {
   join_url?: string;
 }
 
+/** Uma execução passada da reunião (cada vez que ela foi iniciada). */
+export interface ZoomPastInstance {
+  uuid: string;
+  start_time?: string;
+}
+
+/** Relatório de uma execução (GET /report/meetings/{uuid}). */
+export interface ZoomMeetingReport {
+  id?: number;
+  start_time?: string;
+  end_time?: string;
+  duration?: number;
+  participants_count?: number;
+  /** E-mail do anfitrião (para não contar a própria conta da Legacy como participante). */
+  user_email?: string;
+}
+
+/** Uma entrada no relatório de participantes (cada reconexão é uma entrada). */
+export interface ZoomReportParticipant {
+  name?: string;
+  user_email?: string;
+  /** Inscrição de quem entrou pelo link individual (pedido com include_fields=registrant_id). */
+  registrant_id?: string;
+  join_time?: string;
+  leave_time?: string;
+  duration?: number;
+  /** in_meeting | in_waiting_room */
+  status?: string;
+}
+
+/**
+ * UUID de execução no caminho da URL. O Zoom exige codificar DUAS vezes o UUID que
+ * começa com "/" ou contém "//"; os demais, uma vez.
+ */
+export function caminhoDoUuid(uuid: string): string {
+  return uuid.startsWith('/') || uuid.includes('//') ? encodeURIComponent(encodeURIComponent(uuid)) : encodeURIComponent(uuid);
+}
+
 // Folga antes do vencimento: evita usar um token que expira no meio da chamada.
 const FOLGA_DO_TOKEN_MS = 60_000;
 
@@ -246,6 +284,39 @@ export function createZoomClient(creds: ZoomCredentials, opts: ZoomClientOptions
         }
       }
       return null;
+    },
+
+    // Presença (Zoom E3), só leitura. Escopos: meeting:read:list_past_instances:admin,
+    // report:read:meeting:admin e report:read:list_meeting_participants:admin.
+
+    /** GET /past_meetings/{id}/instances: execuções já encerradas da reunião. */
+    async listPastInstances(meetingId: string): Promise<ZoomPastInstance[]> {
+      const data = await request<{ meetings?: ZoomPastInstance[] }>('GET', `/past_meetings/${encodeURIComponent(meetingId)}/instances`);
+      return (data?.meetings ?? []).filter((m) => typeof m?.uuid === 'string' && m.uuid.length > 0);
+    },
+
+    /** GET /report/meetings/{uuid}: início, fim e anfitrião de uma execução. */
+    getMeetingReport(uuid: string): Promise<ZoomMeetingReport> {
+      return request<ZoomMeetingReport>('GET', `/report/meetings/${caminhoDoUuid(uuid)}`);
+    },
+
+    /** GET /report/meetings/{uuid}/participants, todas as páginas, com o registrant_id. */
+    async listReportParticipants(uuid: string): Promise<ZoomReportParticipant[]> {
+      const todos: ZoomReportParticipant[] = [];
+      let pageToken = '';
+      // Limite de páginas: defesa contra laço se o Zoom repetir o token.
+      for (let pagina = 0; pagina < 50; pagina++) {
+        const qs = new URLSearchParams({ page_size: '300', include_fields: 'registrant_id' });
+        if (pageToken) qs.set('next_page_token', pageToken);
+        const data = await request<{ participants?: ZoomReportParticipant[]; next_page_token?: string }>(
+          'GET',
+          `/report/meetings/${caminhoDoUuid(uuid)}/participants?${qs.toString()}`,
+        );
+        todos.push(...(data?.participants ?? []));
+        pageToken = data?.next_page_token ?? '';
+        if (!pageToken) break;
+      }
+      return todos;
     },
   };
 }

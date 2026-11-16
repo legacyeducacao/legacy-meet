@@ -14,6 +14,7 @@ import { ReservasDialogos, type AcaoKickoff } from './ReservasDialogos';
 import { ConvitesKickoff } from './ConvitesKickoff';
 import { SalaZoomKickoff } from './SalaZoomKickoff';
 import { AcoesDoAcessoZoom, EstadoDoAcessoZoom } from './AcessoZoomReserva';
+import { PresencaZoomSessao } from './PresencaZoomSessao';
 import { quando, textoErro, type RespostaKickoffs, type SessaoTela, type ZoomDoPainel } from './tipos';
 
 function Linha({ rotulo, children }: { rotulo: string; children: React.ReactNode }) {
@@ -133,9 +134,10 @@ export function KickoffsImpulsao() {
                 aqui.
               </Linha>
               <Linha rotulo="Presença e conclusão">
-                Registradas aqui, à mão: compareceu ou não; e, para quem compareceu, a conclusão do kickoff (definitiva) ou a participação não
-                concluída (com motivo; a empresa pode ser reagendada). Depois de comparecer, a reserva não se cancela. Enganos de presença se
-                corrigem com motivo. O horário da sessão não conclui nada sozinho.
+                Registradas aqui: compareceu ou não; e, para quem compareceu, a conclusão do kickoff (definitiva) ou a participação não concluída
+                (com motivo; a empresa pode ser reagendada). Depois de comparecer, a reserva não se cancela. Enganos de presença se corrigem com
+                motivo. O horário da sessão não conclui nada sozinho. Depois da sessão, “Sincronizar presença do Zoom” marca “Compareceu” para quem
+                entrou pelo acesso individual da empresa; ausência e conclusão continuam à mão.
               </Linha>
               <Linha rotulo="Videoconferência">
                 Zoom: uma reunião recorrente, exclusiva do Impulsão, para todas as sessões (quadro “Sala Zoom”). A sala do Meet não é usada. Cada
@@ -355,6 +357,12 @@ function CartaoSessao({
         </div>
       )}
 
+      {reservasOk &&
+        zoom?.estrutura === 'ok' &&
+        zoom.integracao.configurada &&
+        (situacao === 'em_andamento' || situacao === 'encerrada') &&
+        s.reservas.some((r) => r.status !== 'cancelada') && <PresencaZoomSessao sessaoId={s.id} recarregar={recarregar} />}
+
       {reservas.length === 0 ? (
         <p className="px-4 py-3 text-sm text-muted-foreground">Nenhuma empresa inscrita.</p>
       ) : (
@@ -392,6 +400,7 @@ function CartaoSessao({
                       {r.status === 'cancelada' && r.motivoCancelamento && <div className="mt-1 text-xs">{r.motivoCancelamento}</div>}
                       {r.status === 'interrompida' && r.motivoInterrupcao && <div className="mt-1 text-xs">{r.motivoInterrupcao}</div>}
                       {(r.status === 'ausente' || r.status === 'interrompida') && r.reagendada && <div className="mt-1 text-xs">já reagendada</div>}
+                      {r.presenca === 'presente' && r.presencaOrigem === 'zoom' && <div className="mt-1 text-xs text-muted-foreground">presença pelo Zoom</div>}
                       {pendencias > 0 && r.status === 'ativa' && <div className="mt-1 text-xs text-amber-700 dark:text-amber-300">resultado pendente</div>}
                       <EstadoDoAcessoZoom reserva={r} zoom={zoom} />
                     </td>
