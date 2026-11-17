@@ -123,7 +123,8 @@ export default function GravacoesPage() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [host, setHost] = useState('');
-  const [hideNoShow, setHideNoShow] = useState(false);
+  // No-show: '' = todas, 'ocultar' = sem no-show, 'somente' = só no-show (auditoria).
+  const [noShowFiltro, setNoShowFiltro] = useState<'' | 'ocultar' | 'somente'>('');
   const [page, setPage] = useState(1);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Rec | null>(null);
@@ -182,17 +183,18 @@ export default function GravacoesPage() {
         if (!haystack.includes(q)) return false;
       }
       if (host && r.hostName !== host) return false;
-      if (hideNoShow && r.noShow) return false;
+      if (noShowFiltro === 'ocultar' && r.noShow) return false;
+      if (noShowFiltro === 'somente' && !r.noShow) return false;
       const day = (r.createdAt || '').slice(0, 10);
       if (from && day < from) return false;
       if (to && day > to) return false;
       return true;
     });
-  }, [items, query, from, to, host, hideNoShow]);
+  }, [items, query, from, to, host, noShowFiltro]);
 
   useEffect(() => {
     setPage(1);
-  }, [query, from, to, host, hideNoShow]);
+  }, [query, from, to, host, noShowFiltro]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -214,7 +216,7 @@ export default function GravacoesPage() {
     }
   };
 
-  const hasFilters = !!(query || from || to || host || hideNoShow);
+  const hasFilters = !!(query || from || to || host || noShowFiltro);
 
   return (
     <AppShell>
@@ -293,15 +295,16 @@ export default function GravacoesPage() {
             </label>
           </div>
 
-          <label className="flex h-10 cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border border-input px-3 text-sm text-muted-foreground">
-            <input
-              type="checkbox"
-              className="h-4 w-4 accent-primary"
-              checked={hideNoShow}
-              onChange={(e) => setHideNoShow(e.target.checked)}
-            />
-            Ocultar no-show
-          </label>
+          <select
+            className="h-10 rounded-md border border-input bg-background px-3 text-sm text-muted-foreground"
+            value={noShowFiltro}
+            onChange={(e) => setNoShowFiltro(e.target.value as '' | 'ocultar' | 'somente')}
+            aria-label="No-show"
+          >
+            <option value="">Todas as reuniões</option>
+            <option value="ocultar">Sem no-show</option>
+            <option value="somente">Só no-show</option>
+          </select>
 
           {hasFilters && (
             <Button
@@ -313,7 +316,7 @@ export default function GravacoesPage() {
                 setFrom('');
                 setTo('');
                 setHost('');
-                setHideNoShow(false);
+                setNoShowFiltro('');
               }}
             >
               Limpar
