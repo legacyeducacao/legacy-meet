@@ -3,7 +3,8 @@ import { createServerClient } from '@supabase/ssr';
 
 // Rotas PÚBLICAS (sem login): login, sala, obrigado, e APIs usadas por convidados/CRM/worker.
 // /impulsao: agendamento do kickoff pelo link do convite (o código da URL é a credencial).
-const PUBLIC_PREFIXES = ['/login', '/rooms', '/obrigado', '/impulsao'];
+// /definir-senha.html: página única da Legacy que abre o link de senha do Legacy Hub.
+const PUBLIC_PREFIXES = ['/login', '/rooms', '/obrigado', '/impulsao', '/definir-senha.html'];
 const PUBLIC_API_PREFIXES = [
   '/api/connection-details', '/api/room/', '/api/meetings', '/api/record/', '/api/auth/',
   '/api/nps/context', '/api/nps/submit', '/api/telemetry',
