@@ -37,6 +37,8 @@ interface Rec {
   metaHost?: string | null;
   sector?: string | null;
   noShow?: boolean;
+  /** No-show em que ninguém gravou (o cliente não entrou): card sem página de gravação. */
+  semGravacao?: boolean;
   /** Envio ao ExecScore: aguardando, processando, enviada, erro, descartada. */
   execscoreStatus?: string | null;
   canDelete?: boolean;
@@ -101,6 +103,16 @@ function SeloExecScore({ status }: { status?: string | null }) {
       </Badge>
     );
   return null;
+}
+
+/** Card com gravação abre a página dela; no-show sem gravação não tem página. */
+function LinkOuBloco({ rec, children }: { rec: Rec; children: React.ReactNode }) {
+  if (rec.semGravacao) return <div>{children}</div>;
+  return (
+    <Link href={`/gravacoes/${encodeURIComponent(rec.id)}`} className="block focus:outline-none">
+      {children}
+    </Link>
+  );
 }
 
 export default function GravacoesPage() {
@@ -364,16 +376,13 @@ export default function GravacoesPage() {
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   )}
-                  <Link
-                    href={`/gravacoes/${encodeURIComponent(rec.id)}`}
-                    className="block focus:outline-none"
-                  >
+                  <LinkOuBloco rec={rec}>
                     <CardHeader className="pb-2">
                       <p className="pr-8 text-sm font-semibold leading-snug text-foreground transition-colors group-hover:text-primary">
                         {rec.title?.trim() || `Reunião · ${rec.roomName}`}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {formatDate(rec.createdAt)} · {formatDuration(rec.durationSeconds)}
+                        {rec.semGravacao ? formatDate(rec.createdAt) : `${formatDate(rec.createdAt)} · ${formatDuration(rec.durationSeconds)}`}
                       </p>
                     </CardHeader>
                     <CardContent>
@@ -381,7 +390,11 @@ export default function GravacoesPage() {
                         {rec.storage === 'gdrive' && <Badge variant="secondary">Google Drive</Badge>}
                         {rec.noShow && <Badge variant="destructive">No-show</Badge>}
                         <SeloExecScore status={rec.execscoreStatus} />
-                        {rec.transcriptionStatus === 'failed' ? (
+                        {rec.semGravacao ? (
+                          <Badge variant="outline" title="O cliente não entrou na sala, então nada foi gravado.">
+                            Sem gravação
+                          </Badge>
+                        ) : rec.transcriptionStatus === 'failed' ? (
                           <Badge variant="destructive">Transcrição falhou</Badge>
                         ) : (
                           <Badge variant="secondary">{rec.utteranceCount} falas</Badge>
@@ -396,7 +409,7 @@ export default function GravacoesPage() {
                         )}
                       </div>
                     </CardContent>
-                  </Link>
+                  </LinkOuBloco>
                 </Card>
               ))}
             </div>

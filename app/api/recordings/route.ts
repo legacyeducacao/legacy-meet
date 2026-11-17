@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
-import { getRoomOwners, listRecordings } from '@/lib/recordings';
+import { getRoomOwners, listarNoShowSemGravacao, listRecordings } from '@/lib/recordings';
 import { statusDasReunioes } from '@/lib/execscore';
 
 export const dynamic = 'force-dynamic';
@@ -38,16 +38,38 @@ export async function GET() {
       };
     });
 
+    // No-show sem gravação (o cliente não entrou): sem arquivo não haveria card.
+    const noShows = (await listarNoShowSemGravacao(new Set(roomNames))).map((n) => ({
+      id: `noshow:${n.meetingId}`,
+      title: n.title ?? undefined,
+      roomName: n.roomName,
+      createdAt: n.createdAt,
+      durationSeconds: 0,
+      storage: 's3' as const,
+      transcriptionStatus: 'none',
+      utteranceCount: 0,
+      semGravacao: true,
+      hostId: n.hostId,
+      hostName: n.hostName,
+      metaHost: null,
+      sector: n.sector,
+      noShow: true,
+      meetingId: n.meetingId,
+      coHostIds: n.coHostIds,
+      canDelete: false,
+    }));
+    const enrichedTodos = [...enriched, ...noShows].sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
+
     let scoped;
     if (user.isAdmin) {
       // Admin/MASTER vê tudo.
-      scoped = enriched;
+      scoped = enrichedTodos;
     } else if (user.sector === 'comercial') {
       // Comercial vê TODAS as reuniões do comercial (qualquer host), menos executoria.
-      scoped = enriched.filter((r) => r.sector === 'comercial');
+      scoped = enrichedTodos.filter((r) => r.sector === 'comercial');
     } else {
       // Demais (executoria / ambos / sem setor): as próprias e as em que é anfitrião adicional.
-      scoped = enriched.filter(
+      scoped = enrichedTodos.filter(
         (r) => (r.hostId !== null && r.hostId === user.id) || r.coHostIds.includes(user.id),
       );
     }

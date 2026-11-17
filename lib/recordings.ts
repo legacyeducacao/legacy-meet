@@ -294,6 +294,63 @@ export async function getRoomOwners(roomNames: string[]): Promise<Map<string, Ro
   return out;
 }
 
+/** Reunião marcada como no-show que não tem nenhuma gravação (o cliente nem entrou). */
+export type NoShowSemGravacao = {
+  meetingId: string;
+  roomName: string;
+  title: string | null;
+  createdAt: string;
+  hostId: string | null;
+  hostName: string | null;
+  sector: string | null;
+  coHostIds: string[];
+};
+
+/**
+ * No-show sem gravação dos últimos `dias` (a lista de Gravações nasce dos
+ * arquivos gravados; sem isto a reunião some e o executor não a encontra).
+ */
+export async function listarNoShowSemGravacao(salasComGravacao: Set<string>, dias = 180): Promise<NoShowSemGravacao[]> {
+  const desde = new Date(Date.now() - dias * 86_400_000).toISOString();
+  const { data, error } = await createAdminSupabase()
+    .from('meetings')
+    .select('id, room_name, title, host_id, started_at, scheduled_start_at, users:host_id(name), meet_meeting_sector(sector), meet_meeting_hosts(user_id)')
+    .eq('status', 'no_show')
+    .gte('scheduled_start_at', desde)
+    .order('scheduled_start_at', { ascending: false })
+    .limit(2000);
+  if (error) {
+    console.error('listarNoShowSemGravacao', error.message);
+    return [];
+  }
+  type Linha = {
+    id: string;
+    room_name: string;
+    title: string | null;
+    host_id: string | null;
+    started_at: string | null;
+    scheduled_start_at: string;
+    users?: { name?: string | null } | null;
+    meet_meeting_sector?: { sector?: string | null } | { sector?: string | null }[] | null;
+    meet_meeting_hosts?: { user_id: string }[] | null;
+  };
+  return ((data ?? []) as unknown as Linha[])
+    .filter((m) => !salasComGravacao.has(m.room_name))
+    .map((m) => {
+      const sec = Array.isArray(m.meet_meeting_sector) ? m.meet_meeting_sector[0] : m.meet_meeting_sector;
+      return {
+        meetingId: m.id,
+        roomName: m.room_name,
+        title: m.title?.trim() || null,
+        createdAt: m.started_at ?? m.scheduled_start_at,
+        hostId: m.host_id,
+        hostName: m.users?.name ?? null,
+        sector: sec?.sector ?? null,
+        coHostIds: (m.meet_meeting_hosts ?? []).map((h) => h.user_id),
+      };
+    });
+}
+
 export async function canAccessRecording(
   id: string,
   user: { id: string; isAdmin: boolean; sector?: string | null } | null,
