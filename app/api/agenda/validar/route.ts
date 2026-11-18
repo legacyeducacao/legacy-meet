@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { validarConflitos } from '@/lib/agenda-engine';
 import { contextoExecutor, podeUsarAgendaNova } from '@/lib/agenda/servidor';
 import { conflitoParaDTO } from '@/lib/agenda/regras';
+import { listarClosers } from '@/lib/comercial/closers';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,15 +14,21 @@ export async function POST(req: NextRequest) {
   const b = ((await req.json().catch(() => null)) ?? {}) as {
     candidatas?: Array<{ inicio: string; fim: string; substituiEventoId?: string }>;
     executorId?: string;
+    /** SDR conferindo a agenda do Closer escolhido. */
+    closerId?: string;
   };
   const candidatas = (b.candidatas ?? [])
     .slice(0, 200)
     .map((c, k) => ({ ref: String(k), inicio: new Date(c.inicio), fim: new Date(c.fim), substituiEventoId: c.substituiEventoId }))
     .filter((c) => !isNaN(c.inicio.getTime()) && c.fim > c.inicio);
   if (!candidatas.length) return NextResponse.json({ conflitos: [] });
-  const executorId = user.isAdmin && b.executorId ? b.executorId : user.id;
+  let executorId = user.isAdmin && b.executorId ? b.executorId : user.id;
+  if (b.closerId && user.funcaoComercial === 'sdr') {
+    if (!(await listarClosers()).some((c) => c.id === b.closerId)) return new NextResponse('Closer inválido', { status: 400 });
+    executorId = b.closerId;
+  }
   const min = Math.min(...candidatas.map((c) => c.inicio.getTime()));
   const max = Math.max(...candidatas.map((c) => c.fim.getTime()));
-  const ctx = await contextoExecutor(executorId, new Date(min), new Date(max + 86_400_000));
+  const ctx = await contextoExecutor(executorId, new Date(min), new Date(max + 86_400_000), undefined, { coAnfitriao: true });
   return NextResponse.json({ conflitos: validarConflitos(candidatas, ctx).map(conflitoParaDTO), podeSobreporBloqueante: user.isAdmin });
 }

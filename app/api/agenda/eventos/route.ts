@@ -29,6 +29,8 @@ import {
 } from '@/lib/agenda/servidor';
 import type { EventoDTO } from '@/lib/agenda/tipos';
 import { decidirConflitos } from '@/lib/agenda/regras';
+import { agendaParaCloser } from '@/lib/comercial/funcao';
+import { listarClosers } from '@/lib/comercial/closers';
 
 export const dynamic = 'force-dynamic';
 
@@ -88,6 +90,8 @@ type CorpoCriar = {
   guestEmails?: string[] | string;
   /** Admin agendando para outro executor. */
   executorId?: string;
+  /** SDR: Closer responsável (vira o dono da reunião; o SDR fica como anfitrião). */
+  closerId?: string;
   justificativa?: string;
   /** Série 1 a 1 do Legado: registra a jornada (encontros previstos x realizados). */
   jornadaLegado?: boolean;
@@ -133,7 +137,16 @@ export async function POST(req: NextRequest) {
   const duracaoMin = Math.round((fim.getTime() - inicio.getTime()) / 60_000);
   if (duracaoMin > 12 * 60) return new NextResponse('Reunião longa demais (máximo 12 h)', { status: 400 });
 
-  const executorId = user.isAdmin && b.executorId ? b.executorId : user.id;
+  let executorId = user.isAdmin && b.executorId ? b.executorId : user.id;
+  // SDR agendando no Comercial: o Closer escolhido é o dono (agenda, números e
+  // conflito na agenda dele) e o SDR entra como anfitrião adicional.
+  const sdr = agendaParaCloser(user, setor, kickoff);
+  if (sdr) {
+    const closerId = (b.closerId ?? '').trim();
+    if (!closerId) return new NextResponse('Escolha o Closer responsável', { status: 400 });
+    if (!(await listarClosers()).some((c) => c.id === closerId)) return new NextResponse('Closer inválido', { status: 400 });
+    executorId = closerId;
+  }
   const cfg = await carregarConfig();
 
   // Ocorrências (avulsa = 1). Série sem fim vai até o horizonte da empresa.
@@ -162,7 +175,7 @@ export async function POST(req: NextRequest) {
 
   // Conflitos de todas as ocorrências contra a agenda do executor.
   const ultimo = ocorrencias[ocorrencias.length - 1].fim;
-  const ctx = await contextoExecutor(executorId, inicio, new Date(ultimo.getTime() + 86_400_000), cfg);
+  const ctx = await contextoExecutor(executorId, inicio, new Date(ultimo.getTime() + 86_400_000), cfg, { coAnfitriao: true });
   const conflitos = validarConflitos(
     ocorrencias.map((o, k) => ({ ref: String(k), inicio: o.inicio, fim: o.fim })),
     ctx,
@@ -175,6 +188,7 @@ export async function POST(req: NextRequest) {
   if (guests.invalid.length) return new NextResponse(`E-mail inválido: ${guests.invalid.join(', ')}`, { status: 400 });
   const team = await listTeamMembers();
   const coHostIds = normalizeCoHostIds(b.coHostIds, new Set(team.map((m) => m.id)), executorId);
+  if (sdr && !coHostIds.includes(user.id)) coHostIds.unshift(user.id);
   const host = team.find((m) => m.id === executorId);
 
   const r = await criarReunioes({

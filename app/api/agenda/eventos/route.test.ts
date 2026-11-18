@@ -18,6 +18,8 @@ const state = vi.hoisted(() => ({
   apagadas: [] as string[],
   /** Conflitos devolvidos pelo motor (padrão: nenhum). */
   conflitos: [] as unknown[],
+  /** De quem foi a agenda conferida (executor e opções). */
+  contextos: [] as Array<{ executorId: string; opts: unknown }>,
 }));
 
 vi.mock('@/lib/auth', async (importOriginal) => ({
@@ -88,7 +90,10 @@ vi.mock('@/lib/agenda/servidor', () => ({
   podeUsarAgendaNova: async (u: unknown) => !!u,
   carregarConfig: async () => ({ horizonteMeses: 6, expediente: [], regras: {}, niveis: {}, considerarFacultativos: false }),
   carregarFeriados: async () => [],
-  contextoExecutor: async () => ({}),
+  contextoExecutor: async (executorId: string, _de: Date, _ate: Date, _cfg: unknown, opts: unknown) => {
+    state.contextos.push({ executorId, opts });
+    return {};
+  },
   registrarSobreposicoes: async () => undefined,
   feriadosParaDTO: () => [],
   listarReunioes: async (_u: unknown, executores: string[]) => {
@@ -100,6 +105,10 @@ vi.mock('@/lib/agenda/servidor', () => ({
     state.leiturasDeTurmas++;
     return [{ id: 'aula', link: 'https://zoom.example/aula' }];
   },
+}));
+
+vi.mock('@/lib/comercial/closers', () => ({
+  listarClosers: async () => [{ id: 'closer-1', name: 'Closer Um', email: 'closer1@legacyeducacaocorp.com.br' }],
 }));
 
 // Conflitos controlados pelo teste (padrão: nenhum). O foco aqui é a empresa e
@@ -154,6 +163,7 @@ beforeEach(() => {
   state.falhaMarcarKickoff = false;
   state.apagadas = [];
   state.conflitos = [];
+  state.contextos = [];
   delete process.env.MEET_KICKOFF_TENANT_ID;
   state.carteira = new Map([
     [EMPRESA_A, 'exec-x'],
@@ -394,5 +404,52 @@ describe('POST /api/agenda/eventos: sessão de kickoff do Impulsão (M1)', () =>
     expect(state.criadas[0].googleAgenda).toBe(true);
     expect(state.criadas[0].tenantId).toBe(EMPRESA_A);
     expect(marcadas()).toHaveLength(0);
+  });
+});
+
+describe('POST /api/agenda/eventos: SDR agenda para o Closer', () => {
+  const sdr = mk({ id: 'sdr-1', sector: 'comercial', role: 'COLLABORATOR', funcaoComercial: 'sdr' });
+  const closer = mk({ id: 'closer-1', sector: 'comercial', role: 'COLLABORATOR', funcaoComercial: 'closer' });
+
+  it('o Closer escolhido vira o dono, o SDR fica como anfitrião e a agenda conferida é a do Closer', async () => {
+    state.user = sdr;
+    const res = await post({ setor: 'comercial', closerId: 'closer-1', coHostIds: ['exec-z', 'closer-1'] });
+    expect(res.status).toBe(200);
+    expect(state.criadas[0]).toMatchObject({ hostId: 'closer-1', tenantId: COMERCIAL, sector: 'comercial' });
+    expect(state.criadas[0].coHostIds).toEqual(['sdr-1', 'exec-z']);
+    expect(state.contextos).toEqual([{ executorId: 'closer-1', opts: { coAnfitriao: true } }]);
+  });
+
+  it('SDR sem Closer, ou com alguém que não é Closer, não cria', async () => {
+    state.user = sdr;
+    const sem = await post({ setor: 'comercial' });
+    expect(sem.status).toBe(400);
+    expect(await sem.text()).toBe('Escolha o Closer responsável');
+    expect((await post({ setor: 'comercial', closerId: 'exec-z' })).status).toBe(400);
+    nadaCriado();
+  });
+
+  it('Closer ocupado no horário: não cria, mesmo com justificativa (só admin passa por cima)', async () => {
+    state.user = sdr;
+    state.conflitos = [
+      { ref: '0', inicio: new Date('2026-12-01T13:00:00.000Z'), tipo: 'sobreposicao', nivel: 'bloqueante', detalhe: 'Sessão Estratégica', acaoSugerida: 'mover' },
+    ];
+    const res = await post({ setor: 'comercial', closerId: 'closer-1', justificativa: 'quero marcar' });
+    expect(res.status).toBe(409);
+    expect((await res.json()).podeSobreporBloqueante).toBe(false);
+    nadaCriado();
+  });
+
+  it('o Closer agendando a própria reunião continua dono, e a agenda dele conta as reuniões como anfitrião adicional', async () => {
+    state.user = closer;
+    expect((await post({ setor: 'comercial' })).status).toBe(200);
+    expect(state.criadas[0]).toMatchObject({ hostId: 'closer-1' });
+    expect(state.contextos[0]).toEqual({ executorId: 'closer-1', opts: { coAnfitriao: true } });
+  });
+
+  it('SDR com acesso geral agendando na Executoria segue a regra de sempre (sem Closer)', async () => {
+    state.user = mk({ id: 'exec-x', sector: 'ambos', funcaoComercial: 'sdr' });
+    expect((await post({ setor: 'executoria', tenantId: EMPRESA_A })).status).toBe(200);
+    expect(state.criadas[0]).toMatchObject({ hostId: 'exec-x' });
   });
 });

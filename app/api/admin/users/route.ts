@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 import { alternarCapacidade, lerCapacidades, PERMISSAO_KICKOFF } from '@/lib/kickoff/regras';
+import { funcaoParaSetor } from '@/lib/comercial/funcao';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,6 +33,7 @@ export async function GET() {
       sector: (p?.sector as Sector | undefined) ?? null,
       agendaNova: p?.agenda_nova === true,
       kickoffImpulsao: lerCapacidades(p).includes(PERMISSAO_KICKOFF),
+      funcaoComercial: funcaoParaSetor(p?.funcao_comercial, p?.sector),
     };
   });
   return NextResponse.json({ users });
@@ -40,8 +42,8 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const me = await getCurrentUser();
   if (!me?.isAdmin) return new NextResponse('Não autorizado', { status: 401 });
-  const { email, password, name, sector } = (await req.json().catch(() => ({}))) as {
-    email?: string; password?: string; name?: string; sector?: string;
+  const { email, password, name, sector, funcaoComercial } = (await req.json().catch(() => ({}))) as {
+    email?: string; password?: string; name?: string; sector?: string; funcaoComercial?: string | null;
   };
   const cleanEmail = (email ?? '').trim();
   const cleanName = (name ?? '').trim();
@@ -71,7 +73,12 @@ export async function POST(req: NextRequest) {
   }
   const { error: e3 } = await admin
     .from('meet_user_profile')
-    .upsert({ user_id: created.user.id, is_admin: false, sector: asSector(sector) });
+    .upsert({
+      user_id: created.user.id,
+      is_admin: false,
+      sector: asSector(sector),
+      funcao_comercial: funcaoParaSetor(funcaoComercial, asSector(sector)),
+    });
   if (e3)
     return new NextResponse('Perfil criado mas falha ao salvar o setor: ' + e3.message, { status: 500 });
   return NextResponse.json({ ok: true });
@@ -80,9 +87,11 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const me = await getCurrentUser();
   if (!me?.isAdmin) return new NextResponse('Não autorizado', { status: 401 });
-  const { userId, isAdmin, sector, agendaNova, kickoffImpulsao } = (await req.json().catch(() => ({}))) as {
+  const corpo = (await req.json().catch(() => ({}))) as {
     userId?: string; isAdmin?: boolean; sector?: string; agendaNova?: boolean; kickoffImpulsao?: boolean;
+    funcaoComercial?: string | null;
   };
+  const { userId, isAdmin, sector, agendaNova, kickoffImpulsao } = corpo;
   if (!userId) return new NextResponse('userId obrigatório', { status: 400 });
   const admin = createAdminSupabase();
   // Permissão do kickoff: só mexe em capacidades quando vier no corpo, e sem
@@ -101,6 +110,11 @@ export async function PATCH(req: NextRequest) {
       // Liberação da agenda nova (teste): só muda quando vier no corpo.
       ...(typeof agendaNova === 'boolean' ? { agenda_nova: agendaNova } : {}),
       ...(capacidades ? { capacidades } : {}),
+      // Função no Comercial (SDR/Closer): muda quando vier no corpo; quem sai
+      // do Comercial (setor Executoria) perde a função.
+      ...('funcaoComercial' in corpo || asSector(sector) === 'executoria'
+        ? { funcao_comercial: funcaoParaSetor(corpo.funcaoComercial, asSector(sector)) }
+        : {}),
       updated_at: new Date().toISOString(),
     });
   if (error) return new NextResponse('Falha ao salvar: ' + error.message, { status: 500 });

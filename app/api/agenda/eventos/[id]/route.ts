@@ -63,7 +63,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   if (mudouHorario) {
     const min = Math.min(...novos.map((n) => n.ini));
     const max = Math.max(...novos.map((n) => n.fim));
-    const contexto = await contextoExecutor(base.host_id, new Date(min), new Date(max + 86_400_000));
+    const contexto = await contextoExecutor(base.host_id, new Date(min), new Date(max + 86_400_000), undefined, { coAnfitriao: true });
     // As próprias reuniões movidas não contam como ocupação no lugar antigo.
     const movidas = new Set(alvos.map((a) => a.id));
     const conflitos = validarConflitos(

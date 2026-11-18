@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
     const doHost = novos.filter((n) => n.l.host_id === host);
     const min = Math.min(...doHost.map((n) => n.inicio));
     const max = Math.max(...doHost.map((n) => n.fim));
-    const ctx = await contextoExecutor(host, new Date(min), new Date(max + 86_400_000));
+    const ctx = await contextoExecutor(host, new Date(min), new Date(max + 86_400_000), undefined, { coAnfitriao: true });
     conflitos.push(
       ...validarConflitos(
         doHost.map((n) => ({ ref: n.l.id, inicio: new Date(n.inicio), fim: new Date(n.fim), substituiEventoId: n.l.id })),

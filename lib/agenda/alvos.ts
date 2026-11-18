@@ -7,7 +7,8 @@
  * - só a equipe do Meet (isStaff);
  * - só reuniões do Meet (com meet_meeting_sector), não as do Planner do Plan,
  *   que dividem a tabela meetings;
- * - a operação: anfitrião ou admin;
+ * - a operação: anfitrião ou admin; no Comercial, também o anfitrião adicional
+ *   (o SDR que agendou para o Closer);
  * - a empresa da reunião: a mesma regra da criação (lib/meetingTenantAccess.ts);
  * - sessão de kickoff do Impulsão: no lugar das duas regras acima, a permissão
  *   'kickoff_impulsao.manage' (ou admin);
@@ -17,6 +18,7 @@ import { createAdminSupabase } from '@/lib/supabase/admin';
 import { podeGerenciarKickoff, type CurrentUser } from '@/lib/auth';
 import { autorizarEmpresaDaReuniao } from '@/lib/meetingTenantAccess';
 import { ehSessaoDeKickoff } from '@/lib/kickoff/servidor';
+import { podeAlterarReuniao } from './regras';
 import type { Escopo } from './tipos';
 
 export type LinhaAlvo = {
@@ -58,8 +60,15 @@ export async function resolverAlvos(user: CurrentUser, id: string, escopo: Escop
       return { ok: false, status: 403, message: 'Só quem gerencia os kickoffs do Impulsão pode alterar esta sessão' };
     }
   } else {
-    if (!user.isAdmin && b.host_id !== user.id) return { ok: false, status: 403, message: 'Só o anfitrião ou um admin pode alterar' };
-    const empresa = await autorizarEmpresaDaReuniao(user, setorDe(b), b.tenant_id);
+    const setor = setorDe(b);
+    const coHostIds =
+      !user.isAdmin && b.host_id !== user.id && setor === 'comercial'
+        ? (((await admin.from('meet_meeting_hosts').select('user_id').eq('meeting_id', b.id)).data ?? []) as Array<{ user_id: string }>).map((h) => h.user_id)
+        : [];
+    if (!podeAlterarReuniao({ userId: user.id, isAdmin: user.isAdmin, hostId: b.host_id, setor, coHostIds })) {
+      return { ok: false, status: 403, message: 'Só o anfitrião ou um admin pode alterar' };
+    }
+    const empresa = await autorizarEmpresaDaReuniao(user, setor, b.tenant_id);
     if (!empresa.ok) return { ok: false, status: empresa.status, message: empresa.message };
   }
   if (b.status !== 'scheduled') return { ok: false, status: 400, message: 'Só reuniões agendadas podem ser alteradas' };

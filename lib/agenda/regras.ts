@@ -19,6 +19,22 @@ export function conflitoParaDTO(c: Conflito): ConflitoDTO {
   };
 }
 
+/**
+ * Quem altera (move, renomeia, cancela) uma reunião: o dono, um admin e, no
+ * Comercial, os anfitriões adicionais. Caso real: o SDR agenda para o Closer
+ * (dono) e continua podendo remarcar ou cancelar o que agendou.
+ */
+export function podeAlterarReuniao(r: {
+  userId: string;
+  isAdmin: boolean;
+  hostId: string | null;
+  setor: string | null | undefined;
+  coHostIds: readonly string[];
+}): boolean {
+  if (r.isAdmin || r.hostId === r.userId) return true;
+  return r.setor === 'comercial' && r.coHostIds.includes(r.userId);
+}
+
 export type Decisao =
   | { ok: true; registrar: Conflito[] }
   | { ok: false; resposta: RespostaConflito };

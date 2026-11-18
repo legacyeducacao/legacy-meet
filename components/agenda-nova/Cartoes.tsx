@@ -12,6 +12,7 @@ import { faixaHorario, rotuloDia } from '@/lib/agenda/visao';
 import type { EventoDTO } from '@/lib/agenda/tipos';
 import { rotuloModalidade } from '@/lib/agenda/turmas';
 import { Flutuante, type Ancora } from './Flutuante';
+import { EscolhaCloser } from './EscolhaCloser';
 
 export interface Cliente {
   id: string;
@@ -230,6 +231,7 @@ export function CriacaoRapida({
   tz,
   setor,
   podeEscolherSetor,
+  sdr = false,
   clientes,
   onFechar,
   onSalvar,
@@ -243,15 +245,19 @@ export function CriacaoRapida({
   tz: string;
   setor: 'executoria' | 'comercial';
   podeEscolherSetor: boolean;
+  /** Quem cria é SDR: no Comercial escolhe o Closer responsável. */
+  sdr?: boolean;
   clientes: Cliente[];
   onFechar: () => void;
-  onSalvar: (v: { titulo: string; setor: 'executoria' | 'comercial'; tenantId: string }) => Promise<boolean>;
-  onMaisOpcoes: (v: { titulo: string; setor: 'executoria' | 'comercial'; tenantId: string }) => void;
+  onSalvar: (v: { titulo: string; setor: 'executoria' | 'comercial'; tenantId: string; closerId?: string }) => Promise<boolean>;
+  onMaisOpcoes: (v: { titulo: string; setor: 'executoria' | 'comercial'; tenantId: string; closerId?: string }) => void;
 }) {
   const [titulo, setTitulo] = React.useState('');
   const [tipo, setTipo] = React.useState<'reuniao' | 'bloqueio'>('reuniao');
   const [s, setS] = React.useState(setor);
   const [tenantId, setTenantId] = React.useState('');
+  const [closerId, setCloserId] = React.useState('');
+  const pedeCloser = sdr && s === 'comercial';
   const [busy, setBusy] = React.useState(false);
   const [erro, setErro] = React.useState('');
 
@@ -265,9 +271,10 @@ export function CriacaoRapida({
     }
     if (!titulo.trim()) return setErro('Informe o título.');
     if (s === 'executoria' && !tenantId) return setErro('Selecione o cliente.');
+    if (pedeCloser && !closerId) return setErro('Escolha o Closer responsável.');
     setErro('');
     setBusy(true);
-    const ok = await onSalvar({ titulo: titulo.trim(), setor: s, tenantId });
+    const ok = await onSalvar({ titulo: titulo.trim(), setor: s, tenantId, ...(pedeCloser ? { closerId } : {}) });
     setBusy(false);
     if (ok) onFechar();
   };
@@ -334,10 +341,15 @@ export function CriacaoRapida({
             emptyText="Nenhum cliente encontrado."
           />
         )}
+        {tipo === 'reuniao' && pedeCloser && <EscolhaCloser id="r-closer" inicio={inicio} fim={fim} valor={closerId} onChange={setCloserId} />}
         {erro && <p className="text-sm text-destructive">{erro}</p>}
         <div className="flex justify-end gap-2 pt-1">
           {tipo === 'reuniao' && (
-            <Button type="button" variant="ghost" onClick={() => onMaisOpcoes({ titulo: titulo.trim(), setor: s, tenantId })}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => onMaisOpcoes({ titulo: titulo.trim(), setor: s, tenantId, ...(pedeCloser && closerId ? { closerId } : {}) })}
+            >
               Mais opções
             </Button>
           )}

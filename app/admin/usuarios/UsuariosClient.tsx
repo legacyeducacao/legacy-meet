@@ -38,6 +38,10 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 
 type Sector = 'comercial' | 'executoria' | 'ambos';
+type Funcao = 'sdr' | 'closer';
+/** Função só existe para quem tem acesso ao Comercial. */
+const temComercial = (s: Sector | null) => s === 'comercial' || s === 'ambos';
+const SEM_FUNCAO = 'nenhuma';
 type UserRow = {
   id: string;
   name: string | null;
@@ -46,6 +50,8 @@ type UserRow = {
   sector: Sector | null;
   /** Permissão 'kickoff_impulsao.manage'. */
   kickoffImpulsao?: boolean;
+  /** Comercial: SDR agenda para um Closer; Closer conduz. */
+  funcaoComercial?: Funcao | null;
 };
 
 function getInitials(name: string | null, email: string): string {
@@ -68,6 +74,7 @@ export default function UsuariosClient() {
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [sector, setSector] = React.useState<Sector>('ambos');
+  const [funcao, setFuncao] = React.useState<Funcao | null>(null);
   const [formError, setFormError] = React.useState('');
   const [formMsg, setFormMsg] = React.useState('');
   const [busy, setBusy] = React.useState(false);
@@ -93,7 +100,11 @@ export default function UsuariosClient() {
   React.useEffect(() => { loadUsers(); }, [loadUsers]);
 
   const patchUser = React.useCallback(
-    async (userId: string, isAdmin: boolean, userSector: Sector | null, kickoffImpulsao?: boolean) => {
+    async (
+      u: UserRow,
+      mudancas: { isAdmin?: boolean; sector?: Sector; kickoffImpulsao?: boolean; funcaoComercial?: Funcao | null },
+    ) => {
+      const userId = u.id;
       setSaving((prev) => ({ ...prev, [userId]: true }));
       try {
         const res = await fetch('/api/admin/users', {
@@ -101,9 +112,10 @@ export default function UsuariosClient() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             userId,
-            isAdmin,
-            sector: userSector ?? 'ambos',
-            ...(typeof kickoffImpulsao === 'boolean' ? { kickoffImpulsao } : {}),
+            isAdmin: mudancas.isAdmin ?? u.isAdmin,
+            sector: mudancas.sector ?? u.sector ?? 'ambos',
+            ...(typeof mudancas.kickoffImpulsao === 'boolean' ? { kickoffImpulsao: mudancas.kickoffImpulsao } : {}),
+            ...('funcaoComercial' in mudancas ? { funcaoComercial: mudancas.funcaoComercial } : {}),
           }),
         });
         if (!res.ok) {
@@ -132,7 +144,13 @@ export default function UsuariosClient() {
       const res = await fetch('/api/admin/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim(), password, name: name.trim(), sector }),
+        body: JSON.stringify({
+          email: email.trim(),
+          password,
+          name: name.trim(),
+          sector,
+          funcaoComercial: temComercial(sector) ? funcao : null,
+        }),
       });
       if (!res.ok) {
         const text = await res.text();
@@ -140,7 +158,7 @@ export default function UsuariosClient() {
         return;
       }
       setFormMsg('Usuário criado com sucesso.');
-      setName(''); setEmail(''); setPassword(''); setSector('ambos');
+      setName(''); setEmail(''); setPassword(''); setSector('ambos'); setFuncao(null);
       await loadUsers();
       router.refresh();
     } catch {
@@ -219,10 +237,32 @@ export default function UsuariosClient() {
                     <SelectContent>
                       <SelectItem value="comercial">Comercial</SelectItem>
                       <SelectItem value="executoria">Executoria</SelectItem>
-                      <SelectItem value="ambos">Ambos</SelectItem>
+                      <SelectItem value="ambos">Acesso geral</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
+
+                {temComercial(sector) && (
+                  <div className="space-y-1">
+                    <Label htmlFor="u-funcao">Função no Comercial</Label>
+                    <Select
+                      value={funcao ?? SEM_FUNCAO}
+                      onValueChange={(v) => setFuncao(v === SEM_FUNCAO ? null : (v as Funcao))}
+                    >
+                      <SelectTrigger id="u-funcao">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={SEM_FUNCAO}>Nenhuma</SelectItem>
+                        <SelectItem value="sdr">SDR</SelectItem>
+                        <SelectItem value="closer">Closer</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      O SDR escolhe o Closer ao agendar. O sistema não deixa marcar o mesmo Closer duas vezes no mesmo horário.
+                    </p>
+                  </div>
+                )}
 
                 {formError && (
                   <p className="text-sm font-medium text-destructive">{formError}</p>
@@ -274,6 +314,7 @@ export default function UsuariosClient() {
                       <TableHead>E-mail</TableHead>
                       <TableHead>Admin</TableHead>
                       <TableHead>Setor</TableHead>
+                      <TableHead title="SDR agenda para um Closer; o Closer conduz a reunião">Função</TableHead>
                       <TableHead title="Gerenciar os kickoffs do Impulsão (admin já tem)">Kickoffs</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -293,18 +334,14 @@ export default function UsuariosClient() {
                           <Switch
                             checked={u.isAdmin}
                             disabled={saving[u.id]}
-                            onCheckedChange={(checked) =>
-                              patchUser(u.id, checked, u.sector)
-                            }
+                            onCheckedChange={(checked) => patchUser(u, { isAdmin: checked })}
                           />
                         </TableCell>
                         <TableCell>
                           <Select
                             value={u.sector ?? 'ambos'}
                             disabled={saving[u.id]}
-                            onValueChange={(v) =>
-                              patchUser(u.id, u.isAdmin, v as Sector)
-                            }
+                            onValueChange={(v) => patchUser(u, { sector: v as Sector })}
                           >
                             <SelectTrigger className="h-8 w-32">
                               <SelectValue />
@@ -312,16 +349,36 @@ export default function UsuariosClient() {
                             <SelectContent>
                               <SelectItem value="comercial">Comercial</SelectItem>
                               <SelectItem value="executoria">Executoria</SelectItem>
-                              <SelectItem value="ambos">Ambos</SelectItem>
+                              <SelectItem value="ambos">Acesso geral</SelectItem>
                             </SelectContent>
                           </Select>
+                        </TableCell>
+                        <TableCell>
+                          {temComercial(u.sector ?? 'ambos') ? (
+                            <Select
+                              value={u.funcaoComercial ?? SEM_FUNCAO}
+                              disabled={saving[u.id]}
+                              onValueChange={(v) => patchUser(u, { funcaoComercial: v === SEM_FUNCAO ? null : (v as Funcao) })}
+                            >
+                              <SelectTrigger className="h-8 w-28" aria-label={`Função no Comercial: ${u.name ?? u.email}`}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value={SEM_FUNCAO}>Nenhuma</SelectItem>
+                                <SelectItem value="sdr">SDR</SelectItem>
+                                <SelectItem value="closer">Closer</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">Só Comercial</span>
+                          )}
                         </TableCell>
                         <TableCell>
                           <Switch
                             aria-label={`Kickoffs Impulsão: ${u.name ?? u.email}`}
                             checked={!!u.kickoffImpulsao}
                             disabled={saving[u.id]}
-                            onCheckedChange={(checked) => patchUser(u.id, u.isAdmin, u.sector, checked)}
+                            onCheckedChange={(checked) => patchUser(u, { kickoffImpulsao: checked })}
                           />
                         </TableCell>
                       </TableRow>

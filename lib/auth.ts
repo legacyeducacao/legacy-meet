@@ -1,6 +1,7 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 import { lerCapacidades, PERMISSAO_KICKOFF } from '@/lib/kickoff/regras';
+import { funcaoParaSetor, type FuncaoComercial } from '@/lib/comercial/funcao';
 
 export type Sector = 'comercial' | 'executoria' | 'ambos';
 
@@ -14,6 +15,8 @@ export type CurrentUser = {
   sector: Sector | null;
   /** Permissões funcionais do perfil do Meet (ex.: 'kickoff_impulsao.manage'). */
   capacidades?: string[];
+  /** Comercial: 'sdr' agenda para um Closer; 'closer' conduz. null = sem função. */
+  funcaoComercial?: FuncaoComercial | null;
 };
 
 export function canSeeComercial(u: CurrentUser | null): boolean {
@@ -81,6 +84,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
       isAdmin: profile?.is_admin ?? false,
       sector: (profile?.sector as Sector | undefined) ?? null,
       capacidades: lerCapacidades(profile),
+      funcaoComercial: funcaoParaSetor(profile?.funcao_comercial, profile?.sector),
     };
   } catch {
     return null;

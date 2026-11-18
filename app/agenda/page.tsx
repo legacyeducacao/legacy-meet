@@ -21,6 +21,7 @@ export default async function Page() {
           sector: user.sector,
           podeComercial: canSeeComercial(user),
           podeKickoff: podeGerenciarKickoff(user),
+          funcaoComercial: user.funcaoComercial ?? null,
         }}
       />
     </AppShell>

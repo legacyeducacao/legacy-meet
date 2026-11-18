@@ -23,6 +23,7 @@ import {
 import type { ConflitoDTO } from '@/lib/agenda/tipos';
 import { CAPACIDADE_MAX, CAPACIDADE_MIN, CAPACIDADE_PADRAO } from '@/lib/kickoff/regras';
 import { ListaConflitos } from './Dialogos';
+import { EscolhaCloser } from './EscolhaCloser';
 import type { Cliente } from './Cartoes';
 
 export interface ValoresEvento {
@@ -49,6 +50,8 @@ export interface ValoresEvento {
   tipo?: 'kickoff_impulsao';
   /** Kickoff: empresas por sessão. */
   capacidade?: number;
+  /** SDR no Comercial: Closer responsável (dono da reunião). */
+  closerId?: string;
 }
 
 export interface ModeloSerie {
@@ -73,6 +76,7 @@ export function FormularioEvento({
   tz,
   podeEscolherSetor,
   podeKickoff = false,
+  sdr = false,
   clientes,
   equipe,
   meId,
@@ -86,6 +90,8 @@ export function FormularioEvento({
   podeEscolherSetor: boolean;
   /** Mostra a opção "Kickoff Impulsão" (o servidor confere a permissão de novo). */
   podeKickoff?: boolean;
+  /** Quem cria é SDR: no Comercial escolhe o Closer responsável. */
+  sdr?: boolean;
   clientes: Cliente[];
   equipe: Membro[];
   meId: string;
@@ -103,6 +109,8 @@ export function FormularioEvento({
   const [busy, setBusy] = React.useState(false);
   const edicao = !!v.id;
   const kickoff = v.tipo === 'kickoff_impulsao';
+  const pedeCloser = sdr && !edicao && !kickoff && v.setor === 'comercial';
+  const escolherCloser = React.useCallback((id: string) => setV((x) => ({ ...x, closerId: id || undefined })), []);
   const set = <K extends keyof ValoresEvento>(k: K, val: ValoresEvento[K]) => setV((x) => ({ ...x, [k]: val }));
   const rep = v.repeticao;
   const setRep = (r: Partial<Repeticao>) => set('repeticao', { ...rep, ...r });
@@ -141,6 +149,8 @@ export function FormularioEvento({
 
   React.useEffect(() => {
     if (!candidatas.length) return setConflitos([]);
+    // SDR: o que conta é a agenda do Closer; sem Closer escolhido não há o que conferir.
+    if (pedeCloser && !v.closerId) return setConflitos([]);
     const ctrl = new AbortController();
     const t = window.setTimeout(async () => {
       try {
@@ -150,6 +160,7 @@ export function FormularioEvento({
           signal: ctrl.signal,
           body: JSON.stringify({
             candidatas: candidatas.map((c) => ({ inicio: c.inicio.toISOString(), fim: c.fim.toISOString(), substituiEventoId: v.id })),
+            ...(pedeCloser && v.closerId ? { closerId: v.closerId } : {}),
           }),
         });
         if (!res.ok) return;
@@ -164,7 +175,7 @@ export function FormularioEvento({
       ctrl.abort();
       window.clearTimeout(t);
     };
-  }, [candidatas, v.id]);
+  }, [candidatas, v.id, pedeCloser, v.closerId]);
 
   const temBloqueante = conflitos.some((c) => c.nivel === 'bloqueante');
   const travado = temBloqueante && !podeSobrepor;
@@ -172,6 +183,7 @@ export function FormularioEvento({
   const salvar = async () => {
     if (!v.titulo.trim()) return setErro('Informe o título.');
     if (!edicao && !kickoff && v.setor === 'executoria' && !v.tenantId) return setErro('Selecione o cliente.');
+    if (pedeCloser && !v.closerId) return setErro('Escolha o Closer responsável.');
     if (!edicao && kickoff) {
       const c = v.capacidade ?? CAPACIDADE_PADRAO;
       if (!Number.isInteger(c) || c < CAPACIDADE_MIN || c > CAPACIDADE_MAX) return setErro('A capacidade deve ser de 1 a 50 empresas.');
@@ -342,6 +354,8 @@ export function FormularioEvento({
             </div>
           </div>
 
+          {pedeCloser && <EscolhaCloser inicio={inicio} fim={fim} valor={v.closerId ?? ''} onChange={escolherCloser} />}
+
           {!edicao && (
             <div className="space-y-3 rounded-lg border p-3">
               <div className="space-y-1.5">
@@ -477,7 +491,7 @@ export function FormularioEvento({
               </summary>
               <div className="mt-2 max-h-40 space-y-1 overflow-y-auto">
                 {equipe
-                  .filter((m) => m.id !== meId)
+                  .filter((m) => m.id !== meId && m.id !== (pedeCloser ? v.closerId : undefined))
                   .map((m) => (
                     <label key={m.id} className="flex items-center gap-2">
                       <input

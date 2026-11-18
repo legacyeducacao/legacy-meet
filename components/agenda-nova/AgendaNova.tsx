@@ -47,6 +47,8 @@ export interface MeAgenda {
   podeComercial: boolean;
   /** podeGerenciarKickoff(user), calculado no servidor (mesma regra da API). */
   podeKickoff: boolean;
+  /** Comercial: SDR escolhe o Closer responsável ao agendar. */
+  funcaoComercial?: 'sdr' | 'closer' | null;
 }
 
 const VISOES: Visao[] = ['dia', '4dias', 'semana', 'mes', 'lista'];
@@ -113,6 +115,7 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
 
   const setorPadrao: 'executoria' | 'comercial' = me.sector === 'comercial' ? 'comercial' : 'executoria';
   const podeEscolherSetor = me.isAdmin || me.sector === 'ambos';
+  const sdr = me.funcaoComercial === 'sdr';
 
   // Preferências do usuário (visão e calendários). No celular, começa na lista.
   React.useEffect(() => {
@@ -228,6 +231,7 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
         guestEmails: v.guestEmails,
         templateId: v.templateId,
         jornadaLegado: !!v.jornadaLegado,
+        ...(v.closerId ? { closerId: v.closerId } : {}),
         justificativa,
         ...(v.tipo === KICKOFF_TIPO ? { tipo: KICKOFF_TIPO, capacidade: v.capacidade } : {}),
       }),
@@ -821,6 +825,7 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
           tz={tz}
           setor={setorPadrao}
           podeEscolherSetor={podeEscolherSetor}
+          sdr={sdr}
           clientes={clientes}
           onFechar={() => setRapida(null)}
           onSalvar={(v) => enviarCriacao({ ...valoresIniciais(rapida.inicio, rapida.fim, v.setor), ...v })}
@@ -886,6 +891,7 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
           tz={tz}
           podeEscolherSetor={podeEscolherSetor}
           podeKickoff={me.podeKickoff}
+          sdr={sdr}
           clientes={clientes}
           equipe={equipe}
           meId={me.id}

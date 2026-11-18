@@ -22,6 +22,8 @@ import {
   type RegrasExecutor,
   type TipoConflito,
 } from '@/lib/agenda-engine';
+import { funcaoParaSetor } from '@/lib/comercial/funcao';
+import { podeAlterarReuniao } from './regras';
 import type { Calendario, EventoDTO, FeriadoDTO, StatusReuniao } from './tipos';
 import { sessaoParaEvento, type LinhaSessaoTurma } from './turmas';
 
@@ -128,7 +130,15 @@ export function reuniaoParaEvento(r: LinhaReuniao, user: Usuario, rotulo?: strin
     gravar: r.recording_enabled !== false,
     transcrever: r.auto_transcribe !== false,
     onboarding: sec?.onboarding === true,
-    podeEditar: r.status === 'scheduled' && (user.isAdmin || r.host_id === user.id),
+    podeEditar:
+      r.status === 'scheduled' &&
+      podeAlterarReuniao({
+        userId: user.id,
+        isAdmin: user.isAdmin,
+        hostId: r.host_id,
+        setor: sec?.sector,
+        coHostIds: (r.meet_meeting_hosts ?? []).map((h) => h.user_id),
+      }),
   };
 }
 
@@ -289,16 +299,47 @@ export function feriadosParaDTO(feriados: Feriado[], de: Date, ate: Date): Feria
     .map((f) => ({ data: f.data, nome: f.nome, escopo: f.escopo, facultativo: f.facultativo }));
 }
 
-/** Contexto do motor para validar a agenda de um executor. */
+type LinhaOcupada = { id: string; title: string | null; scheduled_start_at: string; scheduled_end_at: string | null };
+
+/**
+ * Reuniões em que a pessoa é anfitriã adicional (ex.: o Closer que o SDR
+ * marcou antes da regra SDR/Closer). O SDR fica de fora: ele só agenda, então
+ * as reuniões que marcou para os Closers não ocupam a agenda dele.
+ */
+async function reunioesComoCoAnfitriao(executorId: string, de: Date, ate: Date): Promise<LinhaOcupada[]> {
+  const admin = createAdminSupabase();
+  const { data: perfil } = await admin.from('meet_user_profile').select('*').eq('user_id', executorId).maybeSingle();
+  if (funcaoParaSetor((perfil as { funcao_comercial?: unknown } | null)?.funcao_comercial, (perfil as { sector?: string } | null)?.sector) === 'sdr') return [];
+  const { data, error } = await admin
+    .from('meetings')
+    .select('id, title, scheduled_start_at, scheduled_end_at, meet_meeting_hosts!inner(user_id)')
+    .eq('meet_meeting_hosts.user_id', executorId)
+    .in('status', ['scheduled', 'live'])
+    .gte('scheduled_start_at', new Date(de.getTime() - 86_400_000).toISOString())
+    .lt('scheduled_start_at', ate.toISOString());
+  if (error) {
+    console.error('agenda: falha ao ler reuniões como anfitrião adicional', error.message);
+    return [];
+  }
+  return (data ?? []) as unknown as LinhaOcupada[];
+}
+
+/**
+ * Contexto do motor para validar a agenda de um executor.
+ * coAnfitriao: conta também as reuniões em que ele é anfitrião adicional
+ * (usado ao criar, mover e trocar reuniões; o painel e as rotinas dos grupos
+ * seguem só com as reuniões de que ele é dono).
+ */
 export async function contextoExecutor(
   executorId: string,
   de: Date,
   ate: Date,
   cfg?: ConfigEmpresa,
+  opts: { coAnfitriao?: boolean } = {},
 ): Promise<ContextoAgenda> {
   const conf = cfg ?? (await carregarConfig());
   const admin = createAdminSupabase();
-  const [exp, regras, bloqueios, reunioes, feriados] = await Promise.all([
+  const [exp, regras, bloqueios, reunioes, feriados, comoCoAnfitriao] = await Promise.all([
     admin.from('agenda_expediente').select('dia_semana, inicio, fim').eq('executor_id', executorId),
     admin.from('agenda_regras_executor').select('*').eq('executor_id', executorId).maybeSingle(),
     buscarBloqueios([executorId], de, ate),
@@ -310,7 +351,11 @@ export async function contextoExecutor(
       .gte('scheduled_start_at', new Date(de.getTime() - 86_400_000).toISOString())
       .lt('scheduled_start_at', ate.toISOString()),
     carregarFeriados(de, ate, conf),
+    opts.coAnfitriao ? reunioesComoCoAnfitriao(executorId, de, ate) : Promise.resolve([] as LinhaOcupada[]),
   ]);
+  const dono = (reunioes.data ?? []) as LinhaOcupada[];
+  const vistas = new Set(dono.map((m) => m.id));
+  const ocupadas = [...dono, ...comoCoAnfitriao.filter((m) => !vistas.has(m.id))];
 
   const faixas = ((exp.data ?? []) as Array<{ dia_semana: number; inicio: string; fim: string }>).map((f) => ({
     diaSemana: f.dia_semana,
@@ -326,7 +371,7 @@ export async function contextoExecutor(
     fuso: FUSO,
     expediente: faixas.length ? faixas : conf.expediente,
     bloqueios: bloqueios.map((b): Bloqueio => ({ id: b.id, inicio: new Date(b.inicio), fim: new Date(b.fim) })),
-    eventos: ((reunioes.data ?? []) as Array<{ id: string; title: string | null; scheduled_start_at: string; scheduled_end_at: string | null }>).map((m) => {
+    eventos: ocupadas.map((m) => {
       const inicio = new Date(m.scheduled_start_at);
       const fim = m.scheduled_end_at ? new Date(m.scheduled_end_at) : new Date(inicio.getTime() + 3_600_000);
       return { id: m.id, inicio, fim: fim > inicio ? fim : new Date(inicio.getTime() + 3_600_000), titulo: m.title ?? undefined };
