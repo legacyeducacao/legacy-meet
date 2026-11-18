@@ -33,7 +33,7 @@ export interface EventoDTO {
   executorNome?: string | null;
   cliente?: string | null;
   tenantId?: string | null;
-  setor?: 'executoria' | 'comercial' | null;
+  setor?: 'executoria' | 'comercial' | 'avulsa' | null;
   /** recurrence_parent_id: eventos da mesma série. */
   serieId?: string | null;
   rotulo?: string | null;

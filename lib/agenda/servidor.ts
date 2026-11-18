@@ -124,7 +124,7 @@ export function reuniaoParaEvento(r: LinhaReuniao, user: Usuario, rotulo?: strin
     executorNome: r.users?.name ?? null,
     cliente: r.client_tenants?.name?.trim() || null,
     tenantId: r.tenant_id,
-    setor: (sec?.sector as 'executoria' | 'comercial' | undefined) ?? null,
+    setor: (sec?.sector as 'executoria' | 'comercial' | 'avulsa' | undefined) ?? null,
     serieId: r.recurrence_parent_id,
     rotulo: rotulo ?? null,
     gravar: r.recording_enabled !== false,

@@ -19,6 +19,7 @@ import { podeGerenciarKickoff, type CurrentUser } from '@/lib/auth';
 import { autorizarEmpresaDaReuniao } from '@/lib/meetingTenantAccess';
 import { ehSessaoDeKickoff } from '@/lib/kickoff/servidor';
 import { podeAlterarReuniao } from './regras';
+import { lerSetorReuniao, type SetorReuniao } from '@/lib/setorReuniao';
 import type { Escopo } from './tipos';
 
 export type LinhaAlvo = {
@@ -41,9 +42,9 @@ export type Alvos =
   | { ok: true; base: LinhaAlvo; alvos: LinhaAlvo[]; kickoff: boolean }
   | { ok: false; status: number; message: string };
 
-const setorDe = (l: LinhaAlvo): 'comercial' | 'executoria' => {
+const setorDe = (l: LinhaAlvo): SetorReuniao => {
   const s = Array.isArray(l.meet_meeting_sector) ? l.meet_meeting_sector[0] : l.meet_meeting_sector;
-  return s?.sector === 'comercial' ? 'comercial' : 'executoria';
+  return lerSetorReuniao(s?.sector);
 };
 
 export async function resolverAlvos(user: CurrentUser, id: string, escopo: Escopo): Promise<Alvos> {

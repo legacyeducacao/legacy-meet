@@ -404,7 +404,7 @@ export default function GravacoesPage() {
                         )}
                         {rec.sector && (
                           <Badge variant="secondary">
-                            {rec.sector === 'comercial' ? 'Comercial' : 'Executoria'}
+                            {rec.sector === 'comercial' ? 'Comercial' : rec.sector === 'avulsa' ? 'Avulsa' : 'Executoria'}
                           </Badge>
                         )}
                         {(rec.hostName || rec.metaHost) && (

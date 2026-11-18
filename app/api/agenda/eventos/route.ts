@@ -29,6 +29,7 @@ import {
 } from '@/lib/agenda/servidor';
 import type { EventoDTO } from '@/lib/agenda/tipos';
 import { decidirConflitos } from '@/lib/agenda/regras';
+import { lerSetorReuniao, type SetorReuniao } from '@/lib/setorReuniao';
 import { agendaParaCloser } from '@/lib/comercial/funcao';
 import { listarClosers } from '@/lib/comercial/closers';
 
@@ -74,7 +75,7 @@ export async function GET(req: NextRequest) {
 
 type CorpoCriar = {
   titulo?: string;
-  setor?: 'executoria' | 'comercial';
+  setor?: SetorReuniao;
   tenantId?: string;
   inicio?: string;
   fim?: string;
@@ -109,7 +110,7 @@ export async function POST(req: NextRequest) {
   const b = ((await req.json().catch(() => null)) ?? {}) as CorpoCriar;
 
   const kickoff = b.tipo === KICKOFF_TIPO;
-  const setor = kickoff ? 'executoria' : b.setor === 'comercial' ? 'comercial' : 'executoria';
+  const setor: SetorReuniao = kickoff ? 'executoria' : lerSetorReuniao(b.setor);
   let tenantId: string;
   let capacidade = 0;
   if (kickoff) {

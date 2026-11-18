@@ -9,12 +9,15 @@
  * - Só a equipe da Legacy cria reunião (CurrentUser.isStaff).
  * - Comercial: a empresa é sempre a sentinela MEET_COMMERCIAL_TENANT_ID (o corpo
  *   é ignorado) e o usuário precisa ter acesso ao Comercial (canSeeComercial).
+ * - Avulsa: sem cliente; qualquer pessoa da equipe cria, sempre na empresa
+ *   interna (MEET_AVULSA_TENANT_ID, ou a mesma sentinela do Comercial).
  * - Executoria: o cliente precisa existir e ser da carteira do usuário
  *   (client_tenants.executor_id = usuário), como em /api/clients e em
  *   POST /api/agenda/jornadas. Admin do Meet cria para qualquer cliente.
  */
 import { canSeeComercial, type CurrentUser } from '@/lib/auth';
 import { createAdminSupabase } from '@/lib/supabase/admin';
+import type { SetorReuniao } from '@/lib/setorReuniao';
 
 export type AcessoEmpresa =
   | { ok: true; tenantId: string }
@@ -38,7 +41,7 @@ export const buscarCliente: BuscarCliente = async (tenantId) => {
 
 export async function autorizarEmpresaDaReuniao(
   user: CurrentUser,
-  sector: 'comercial' | 'executoria',
+  sector: SetorReuniao,
   tenantIdDoCorpo: unknown,
   buscar: BuscarCliente = buscarCliente,
 ): Promise<AcessoEmpresa> {
@@ -49,6 +52,12 @@ export async function autorizarEmpresaDaReuniao(
     const sentinela = process.env.MEET_COMMERCIAL_TENANT_ID;
     if (!sentinela) return { ok: false, status: 400, message: 'Cliente (tenant) obrigatório para Executoria' };
     return { ok: true, tenantId: sentinela };
+  }
+
+  if (sector === 'avulsa') {
+    const interna = process.env.MEET_AVULSA_TENANT_ID?.trim() || process.env.MEET_COMMERCIAL_TENANT_ID;
+    if (!interna) return { ok: false, status: 500, message: 'Empresa interna não configurada para reuniões avulsas' };
+    return { ok: true, tenantId: interna };
   }
 
   const pedido = typeof tenantIdDoCorpo === 'string' ? tenantIdDoCorpo.trim() : '';

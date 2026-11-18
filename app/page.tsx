@@ -13,12 +13,13 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { OnboardingSwitch } from '@/components/OnboardingSwitch';
+import { ROTULO_SETOR, type SetorReuniao } from '@/lib/setorReuniao';
 
 type Client = { id: string; name: string };
 
 export default function Page() {
   const router = useRouter();
-  const [sector, setSector] = useState<'comercial' | 'executoria'>('executoria');
+  const [sector, setSector] = useState<SetorReuniao>('executoria');
   const [title, setTitle] = useState('');
   const [clients, setClients] = useState<Client[]>([]);
   const [tenantId, setTenantId] = useState('');
@@ -54,7 +55,14 @@ export default function Page() {
   const canCom = meIsAdmin || meSector === 'comercial' || meSector === 'ambos' || semSetor;
   const canExe = meIsAdmin || meSector === 'executoria' || meSector === 'ambos' || semSetor;
 
-  // Se só uma aba é permitida, fixar o sector nela
+  // Abas permitidas: Executoria e Comercial conforme o acesso; a avulsa (sem
+  // cliente) vale para toda a equipe.
+  const setores: SetorReuniao[] = [
+    ...(canExe ? (['executoria'] as const) : []),
+    ...(canCom ? (['comercial'] as const) : []),
+    'avulsa',
+  ];
+  // Aba inicial: a do setor da pessoa (Comercial só vê o Comercial antes da avulsa).
   useEffect(() => {
     if (canCom && !canExe) setSector('comercial');
     else if (canExe && !canCom) setSector('executoria');
@@ -146,18 +154,23 @@ export default function Page() {
           </CardHeader>
           <CardContent>
             <form onSubmit={createMeeting} className="space-y-6">
-              {canCom && canExe && (
+              {(meIsStaff || meIsAdmin) && (
                 <div className="space-y-2">
                   <Label>Setor</Label>
-                  <Tabs
-                    value={sector}
-                    onValueChange={(v) => setSector(v as 'comercial' | 'executoria')}
-                  >
-                    <TabsList className="grid w-full grid-cols-2">
-                      <TabsTrigger value="executoria">Executoria</TabsTrigger>
-                      <TabsTrigger value="comercial">Comercial</TabsTrigger>
+                  <Tabs value={sector} onValueChange={(v) => setSector(v as SetorReuniao)}>
+                    <TabsList className={setores.length === 3 ? 'grid w-full grid-cols-3' : 'grid w-full grid-cols-2'}>
+                      {setores.map((x) => (
+                        <TabsTrigger key={x} value={x}>
+                          {ROTULO_SETOR[x]}
+                        </TabsTrigger>
+                      ))}
                     </TabsList>
                   </Tabs>
+                  {sector === 'avulsa' && (
+                    <p className="text-xs text-muted-foreground">
+                      Reunião sem cliente (interna, parceiro, entrevista). Não entra no ExecScore, no NPS nem no painel; a gravação fica só com os anfitriões.
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -187,7 +200,11 @@ export default function Page() {
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder={
-                    sector === 'comercial' ? 'Ex: Reunião com João Silva' : 'Ex: Planejamento mensal'
+                    sector === 'comercial'
+                      ? 'Ex: Reunião com João Silva'
+                      : sector === 'avulsa'
+                        ? 'Ex: Alinhamento do time'
+                        : 'Ex: Planejamento mensal'
                   }
                   required
                 />

@@ -453,3 +453,28 @@ describe('POST /api/agenda/eventos: SDR agenda para o Closer', () => {
     expect(state.criadas[0]).toMatchObject({ hostId: 'exec-x' });
   });
 });
+
+describe('POST /api/agenda/eventos: reunião avulsa', () => {
+  it('qualquer pessoa da equipe cria sem cliente, na empresa interna, com Google Agenda', async () => {
+    for (const u of [executorX, comercial]) {
+      state.user = u;
+      state.criadas = [];
+      const res = await post({ setor: 'avulsa', tenantId: EMPRESA_B, guestEmails: 'parceiro@empresa.com' });
+      expect(res.status).toBe(200);
+      expect(state.criadas[0]).toMatchObject({ sector: 'avulsa', tenantId: COMERCIAL, hostId: u.id, googleAgenda: true, onboarding: false });
+      expect(state.criadas[0].guestEmails).toEqual(['parceiro@empresa.com']);
+    }
+  });
+
+  it('SDR na avulsa não precisa de Closer', async () => {
+    state.user = mk({ id: 'sdr-1', sector: 'comercial', funcaoComercial: 'sdr' });
+    expect((await post({ setor: 'avulsa' })).status).toBe(200);
+    expect(state.criadas[0]).toMatchObject({ hostId: 'sdr-1', sector: 'avulsa' });
+  });
+
+  it('cliente do Plan não cria avulsa', async () => {
+    state.user = clienteDaEmpresaA;
+    expect((await post({ setor: 'avulsa' })).status).toBe(403);
+    nadaCriado();
+  });
+});

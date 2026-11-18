@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { canSeeComercial, getCurrentUser, podeGerenciarKickoff } from '@/lib/auth';
+import { canSeeComercial, canSeeExecutoria, getCurrentUser, podeGerenciarKickoff } from '@/lib/auth';
 import { AppShell } from '@/components/AppShell';
 import { AgendaNova } from '@/components/agenda-nova/AgendaNova';
 
@@ -20,6 +20,7 @@ export default async function Page() {
           isAdmin: user.isAdmin,
           sector: user.sector,
           podeComercial: canSeeComercial(user),
+          podeExecutoria: canSeeExecutoria(user),
           podeKickoff: podeGerenciarKickoff(user),
           funcaoComercial: user.funcaoComercial ?? null,
         }}

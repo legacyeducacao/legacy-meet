@@ -121,3 +121,25 @@ describe('autorizarEmpresaDaReuniao: Comercial', () => {
     expect(await autorizarEmpresaDaReuniao(comercial, 'comercial', undefined, buscar)).toMatchObject({ ok: false, status: 400 });
   });
 });
+
+describe('autorizarEmpresaDaReuniao: Avulsa (sem cliente)', () => {
+  afterEach(() => {
+    delete process.env.MEET_AVULSA_TENANT_ID;
+  });
+
+  it('toda a equipe cria, sempre na empresa interna (tenantId do corpo ignorado e banco não consultado)', async () => {
+    for (const u of [executorX, comercial, equipeSemCarteira, admin]) {
+      expect(await autorizarEmpresaDaReuniao(u, 'avulsa', EMPRESA_B, buscar)).toEqual({ ok: true, tenantId: COMERCIAL });
+    }
+    expect(buscar).not.toHaveBeenCalled();
+  });
+
+  it('usa MEET_AVULSA_TENANT_ID quando configurada', async () => {
+    process.env.MEET_AVULSA_TENANT_ID = SEM_EXECUTOR;
+    expect(await autorizarEmpresaDaReuniao(executorX, 'avulsa', undefined, buscar)).toEqual({ ok: true, tenantId: SEM_EXECUTOR });
+  });
+
+  it('cliente do Plan não cria reunião avulsa', async () => {
+    expect((await autorizarEmpresaDaReuniao(clienteDaEmpresaA, 'avulsa', undefined, buscar)).ok).toBe(false);
+  });
+});

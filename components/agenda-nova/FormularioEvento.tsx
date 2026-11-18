@@ -24,6 +24,7 @@ import type { ConflitoDTO } from '@/lib/agenda/tipos';
 import { CAPACIDADE_MAX, CAPACIDADE_MIN, CAPACIDADE_PADRAO } from '@/lib/kickoff/regras';
 import { ListaConflitos } from './Dialogos';
 import { EscolhaCloser } from './EscolhaCloser';
+import { ROTULO_SETOR, type SetorReuniao } from '@/lib/setorReuniao';
 import type { Cliente } from './Cartoes';
 
 export interface ValoresEvento {
@@ -31,7 +32,7 @@ export interface ValoresEvento {
   id?: string;
   recorrente?: boolean;
   titulo: string;
-  setor: 'executoria' | 'comercial';
+  setor: SetorReuniao;
   tenantId: string;
   inicio: Date;
   fim: Date;
@@ -74,7 +75,7 @@ const ORD = ['', '1ª', '2ª', '3ª', '4ª', '5ª'];
 export function FormularioEvento({
   inicial,
   tz,
-  podeEscolherSetor,
+  setores,
   podeKickoff = false,
   sdr = false,
   clientes,
@@ -87,7 +88,8 @@ export function FormularioEvento({
   modelos?: ModeloSerie[];
   inicial: ValoresEvento;
   tz: string;
-  podeEscolherSetor: boolean;
+  /** Setores que a pessoa pode escolher (a avulsa vale para toda a equipe). */
+  setores: SetorReuniao[];
   /** Mostra a opção "Kickoff Impulsão" (o servidor confere a permissão de novo). */
   podeKickoff?: boolean;
   /** Quem cria é SDR: no Comercial escolhe o Closer responsável. */
@@ -278,19 +280,25 @@ export function FormularioEvento({
             </div>
           )}
 
-          {!edicao && podeEscolherSetor && !kickoff && (
+          {!edicao && setores.length > 1 && !kickoff && (
             <div className="flex gap-1 rounded-lg bg-muted p-1 text-sm">
-              {(['executoria', 'comercial'] as const).map((x) => (
+              {setores.map((x) => (
                 <button
                   key={x}
                   type="button"
                   onClick={() => set('setor', x)}
                   className={cn('flex-1 rounded-md px-2 py-1', v.setor === x ? 'bg-background font-medium shadow-sm' : 'text-muted-foreground')}
                 >
-                  {x === 'executoria' ? 'Executoria' : 'Comercial'}
+                  {ROTULO_SETOR[x]}
                 </button>
               ))}
             </div>
+          )}
+
+          {!edicao && !kickoff && v.setor === 'avulsa' && (
+            <p className="text-xs text-muted-foreground">
+              Reunião sem cliente (interna, parceiro, entrevista). Não entra no ExecScore, no NPS nem no painel; a gravação fica só com os anfitriões.
+            </p>
           )}
 
           {!edicao && !kickoff && v.setor === 'executoria' && modelos.length > 0 && (
@@ -506,10 +514,17 @@ export function FormularioEvento({
             </details>
           )}
 
-          {!edicao && v.setor === 'comercial' && (
+          {!edicao && !kickoff && v.setor === 'avulsa' && (
             <div className="space-y-1.5">
-              <Label htmlFor="f-emails">E-mail do cliente</Label>
-              <Input id="f-emails" type="text" placeholder="cliente@empresa.com.br" value={v.guestEmails} onChange={(e) => set('guestEmails', e.target.value)} />
+              <Label htmlFor="f-emails">Convidados (opcional)</Label>
+              <Input
+                id="f-emails"
+                type="text"
+                placeholder="nome@empresa.com.br, outro@email.com"
+                value={v.guestEmails}
+                onChange={(e) => set('guestEmails', e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">Recebem o convite do Google Agenda com o link da reunião.</p>
             </div>
           )}
 
@@ -539,7 +554,7 @@ export function FormularioEvento({
   );
 }
 
-export function valoresIniciais(inicio: Date, fim: Date, setor: 'executoria' | 'comercial'): ValoresEvento {
+export function valoresIniciais(inicio: Date, fim: Date, setor: SetorReuniao): ValoresEvento {
   return {
     titulo: '',
     setor,

@@ -94,7 +94,8 @@ export async function montarPainel(f: Filtros) {
   // Sessões de kickoff do Impulsão ficam fora dos indicadores: são da empresa
   // organizadora interna e acontecem no Zoom (sem gravação do Meet).
   const kickoffs = await sessoesDeKickoff(todas.map((l) => l.id));
-  const linhas = todas.filter((l) => !kickoffs.has(l.id));
+  // Reuniões avulsas (sem cliente) também ficam fora dos indicadores.
+  const linhas = todas.filter((l) => !kickoffs.has(l.id) && pick(l.meet_meeting_sector)?.sector !== 'avulsa');
   const ids = linhas.map((l) => l.id);
 
   const lotes = <T,>(fn: (fatia: string[]) => PromiseLike<{ data: T[] | null }>) =>

@@ -5,6 +5,7 @@ import { criarReunioes } from '@/lib/meetingsCore';
 import { computeOccurrences, type Frequency } from '@/lib/recurrence';
 import { listTeamMembers, normalizeCoHostIds } from '@/lib/meetingHosts';
 import { parseGuestEmails } from '@/lib/guestEmails';
+import { lerSetorReuniao, type SetorReuniao } from '@/lib/setorReuniao';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +20,7 @@ export async function POST(req: NextRequest) {
   if (!user) return new NextResponse('Não autorizado', { status: 401 });
 
   const body = (await req.json().catch(() => ({}))) as {
-    sector?: 'comercial' | 'executoria';
+    sector?: SetorReuniao;
     title?: string;
     tenantId?: string;
     startAt?: string; // ISO (UTC)
@@ -38,7 +39,7 @@ export async function POST(req: NextRequest) {
     };
   };
 
-  const sector = body.sector === 'comercial' ? 'comercial' : 'executoria';
+  const sector = lerSetorReuniao(body.sector);
   // A empresa não vem só do corpo: equipe, setor e carteira são conferidos aqui.
   const acesso = await autorizarEmpresaDaReuniao(user, sector, body.tenantId);
   if (!acesso.ok) return new NextResponse(acesso.message, { status: acesso.status });

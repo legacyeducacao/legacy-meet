@@ -37,6 +37,7 @@ import { UltimaReuniaoDialog } from '@/components/resumo/UltimaReuniaoButton';
 import { passaNoFiltro, type FiltroTipo } from '@/lib/kickoff/evento';
 import { KICKOFF_TIPO } from '@/lib/kickoff/regras';
 import { trocarHorarios } from '@/lib/agenda/troca';
+import type { SetorReuniao } from '@/lib/setorReuniao';
 
 export interface MeAgenda {
   id: string;
@@ -45,6 +46,8 @@ export interface MeAgenda {
   sector: 'comercial' | 'executoria' | 'ambos' | null;
   /** canSeeComercial(user), calculado no servidor (mesma regra da API). */
   podeComercial: boolean;
+  /** canSeeExecutoria(user), calculado no servidor. */
+  podeExecutoria?: boolean;
   /** podeGerenciarKickoff(user), calculado no servidor (mesma regra da API). */
   podeKickoff: boolean;
   /** Comercial: SDR escolhe o Closer responsável ao agendar. */
@@ -113,8 +116,14 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
   const [montado, setMontado] = React.useState(false);
   React.useEffect(() => setMontado(true), []);
 
-  const setorPadrao: 'executoria' | 'comercial' = me.sector === 'comercial' ? 'comercial' : 'executoria';
-  const podeEscolherSetor = me.isAdmin || me.sector === 'ambos';
+  const setorPadrao: SetorReuniao = me.sector === 'comercial' ? 'comercial' : 'executoria';
+  // Executoria e Comercial conforme o acesso; a avulsa (sem cliente) vale para toda a equipe.
+  const setores: SetorReuniao[] = [
+    // Sem setor definido segue criando na Executoria, como antes.
+    ...(me.podeExecutoria || !me.sector ? (['executoria'] as const) : []),
+    ...(me.podeComercial ? (['comercial'] as const) : []),
+    'avulsa',
+  ];
   const sdr = me.funcaoComercial === 'sdr';
 
   // Preferências do usuário (visão e calendários). No celular, começa na lista.
@@ -824,7 +833,7 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
           fim={rapida.fim}
           tz={tz}
           setor={setorPadrao}
-          podeEscolherSetor={podeEscolherSetor}
+          setores={setores}
           sdr={sdr}
           clientes={clientes}
           onFechar={() => setRapida(null)}
@@ -889,7 +898,7 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
         <FormularioEvento
           inicial={formulario}
           tz={tz}
-          podeEscolherSetor={podeEscolherSetor}
+          setores={setores}
           podeKickoff={me.podeKickoff}
           sdr={sdr}
           clientes={clientes}

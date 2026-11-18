@@ -13,6 +13,7 @@ import type { EventoDTO } from '@/lib/agenda/tipos';
 import { rotuloModalidade } from '@/lib/agenda/turmas';
 import { Flutuante, type Ancora } from './Flutuante';
 import { EscolhaCloser } from './EscolhaCloser';
+import { ROTULO_SETOR, type SetorReuniao } from '@/lib/setorReuniao';
 
 export interface Cliente {
   id: string;
@@ -230,7 +231,7 @@ export function CriacaoRapida({
   fim,
   tz,
   setor,
-  podeEscolherSetor,
+  setores,
   sdr = false,
   clientes,
   onFechar,
@@ -243,14 +244,15 @@ export function CriacaoRapida({
   inicio: Date;
   fim: Date;
   tz: string;
-  setor: 'executoria' | 'comercial';
-  podeEscolherSetor: boolean;
+  setor: SetorReuniao;
+  /** Setores que a pessoa pode escolher (a avulsa vale para toda a equipe). */
+  setores: SetorReuniao[];
   /** Quem cria é SDR: no Comercial escolhe o Closer responsável. */
   sdr?: boolean;
   clientes: Cliente[];
   onFechar: () => void;
-  onSalvar: (v: { titulo: string; setor: 'executoria' | 'comercial'; tenantId: string; closerId?: string }) => Promise<boolean>;
-  onMaisOpcoes: (v: { titulo: string; setor: 'executoria' | 'comercial'; tenantId: string; closerId?: string }) => void;
+  onSalvar: (v: { titulo: string; setor: SetorReuniao; tenantId: string; closerId?: string }) => Promise<boolean>;
+  onMaisOpcoes: (v: { titulo: string; setor: SetorReuniao; tenantId: string; closerId?: string }) => void;
 }) {
   const [titulo, setTitulo] = React.useState('');
   const [tipo, setTipo] = React.useState<'reuniao' | 'bloqueio'>('reuniao');
@@ -317,16 +319,16 @@ export function CriacaoRapida({
         <p className="text-sm text-muted-foreground first-letter:uppercase">
           {rotuloDia(localYmd(inicio, tz))} · {faixaHorario(inicio, fim, tz)}
         </p>
-        {tipo === 'reuniao' && podeEscolherSetor && (
+        {tipo === 'reuniao' && setores.length > 1 && (
           <div className="flex gap-1 rounded-lg bg-muted p-1 text-sm">
-            {(['executoria', 'comercial'] as const).map((x) => (
+            {setores.map((x) => (
               <button
                 key={x}
                 type="button"
                 onClick={() => setS(x)}
                 className={`flex-1 rounded-md px-2 py-1 ${s === x ? 'bg-background font-medium shadow-sm' : 'text-muted-foreground'}`}
               >
-                {x === 'executoria' ? 'Executoria' : 'Comercial'}
+                {ROTULO_SETOR[x]}
               </button>
             ))}
           </div>

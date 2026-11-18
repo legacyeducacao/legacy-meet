@@ -87,6 +87,25 @@ describe('criarReunioes e o Google Agenda', () => {
     expect(state.leiturasEmpresa).toBe(0);
   });
 
+  it('Comercial não cria evento nem convite no Google (duplicava as tarefas do CRM)', async () => {
+    const r = await criarReunioes({ ...base, sector: 'comercial', onboarding: false, guestEmails: ['lead@empresa.com'] });
+    expect(r.ok).toBe(true);
+    await Promise.all(state.segundoPlano);
+    expect(state.inserts.map((i) => i.table)).toEqual(['meetings', 'meet_meeting_sector']);
+    expect(state.eventosGoogle).toHaveLength(0);
+  });
+
+  it('Avulsa cria o evento só com anfitriões e convidados, sem convidar a empresa interna', async () => {
+    const r = await criarReunioes({ ...base, sector: 'avulsa', onboarding: false, guestEmails: ['parceiro@empresa.com'] });
+    expect(r.ok).toBe(true);
+    await Promise.all(state.segundoPlano);
+    expect(state.leiturasEmpresa).toBe(0);
+    expect(state.eventosGoogle).toHaveLength(1);
+    expect((state.eventosGoogle[0] as { attendees: string[] }).attendees).toEqual(['cs@legacyeducacaocorp.com.br', 'parceiro@empresa.com']);
+    const setor = state.inserts.find((i) => i.table === 'meet_meeting_sector')?.rows as Array<{ sector: string; onboarding: boolean }>;
+    expect(setor[0]).toMatchObject({ sector: 'avulsa', onboarding: false });
+  });
+
   it('reunião comum (padrão) continua criando o evento e convidando a empresa', async () => {
     const r = await criarReunioes({ ...base, record: true, transcribe: true, onboarding: false });
     expect(r.ok).toBe(true);

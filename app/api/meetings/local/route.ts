@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { autorizarEmpresaDaReuniao } from '@/lib/meetingTenantAccess';
 import { createAdminSupabase } from '@/lib/supabase/admin';
+import { lerSetorReuniao, type SetorReuniao } from '@/lib/setorReuniao';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,7 +11,7 @@ export async function POST(req: NextRequest) {
   if (!user) return new NextResponse('Não autorizado', { status: 401 });
 
   const body = (await req.json().catch(() => ({}))) as {
-    sector?: 'comercial' | 'executoria';
+    sector?: SetorReuniao;
     title?: string;
     tenantId?: string;
     record?: boolean;
@@ -18,7 +19,7 @@ export async function POST(req: NextRequest) {
     /** Reunião de onboarding (Executoria): não vai para o ExecScore. */
     onboarding?: boolean;
   };
-  const sector = body.sector === 'comercial' ? 'comercial' : 'executoria';
+  const sector = lerSetorReuniao(body.sector);
   // A empresa não vem só do corpo: equipe, setor e carteira são conferidos aqui.
   const acesso = await autorizarEmpresaDaReuniao(user, sector, body.tenantId);
   if (!acesso.ok) return new NextResponse(acesso.message, { status: acesso.status });

@@ -5,6 +5,7 @@
  * anfitriões adicionais e convite no Google Agenda (em segundo plano).
  */
 import { emSegundoPlano } from '@/lib/segundoPlano';
+import type { SetorReuniao } from '@/lib/setorReuniao';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 import { createCalendarEvent } from '@/lib/calendar';
 
@@ -18,7 +19,7 @@ export interface CriarReunioesInput {
   hostId: string;
   /** E-mail do anfitrião (recebe o convite). */
   hostEmail?: string | null;
-  sector: 'executoria' | 'comercial';
+  sector: SetorReuniao;
   tenantId: string;
   title: string;
   ocorrencias: Array<{ inicio: Date; fim: Date }>;
@@ -35,7 +36,10 @@ export interface CriarReunioesInput {
   recurrenceParentId?: string | null;
   /** Título por ocorrência (ex.: "Impulsão · Grupo Terça · F1"). */
   titulos?: string[];
-  /** false = sem evento nem convite no Google Agenda (ex.: kickoff do Impulsão). Padrão: true. */
+  /**
+   * false = sem evento nem convite no Google Agenda (ex.: kickoff do Impulsão). Padrão: true.
+   * Reunião do Comercial nunca cria (ticket de 18/11/2026: duplicava as tarefas do CRM).
+   */
   googleAgenda?: boolean;
 }
 
@@ -95,7 +99,9 @@ export async function criarReunioes(i: CriarReunioesInput): Promise<CriarReunioe
 
   // Sem Google Agenda (kickoff do Impulsão): nem evento, nem convite, nem
   // leitura do e-mail da empresa para convidar.
-  if (i.googleAgenda === false) return { ok: true, ids, roomNames };
+  // Comercial: o compromisso já nasce como tarefa no CRM (Pipedrive); o evento
+  // do Google duplicava. Executoria e as demais seguem com o Google Agenda.
+  if (i.googleAgenda === false || i.sector === 'comercial') return { ok: true, ids, roomNames };
 
   // Google Agenda: um evento por ocorrência (com o link daquela sala), criados
   // em SEGUNDO PLANO: uma série de 52 não pode travar a resposta. Erros são
