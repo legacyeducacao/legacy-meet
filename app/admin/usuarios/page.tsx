@@ -6,5 +6,5 @@ export default async function AdminUsuariosPage() {
   const me = await getCurrentUser();
   if (!me?.isAdmin) notFound();
 
-  return <UsuariosClient />;
+  return <UsuariosClient meId={me.id} />;
 }

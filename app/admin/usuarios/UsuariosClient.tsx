@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { UserPlus } from 'lucide-react';
+import { Search, Trash2, UserPlus } from 'lucide-react';
 import { toast } from '@/components/ui/custom-toast';
 
 import { AppShell } from '@/components/AppShell';
@@ -36,6 +36,16 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 type Sector = 'comercial' | 'executoria' | 'ambos';
 type Funcao = 'sdr' | 'closer';
@@ -63,7 +73,7 @@ function getInitials(name: string | null, email: string): string {
   return email.slice(0, 2).toUpperCase();
 }
 
-export default function UsuariosClient() {
+export default function UsuariosClient({ meId }: { meId: string }) {
   const router = useRouter();
   const [users, setUsers] = React.useState<UserRow[]>([]);
   const [loadError, setLoadError] = React.useState('');
@@ -78,6 +88,41 @@ export default function UsuariosClient() {
   const [formError, setFormError] = React.useState('');
   const [formMsg, setFormMsg] = React.useState('');
   const [busy, setBusy] = React.useState(false);
+
+  // Busca (nome ou e-mail) e filtro por setor da lista.
+  const [busca, setBusca] = React.useState('');
+  const [filtroSetor, setFiltroSetor] = React.useState<'todos' | Sector>('todos');
+  const semAcento = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const visiveis = React.useMemo(() => {
+    const q = semAcento(busca.trim());
+    return users.filter(
+      (u) =>
+        (filtroSetor === 'todos' || (u.sector ?? 'ambos') === filtroSetor) &&
+        (!q || semAcento(`${u.name ?? ''} ${u.email}`).includes(q)),
+    );
+  }, [users, busca, filtroSetor]);
+
+  // Remoção de quem saiu da empresa (confirmação antes).
+  const [remover, setRemover] = React.useState<UserRow | null>(null);
+  const [removendo, setRemovendo] = React.useState(false);
+  const confirmarRemocao = async () => {
+    if (!remover) return;
+    setRemovendo(true);
+    try {
+      const res = await fetch(`/api/admin/users?userId=${encodeURIComponent(remover.id)}`, { method: 'DELETE' });
+      if (!res.ok) {
+        toast.error('Não foi possível remover: ' + ((await res.text()) || 'erro desconhecido'));
+        return;
+      }
+      toast.success(`${remover.name ?? remover.email} foi removido.`);
+      setRemover(null);
+      await loadUsers();
+    } catch {
+      toast.error('Erro de rede ao remover. Tente de novo.');
+    } finally {
+      setRemovendo(false);
+    }
+  };
 
   // per-row saving state: userId → 'saving' | undefined
   const [saving, setSaving] = React.useState<Record<string, boolean>>({});
@@ -284,6 +329,29 @@ export default function UsuariosClient() {
             <CardHeader>
               <CardTitle>Usuários cadastrados</CardTitle>
               <CardDescription>Todos os usuários com acesso à plataforma.</CardDescription>
+              <div className="flex flex-col gap-2 pt-2 sm:flex-row">
+                <div className="relative flex-1">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={busca}
+                    onChange={(e) => setBusca(e.target.value)}
+                    placeholder="Buscar por nome ou e-mail"
+                    aria-label="Buscar usuários"
+                    className="pl-8"
+                  />
+                </div>
+                <Select value={filtroSetor} onValueChange={(v) => setFiltroSetor(v as 'todos' | Sector)}>
+                  <SelectTrigger className="sm:w-44" aria-label="Filtrar por setor">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todos os setores</SelectItem>
+                    <SelectItem value="comercial">Comercial</SelectItem>
+                    <SelectItem value="executoria">Executoria</SelectItem>
+                    <SelectItem value="ambos">Acesso geral</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </CardHeader>
             <CardContent className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
               {loadError && (
@@ -316,10 +384,18 @@ export default function UsuariosClient() {
                       <TableHead>Setor</TableHead>
                       <TableHead title="SDR agenda para um Closer; o Closer conduz a reunião">Função</TableHead>
                       <TableHead title="Gerenciar os kickoffs do Impulsão (admin já tem)">Kickoffs</TableHead>
+                      <TableHead className="w-10"><span className="sr-only">Remover</span></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {users.map((u) => (
+                    {visiveis.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={7} className="py-6 text-center text-sm text-muted-foreground">
+                          Nenhum usuário com esse filtro.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {visiveis.map((u) => (
                       <TableRow key={u.id}>
                         <TableCell>
                           <div className="flex items-center gap-2">
@@ -381,6 +457,22 @@ export default function UsuariosClient() {
                             onCheckedChange={(checked) => patchUser(u, { kickoffImpulsao: checked })}
                           />
                         </TableCell>
+                        <TableCell>
+                          {u.id !== meId && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                              aria-label={`Remover ${u.name ?? u.email}`}
+                              title="Remover (saiu da empresa)"
+                              disabled={saving[u.id]}
+                              onClick={() => setRemover(u)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -390,6 +482,31 @@ export default function UsuariosClient() {
           </Card>
         </div>
       </div>
+      <AlertDialog open={!!remover} onOpenChange={(open) => { if (!open && !removendo) setRemover(null); }}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover {remover?.name ?? remover?.email}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              O acesso é apagado em todos os projetos (Meet, Plan, ExecScore, LegacyFin): a pessoa não entra mais e o
+              e-mail {remover?.email} fica livre. As reuniões, gravações e NPS antigos continuam com o nome dela. Não dá
+              para desfazer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={removendo}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={removendo}
+              onClick={(e) => {
+                e.preventDefault();
+                void confirmarRemocao();
+              }}
+            >
+              {removendo ? 'Removendo…' : 'Remover'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppShell>
   );
 }

@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 import { alternarCapacidade, lerCapacidades, PERMISSAO_KICKOFF } from '@/lib/kickoff/regras';
 import { funcaoParaSetor } from '@/lib/comercial/funcao';
+import { removerUsuario } from '@/lib/usuarios/remover';
 
 export const dynamic = 'force-dynamic';
 
@@ -119,4 +120,17 @@ export async function PATCH(req: NextRequest) {
     });
   if (error) return new NextResponse('Falha ao salvar: ' + error.message, { status: 500 });
   return NextResponse.json({ ok: true });
+}
+
+/**
+ * DELETE ?userId= : remove quem saiu da empresa (só admin). Apaga o acesso em
+ * todos os projetos e mantém o nome no histórico. Ver lib/usuarios/remover.ts.
+ */
+export async function DELETE(req: NextRequest) {
+  const me = await getCurrentUser();
+  if (!me?.isAdmin) return new NextResponse('Não autorizado', { status: 401 });
+  const userId = req.nextUrl.searchParams.get('userId') ?? '';
+  const r = await removerUsuario(userId, me.id);
+  if (!r.ok) return new NextResponse(r.message, { status: r.status });
+  return NextResponse.json({ ok: true, nome: r.nome });
 }
