@@ -28,11 +28,20 @@ export interface ParticipantLike {
   attributes?: Record<string, string>;
 }
 
+// O token leva a chave 'lm.host', mas o servidor do LiveKit a devolve como
+// 'lmHost' na lista de participantes. Compara sem pontuação e sem caixa.
+const chaveSimples = (k: string) => k.replace(/[^a-z0-9]/gi, '').toLowerCase();
+const CHAVE_ANFITRIAO = chaveSimples(HOST_ATTRIBUTE);
+
+function temAtributoDeAnfitriao(attrs: Record<string, string> | undefined): boolean {
+  return Object.entries(attrs ?? {}).some(([k, v]) => v === '1' && chaveSimples(k) === CHAVE_ANFITRIAO);
+}
+
 export function isHostParticipant(
   p: ParticipantLike,
   ctx: { roomMetadata?: string; metaHost?: string },
 ): boolean {
-  if (p.attributes?.[HOST_ATTRIBUTE] === '1') return true;
+  if (temAtributoDeAnfitriao(p.attributes)) return true;
   if (parseCohosts(ctx.roomMetadata).includes(p.identity)) return true;
   // Tokens emitidos antes do atributo existir: o anfitrião registrado no início
   // da gravação (meta.host) é o nome que ele digitou ao entrar.

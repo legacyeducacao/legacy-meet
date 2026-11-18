@@ -12,6 +12,17 @@ describe('isHostParticipant', () => {
     expect(isHostParticipant({ ...base, attributes: { [HOST_ATTRIBUTE]: '1' } }, {})).toBe(true);
   });
 
+  it('reconhece o atributo como o LiveKit devolve na lista de participantes (lmHost)', () => {
+    // O servidor converte a chave 'lm.host' do token para 'lmHost'. Caso real
+    // (Acerta Retífica, 17/11): anfitrião na sala o tempo todo e a gravação
+    // parou aos 10 min porque o watchdog procurava só 'lm.host'.
+    expect(isHostParticipant({ ...base, name: 'Guilherme Araújo', attributes: { lmHost: '1' } }, {})).toBe(true);
+  });
+
+  it('atributo com valor diferente de 1 não conta', () => {
+    expect(isHostParticipant({ ...base, attributes: { lmHost: '0' } }, {})).toBe(false);
+  });
+
   it('reconhece co-anfitrião pela lista nos metadados da sala', () => {
     const roomMetadata = JSON.stringify({ cohosts: ['Ana__abc'] });
     expect(isHostParticipant(base, { roomMetadata })).toBe(true);
