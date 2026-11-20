@@ -23,6 +23,8 @@ type Corpo = {
   titulo?: string;
   escopo?: Escopo;
   justificativa?: string;
+  /** Viu os avisos de feriado/fora do expediente e confirmou (dispensa o motivo só deles). */
+  confirmado?: boolean;
   origem?: Origem;
 };
 
@@ -60,6 +62,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   });
 
   let registrar: Parameters<typeof registrarSobreposicoes>[0] = [];
+  let motivo = '';
   if (mudouHorario) {
     const min = Math.min(...novos.map((n) => n.ini));
     const max = Math.max(...novos.map((n) => n.fim));
@@ -70,9 +73,10 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       novos.map((n) => ({ ref: n.a.id, inicio: new Date(n.ini), fim: new Date(n.fim), substituiEventoId: n.a.id })),
       { ...contexto, eventos: contexto.eventos.filter((e) => !movidas.has(e.id)) },
     );
-    const decisao = decidirConflitos(conflitos, user.isAdmin, b.justificativa);
+    const decisao = decidirConflitos(conflitos, user.isAdmin, b.justificativa, b.confirmado === true);
     if (!decisao.ok) return NextResponse.json(decisao.resposta, { status: 409 });
     registrar = decisao.registrar;
+    motivo = decisao.motivo;
   }
 
   const admin = createAdminSupabase();
@@ -112,7 +116,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       })),
     );
   }
-  if (registrar.length) await registrarSobreposicoes(registrar, user.id, b.justificativa!.trim(), (ref) => ref);
+  if (registrar.length) await registrarSobreposicoes(registrar, user.id, motivo, (ref) => ref);
 
   await atualizarSerie(escopo, base, alvos.map((a) => a.id), delta, duracao, titulo);
 

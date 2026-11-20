@@ -79,7 +79,7 @@ async function textoErro(res: Response) {
 }
 
 type Rapida = { inicio: Date; fim: Date; ancora: Ancora };
-type Conflito = { resposta: RespostaConflito; salvar: (j: string) => void; desistir?: () => void };
+type Conflito = { resposta: RespostaConflito; salvar: (j?: string) => void; desistir?: () => void };
 type PerguntaEscopo = { titulo: string; resolver: (e: Escopo | null) => void };
 
 export function AgendaNova({ me }: { me: MeAgenda }) {
@@ -220,7 +220,7 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
   const perguntarEscopo = (titulo: string) => new Promise<Escopo | null>((resolver) => setEscopo({ titulo, resolver }));
 
   // ------------------------------ Criar ------------------------------
-  const enviarCriacao = async (v: ValoresEvento, justificativa?: string): Promise<boolean> => {
+  const enviarCriacao = async (v: ValoresEvento, justificativa?: string, confirmado = false): Promise<boolean> => {
     const rrule = montarRRule(v.repeticao, localYmd(v.inicio, tz));
     const res = await fetch('/api/agenda/eventos', {
       method: 'POST',
@@ -242,12 +242,13 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
         jornadaLegado: !!v.jornadaLegado,
         ...(v.closerId ? { closerId: v.closerId } : {}),
         justificativa,
+        confirmado,
         ...(v.tipo === KICKOFF_TIPO ? { tipo: KICKOFF_TIPO, capacidade: v.capacidade } : {}),
       }),
     });
     if (res.status === 409) {
       const resposta = (await res.json()) as RespostaConflito;
-      setConflito({ resposta, salvar: (j) => void enviarCriacao(v, j) });
+      setConflito({ resposta, salvar: (j) => void enviarCriacao(v, j, true) });
       return false;
     }
     if (!res.ok) {
@@ -303,7 +304,7 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
     inicio: Date,
     fim: Date,
     esc: Escopo,
-    opts: { justificativa?: string; titulo?: string } = {},
+    opts: { justificativa?: string; titulo?: string; confirmado?: boolean } = {},
   ): Promise<boolean> => {
     const antes = eventos;
     const delta = inicio.getTime() - Date.parse(ev.inicio);
@@ -322,12 +323,12 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
     const res = await fetch(`/api/agenda/eventos/${ev.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ inicio: inicio.toISOString(), fim: fim.toISOString(), escopo: esc, titulo: opts.titulo, justificativa: opts.justificativa }),
+      body: JSON.stringify({ inicio: inicio.toISOString(), fim: fim.toISOString(), escopo: esc, titulo: opts.titulo, justificativa: opts.justificativa, confirmado: !!opts.confirmado }),
     });
     if (res.status === 409) {
       setEventos(antes);
       const resposta = (await res.json()) as RespostaConflito;
-      setConflito({ resposta, salvar: (j) => void aplicarMudanca(ev, inicio, fim, esc, { ...opts, justificativa: j }) });
+      setConflito({ resposta, salvar: (j) => void aplicarMudanca(ev, inicio, fim, esc, { ...opts, justificativa: j, confirmado: true }) });
       return false;
     }
     if (!res.ok) {
@@ -357,7 +358,7 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
   };
 
   /** Soltar uma reunião em cima de outra: as duas trocam de horário (só estas ocorrências). */
-  const trocar = async (a: EventoDTO, b: EventoDTO, justificativa?: string): Promise<boolean> => {
+  const trocar = async (a: EventoDTO, b: EventoDTO, justificativa?: string, confirmado = false): Promise<boolean> => {
     if (!a.podeEditar || !b.podeEditar || a.id === b.id) return false;
     const antes = eventos;
     const t = trocarHorarios(
@@ -377,12 +378,12 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
     const res = await fetch('/api/agenda/trocar', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ a: a.id, b: b.id, justificativa }),
+      body: JSON.stringify({ a: a.id, b: b.id, justificativa, confirmado }),
     });
     if (res.status === 409) {
       setEventos(antes);
       const resposta = (await res.json()) as RespostaConflito;
-      setConflito({ resposta, salvar: (j) => void trocar(a, b, j) });
+      setConflito({ resposta, salvar: (j) => void trocar(a, b, j, true) });
       return false;
     }
     if (!res.ok) {
@@ -400,8 +401,8 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
     return true;
   };
 
-  const salvarFormulario = async (v: ValoresEvento, justificativa?: string): Promise<boolean> => {
-    if (!v.id) return enviarCriacao(v, justificativa);
+  const salvarFormulario = async (v: ValoresEvento, justificativa?: string, confirmado = false): Promise<boolean> => {
+    if (!v.id) return enviarCriacao(v, justificativa, confirmado);
     const ev = eventos.find((e) => e.id === v.id);
     if (!ev) return false;
     let esc: Escopo = 'esta';
@@ -410,7 +411,7 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
       if (!r) return false;
       esc = r;
     }
-    return aplicarMudanca(ev, v.inicio, v.fim, esc, { justificativa, titulo: v.titulo !== ev.titulo ? v.titulo : undefined });
+    return aplicarMudanca(ev, v.inicio, v.fim, esc, { justificativa, confirmado, titulo: v.titulo !== ev.titulo ? v.titulo : undefined });
   };
 
   // ------------------------------ Cancelar (com Desfazer) ------------------------------
@@ -935,6 +936,7 @@ export function AgendaNova({ me }: { me: MeAgenda }) {
 
       {conflito && (
         <DialogoConflitos
+          aceitaConfirmacao
           conflitos={conflito.resposta.conflitos}
           podeSobreporBloqueante={conflito.resposta.podeSobreporBloqueante}
           onSalvar={(j) => conflito.salvar(j)}

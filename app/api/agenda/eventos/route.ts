@@ -94,6 +94,8 @@ type CorpoCriar = {
   /** SDR: Closer responsável (vira o dono da reunião; o SDR fica como anfitrião). */
   closerId?: string;
   justificativa?: string;
+  /** Viu os avisos de feriado/fora do expediente e confirmou (dispensa o motivo só deles). */
+  confirmado?: boolean;
   /** Série 1 a 1 do Legado: registra a jornada (encontros previstos x realizados). */
   jornadaLegado?: boolean;
   templateId?: string;
@@ -181,7 +183,7 @@ export async function POST(req: NextRequest) {
     ocorrencias.map((o, k) => ({ ref: String(k), inicio: o.inicio, fim: o.fim })),
     ctx,
   );
-  const decisao = decidirConflitos(conflitos, user.isAdmin, b.justificativa);
+  const decisao = decidirConflitos(conflitos, user.isAdmin, b.justificativa, b.confirmado === true);
   if (!decisao.ok) return NextResponse.json(decisao.resposta, { status: 409 });
 
   // Kickoff não convida ninguém pelo Google Agenda.
@@ -262,7 +264,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (decisao.registrar.length) {
-    await registrarSobreposicoes(decisao.registrar, user.id, b.justificativa!.trim(), (ref) => r.ids[Number(ref)] ?? null, serieId);
+    await registrarSobreposicoes(decisao.registrar, user.id, decisao.motivo, (ref) => r.ids[Number(ref)] ?? null, serieId);
   }
 
   if (!kickoff && b.jornadaLegado && rrule && setor === 'executoria') {

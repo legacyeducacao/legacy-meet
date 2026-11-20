@@ -10,7 +10,7 @@ import { trocarHorarios } from '@/lib/agenda/troca';
 
 export const dynamic = 'force-dynamic';
 
-type Corpo = { a?: string; b?: string; justificativa?: string };
+type Corpo = { a?: string; b?: string; justificativa?: string; confirmado?: boolean };
 
 /**
  * POST: troca o horário de duas reuniões (arrastar uma para cima da outra).
@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
       ),
     );
   }
-  const decisao = decidirConflitos(conflitos, user.isAdmin, b.justificativa);
+  const decisao = decidirConflitos(conflitos, user.isAdmin, b.justificativa, b.confirmado === true);
   if (!decisao.ok) return NextResponse.json(decisao.resposta, { status: 409 });
 
   const admin = createAdminSupabase();
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
     );
     await admin.from('agenda_ocorrencias').update({ status: 'movida', excecao: true }).in('meeting_id', mudaram.map((n) => n.l.id));
   }
-  if (decisao.registrar.length) await registrarSobreposicoes(decisao.registrar, user.id, b.justificativa!.trim(), (ref) => ref);
+  if (decisao.registrar.length) await registrarSobreposicoes(decisao.registrar, user.id, decisao.motivo, (ref) => ref);
 
   // Google Agenda em segundo plano (avisa os convidados). Não fatal.
   after(async () => {
