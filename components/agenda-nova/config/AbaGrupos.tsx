@@ -309,7 +309,7 @@ export function AbaGrupos({ isAdmin, meId }: { isAdmin: boolean; meId: string })
         />
       )}
       {conflito && (
-        <DialogoConflitos conflitos={conflito.r.conflitos} podeSobreporBloqueante={conflito.r.podeSobreporBloqueante} onSalvar={conflito.salvar} onDesistir={() => setConflito(null)} />
+        <DialogoConflitos conflitos={conflito.r.conflitos} podeSobreporBloqueante={conflito.r.podeSobreporBloqueante} onSalvar={(j) => conflito.salvar(j ?? '')} onDesistir={() => setConflito(null)} />
       )}
     </div>
   );

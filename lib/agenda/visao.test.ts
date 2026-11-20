@@ -14,7 +14,7 @@ import {
   SEM_REPETICAO,
   tituloPeriodo,
 } from './visao';
-import { decidirConflitos } from './regras';
+import { decidirConflitos, MOTIVO_CONFIRMADO, pedeSoConfirmacao } from './regras';
 
 const SP = 'America/Sao_Paulo';
 
@@ -117,5 +117,21 @@ describe('decidirConflitos', () => {
     expect(decidirConflitos([c('bloqueante')], true).ok).toBe(false);
     const d = decidirConflitos([c('bloqueante')], true, 'urgente');
     expect(d.ok && d.registrar).toHaveLength(1);
+  });
+  it('feriado ou fora do expediente: basta confirmar, sem motivo (fica no log como confirmado)', () => {
+    const t = (tipo: 'feriado' | 'fora_expediente' | 'buffer', nivel: 'bloqueante' | 'aviso' = 'aviso') => ({ ...c(nivel), tipo });
+    // Sem confirmar: o servidor devolve o aviso para a tela perguntar.
+    expect(decidirConflitos([t('feriado')], false).ok).toBe(false);
+    const d = decidirConflitos([t('feriado'), t('fora_expediente')], false, null, true);
+    expect(d.ok && d.registrar).toHaveLength(2);
+    expect(d.ok && d.motivo).toBe(MOTIVO_CONFIRMADO);
+    // Com motivo escrito, vale o motivo.
+    const m = decidirConflitos([t('feriado')], false, 'plantão do Comercial', true);
+    expect(m.ok && m.motivo).toBe('plantão do Comercial');
+    // Confirmar não dispensa o motivo de outros avisos, nem passa por cima de bloqueio.
+    expect(decidirConflitos([t('feriado'), t('buffer')], false, null, true).ok).toBe(false);
+    expect(decidirConflitos([t('feriado', 'bloqueante')], false, null, true).ok).toBe(false);
+    expect(pedeSoConfirmacao(t('feriado'))).toBe(true);
+    expect(pedeSoConfirmacao(t('feriado', 'bloqueante'))).toBe(false);
   });
 });

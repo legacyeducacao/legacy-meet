@@ -21,6 +21,7 @@ import {
   type Repeticao,
 } from '@/lib/agenda/visao';
 import type { ConflitoDTO } from '@/lib/agenda/tipos';
+import { pedeSoConfirmacao } from '@/lib/agenda/regras';
 import { CAPACIDADE_MAX, CAPACIDADE_MIN, CAPACIDADE_PADRAO } from '@/lib/kickoff/regras';
 import { ListaConflitos } from './Dialogos';
 import { EscolhaCloser } from './EscolhaCloser';
@@ -98,7 +99,7 @@ export function FormularioEvento({
   equipe: Membro[];
   meId: string;
   onFechar: () => void;
-  onSalvar: (v: ValoresEvento, justificativa?: string) => Promise<boolean>;
+  onSalvar: (v: ValoresEvento, justificativa?: string, confirmado?: boolean) => Promise<boolean>;
 }) {
   const [v, setV] = React.useState<ValoresEvento>(inicial);
   const [data, setData] = React.useState<Ymd>(localYmd(inicial.inicio, tz));
@@ -181,6 +182,8 @@ export function FormularioEvento({
 
   const temBloqueante = conflitos.some((c) => c.nivel === 'bloqueante');
   const travado = temBloqueante && !podeSobrepor;
+  // Só feriado ou fora do expediente: avisa e pede confirmação, sem motivo.
+  const soConfirmar = conflitos.length > 0 && conflitos.every(pedeSoConfirmacao);
 
   const salvar = async () => {
     if (!v.titulo.trim()) return setErro('Informe o título.');
@@ -191,10 +194,11 @@ export function FormularioEvento({
       if (!Number.isInteger(c) || c < CAPACIDADE_MIN || c > CAPACIDADE_MAX) return setErro('A capacidade deve ser de 1 a 50 empresas.');
     }
     if (!inicio || !fim) return setErro('Confira a data e os horários.');
-    if (conflitos.length && !just.trim()) return setErro('Há conflitos: escreva o motivo para salvar mesmo assim.');
+    if (conflitos.length && !soConfirmar && !just.trim()) return setErro('Há conflitos: escreva o motivo para salvar mesmo assim.');
     setErro('');
     setBusy(true);
-    const ok = await onSalvar({ ...v, titulo: v.titulo.trim(), inicio, fim }, just.trim() || undefined);
+    // Quem salva com os avisos na tela confirmou (o servidor confere de novo).
+    const ok = await onSalvar({ ...v, titulo: v.titulo.trim(), inicio, fim }, just.trim() || undefined, conflitos.length > 0);
     setBusy(false);
     if (ok) onFechar();
   };
@@ -530,9 +534,10 @@ export function FormularioEvento({
 
           {conflitos.length > 0 && (
             <div className="space-y-2">
-              <p className="text-sm font-medium">{travado ? 'Este horário não pode ser usado' : 'Conflitos encontrados'}</p>
+              <p className="text-sm font-medium">{travado ? 'Este horário não pode ser usado' : soConfirmar ? 'Atenção a este horário' : 'Conflitos encontrados'}</p>
               <ListaConflitos conflitos={conflitos} />
-              {!travado && (
+              {soConfirmar && <p className="text-sm text-muted-foreground">Dá para marcar normalmente. Confira se é isso mesmo e clique em “Salvar mesmo assim”.</p>}
+              {!travado && !soConfirmar && (
                 <Textarea value={just} onChange={(e) => setJust(e.target.value)} rows={2} placeholder="Motivo para salvar mesmo assim (fica registrado)" aria-label="Motivo" />
               )}
             </div>
@@ -545,7 +550,7 @@ export function FormularioEvento({
               Cancelar
             </Button>
             <Button type="submit" disabled={busy || travado}>
-              {busy ? 'Salvando…' : 'Salvar'}
+              {busy ? 'Salvando…' : soConfirmar ? 'Salvar mesmo assim' : 'Salvar'}
             </Button>
           </DialogFooter>
         </form>

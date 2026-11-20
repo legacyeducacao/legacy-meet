@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { NOME_CONFLITO, type ConflitoDTO, type Escopo, type Origem } from '@/lib/agenda/tipos';
+import { pedeSoConfirmacao } from '@/lib/agenda/regras';
 
 function Opcoes<T extends string>({
   nome,
@@ -165,34 +166,43 @@ export function ListaConflitos({ conflitos }: { conflitos: ConflitoDTO[] }) {
   );
 }
 
-/** Conflitos ao salvar: justificar (fica registrado) ou desistir. */
+/**
+ * Conflitos ao salvar: justificar (fica registrado) ou desistir. Só feriado ou fora
+ * do expediente: basta confirmar, sem motivo.
+ */
 export function DialogoConflitos({
   conflitos,
   podeSobreporBloqueante,
+  aceitaConfirmacao = false,
   onSalvar,
   onDesistir,
 }: {
   conflitos: ConflitoDTO[];
   podeSobreporBloqueante: boolean;
-  onSalvar: (justificativa: string) => void;
+  /** A rota aceita só confirmar os avisos de feriado/fora do expediente (sem motivo). */
+  aceitaConfirmacao?: boolean;
+  onSalvar: (justificativa?: string) => void;
   onDesistir: () => void;
 }) {
   const [just, setJust] = React.useState('');
   const temBloqueante = conflitos.some((c) => c.nivel === 'bloqueante');
   const travado = temBloqueante && !podeSobreporBloqueante;
+  const soConfirmar = aceitaConfirmacao && conflitos.length > 0 && conflitos.every(pedeSoConfirmacao);
   return (
     <Dialog open onOpenChange={(o) => !o && onDesistir()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{travado ? 'Não dá para salvar neste horário' : 'Este horário tem conflitos'}</DialogTitle>
+          <DialogTitle>{travado ? 'Não dá para salvar neste horário' : soConfirmar ? 'Confirme o horário' : 'Este horário tem conflitos'}</DialogTitle>
           <DialogDescription>
             {travado
               ? 'Há regras que impedem salvar. Escolha outro horário ou peça a um admin.'
-              : 'Para salvar mesmo assim, escreva o motivo. Ele fica registrado.'}
+              : soConfirmar
+                ? 'É feriado ou fora do expediente. Tem certeza de que quer marcar neste horário?'
+                : 'Para salvar mesmo assim, escreva o motivo. Ele fica registrado.'}
           </DialogDescription>
         </DialogHeader>
         <ListaConflitos conflitos={conflitos} />
-        {!travado && (
+        {!travado && !soConfirmar && (
           <div className="space-y-1.5">
             <Label htmlFor="justificativa">Motivo</Label>
             <Textarea id="justificativa" value={just} onChange={(e) => setJust(e.target.value)} rows={2} placeholder="Ex.: cliente só pode nesse horário" />
@@ -203,7 +213,7 @@ export function DialogoConflitos({
             {travado ? 'Entendi' : 'Escolher outro horário'}
           </Button>
           {!travado && (
-            <Button disabled={!just.trim()} onClick={() => onSalvar(just.trim())}>
+            <Button disabled={!soConfirmar && !just.trim()} onClick={() => onSalvar(just.trim() || undefined)}>
               Salvar mesmo assim
             </Button>
           )}
