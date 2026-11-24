@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { getRoomOwners, listarNoShowSemGravacao, listRecordings } from '@/lib/recordings';
 import { statusDasReunioes } from '@/lib/execscore';
+import { podeVerGravacao } from '@/lib/acessoGravacoes';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,19 +61,10 @@ export async function GET() {
     }));
     const enrichedTodos = [...enriched, ...noShows].sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
 
-    let scoped;
-    if (user.isAdmin) {
-      // Admin/MASTER vê tudo.
-      scoped = enrichedTodos;
-    } else if (user.sector === 'comercial') {
-      // Comercial vê TODAS as reuniões do comercial (qualquer host), menos executoria.
-      scoped = enrichedTodos.filter((r) => r.sector === 'comercial');
-    } else {
-      // Demais (executoria / ambos / sem setor): as próprias e as em que é anfitrião adicional.
-      scoped = enrichedTodos.filter(
-        (r) => (r.hostId !== null && r.hostId === user.id) || r.coHostIds.includes(user.id),
-      );
-    }
+    // Admin e quem tem "Ver todas as gravações": todas. Comercial: todas do
+    // Comercial; Executoria: todas da Executoria; Acesso geral: as duas. As
+    // próprias (dono ou anfitrião adicional) sempre. Ver lib/acessoGravacoes.ts.
+    const scoped = enrichedTodos.filter((r) => podeVerGravacao(user, r));
     // Situação do envio ao ExecScore (selo no card: enviada, na fila, erro...).
     const execscore = await statusDasReunioes(
       scoped.filter((r) => r.sector === 'executoria' && r.meetingId).map((r) => r.meetingId as string),

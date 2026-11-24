@@ -2,6 +2,7 @@
  * Kickoff Impulsão: regras puras (sem servidor, sem banco), usadas pelo
  * servidor, pela tela e pelos testes. Ver docs/kickoff/README.md.
  */
+import { PERMISSAO_VER_TODAS_GRAVACOES } from '@/lib/acessoGravacoes';
 
 /** Marcador do tipo de evento na agenda (agenda_kickoff_sessoes.tipo). */
 export const KICKOFF_TIPO = 'kickoff_impulsao' as const;
@@ -10,7 +11,7 @@ export const KICKOFF_TIPO = 'kickoff_impulsao' as const;
 export const PERMISSAO_KICKOFF = 'kickoff_impulsao.manage' as const;
 
 /** Permissões que o perfil aceita (mesma lista do check do banco). */
-export const CAPACIDADES_CONHECIDAS: readonly string[] = [PERMISSAO_KICKOFF];
+export const CAPACIDADES_CONHECIDAS: readonly string[] = [PERMISSAO_KICKOFF, PERMISSAO_VER_TODAS_GRAVACOES];
 
 /** Configuração básica do tipo de evento (M1: fixa no código). */
 export const CAPACIDADE_PADRAO = 5;

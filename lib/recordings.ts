@@ -7,6 +7,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
+import { podeVerGravacao, veTodasAsGravacoes, type QuemVe } from '@/lib/acessoGravacoes';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Readable } from 'node:stream';
 import { deleteDriveFile, getDriveAccessToken } from './drive';
@@ -351,20 +352,15 @@ export async function listarNoShowSemGravacao(salasComGravacao: Set<string>, dia
     });
 }
 
-export async function canAccessRecording(
-  id: string,
-  user: { id: string; isAdmin: boolean; sector?: string | null } | null,
-): Promise<boolean> {
+/** Abre uma gravação: mesma regra da lista (lib/acessoGravacoes.ts). */
+export async function canAccessRecording(id: string, user: QuemVe | null): Promise<boolean> {
   if (!user) return false;
-  if (user.isAdmin) return true;
+  if (veTodasAsGravacoes(user)) return true;
   const roomName = id.split('__')[0];
   const owners = await getRoomOwners([roomName]);
   const o = owners.get(roomName);
   if (!o) return false;
-  if (o.hostId === user.id || o.coHostIds.includes(user.id)) return true;
-  // Comercial vê (abre) todas as reuniões do comercial.
-  if (user.sector === 'comercial' && o.sector === 'comercial') return true;
-  return false;
+  return podeVerGravacao(user, o);
 }
 
 const SOURCE_PREFIX = 'com-transcricao/';

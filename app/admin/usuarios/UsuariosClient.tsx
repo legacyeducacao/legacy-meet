@@ -62,6 +62,8 @@ type UserRow = {
   kickoffImpulsao?: boolean;
   /** Comercial: SDR agenda para um Closer; Closer conduz. */
   funcaoComercial?: Funcao | null;
+  /** Permissão "Ver todas as gravações" (sem ser admin). */
+  verTodasGravacoes?: boolean;
 };
 
 function getInitials(name: string | null, email: string): string {
@@ -147,7 +149,13 @@ export default function UsuariosClient({ meId }: { meId: string }) {
   const patchUser = React.useCallback(
     async (
       u: UserRow,
-      mudancas: { isAdmin?: boolean; sector?: Sector; kickoffImpulsao?: boolean; funcaoComercial?: Funcao | null },
+      mudancas: {
+        isAdmin?: boolean;
+        sector?: Sector;
+        kickoffImpulsao?: boolean;
+        funcaoComercial?: Funcao | null;
+        verTodasGravacoes?: boolean;
+      },
     ) => {
       const userId = u.id;
       setSaving((prev) => ({ ...prev, [userId]: true }));
@@ -161,6 +169,7 @@ export default function UsuariosClient({ meId }: { meId: string }) {
             sector: mudancas.sector ?? u.sector ?? 'ambos',
             ...(typeof mudancas.kickoffImpulsao === 'boolean' ? { kickoffImpulsao: mudancas.kickoffImpulsao } : {}),
             ...('funcaoComercial' in mudancas ? { funcaoComercial: mudancas.funcaoComercial } : {}),
+            ...(typeof mudancas.verTodasGravacoes === 'boolean' ? { verTodasGravacoes: mudancas.verTodasGravacoes } : {}),
           }),
         });
         if (!res.ok) {
@@ -384,13 +393,14 @@ export default function UsuariosClient({ meId }: { meId: string }) {
                       <TableHead>Setor</TableHead>
                       <TableHead title="SDR agenda para um Closer; o Closer conduz a reunião">Função</TableHead>
                       <TableHead title="Gerenciar os kickoffs do Impulsão (admin já tem)">Kickoffs</TableHead>
+                      <TableHead title="Vê as gravações de todos os setores, como um admin (admin já tem)">Todas gravações</TableHead>
                       <TableHead className="w-10"><span className="sr-only">Remover</span></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {visiveis.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={7} className="py-6 text-center text-sm text-muted-foreground">
+                        <TableCell colSpan={8} className="py-6 text-center text-sm text-muted-foreground">
                           Nenhum usuário com esse filtro.
                         </TableCell>
                       </TableRow>
@@ -455,6 +465,15 @@ export default function UsuariosClient({ meId }: { meId: string }) {
                             checked={!!u.kickoffImpulsao}
                             disabled={saving[u.id]}
                             onCheckedChange={(checked) => patchUser(u, { kickoffImpulsao: checked })}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Switch
+                            aria-label={`Ver todas as gravações: ${u.name ?? u.email}`}
+                            title={u.isAdmin ? 'Admin já vê todas' : 'Ver todas as gravações'}
+                            checked={u.isAdmin || !!u.verTodasGravacoes}
+                            disabled={saving[u.id] || u.isAdmin}
+                            onCheckedChange={(checked) => patchUser(u, { verTodasGravacoes: checked })}
                           />
                         </TableCell>
                         <TableCell>

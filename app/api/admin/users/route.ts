@@ -4,6 +4,7 @@ import { createAdminSupabase } from '@/lib/supabase/admin';
 import { alternarCapacidade, lerCapacidades, PERMISSAO_KICKOFF } from '@/lib/kickoff/regras';
 import { funcaoParaSetor } from '@/lib/comercial/funcao';
 import { removerUsuario } from '@/lib/usuarios/remover';
+import { PERMISSAO_VER_TODAS_GRAVACOES } from '@/lib/acessoGravacoes';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,6 +35,7 @@ export async function GET() {
       sector: (p?.sector as Sector | undefined) ?? null,
       agendaNova: p?.agenda_nova === true,
       kickoffImpulsao: lerCapacidades(p).includes(PERMISSAO_KICKOFF),
+      verTodasGravacoes: lerCapacidades(p).includes(PERMISSAO_VER_TODAS_GRAVACOES),
       funcaoComercial: funcaoParaSetor(p?.funcao_comercial, p?.sector),
     };
   });
@@ -91,16 +93,22 @@ export async function PATCH(req: NextRequest) {
   const corpo = (await req.json().catch(() => ({}))) as {
     userId?: string; isAdmin?: boolean; sector?: string; agendaNova?: boolean; kickoffImpulsao?: boolean;
     funcaoComercial?: string | null;
+    /** Permissão "Ver todas as gravações" (sem ser admin). */
+    verTodasGravacoes?: boolean;
   };
-  const { userId, isAdmin, sector, agendaNova, kickoffImpulsao } = corpo;
+  const { userId, isAdmin, sector, agendaNova, kickoffImpulsao, verTodasGravacoes } = corpo;
   if (!userId) return new NextResponse('userId obrigatório', { status: 400 });
   const admin = createAdminSupabase();
-  // Permissão do kickoff: só mexe em capacidades quando vier no corpo, e sem
-  // apagar as outras capacidades que o perfil já tiver.
+  // Permissões (kickoff, ver todas as gravações): só mexe em capacidades quando
+  // vierem no corpo, e sem apagar as outras que o perfil já tiver.
   let capacidades: string[] | undefined;
-  if (typeof kickoffImpulsao === 'boolean') {
+  if (typeof kickoffImpulsao === 'boolean' || typeof verTodasGravacoes === 'boolean') {
     const { data: atual } = await admin.from('meet_user_profile').select('*').eq('user_id', userId).maybeSingle();
-    capacidades = alternarCapacidade(lerCapacidades(atual), PERMISSAO_KICKOFF, kickoffImpulsao);
+    capacidades = lerCapacidades(atual);
+    if (typeof kickoffImpulsao === 'boolean') capacidades = alternarCapacidade(capacidades, PERMISSAO_KICKOFF, kickoffImpulsao);
+    if (typeof verTodasGravacoes === 'boolean') {
+      capacidades = alternarCapacidade(capacidades, PERMISSAO_VER_TODAS_GRAVACOES, verTodasGravacoes);
+    }
   }
   const { error } = await admin
     .from('meet_user_profile')
