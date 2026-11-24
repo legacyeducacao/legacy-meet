@@ -3,6 +3,7 @@ import {
   activePillars,
   joinTranscriptParts,
   motivoForaDoScore,
+  motivoSemTexto,
   PILARES,
   roomFromRecordingId,
   sanitizeDisabled,
@@ -77,5 +78,22 @@ describe('motivoForaDoScore', () => {
 describe('motivoForaDoScore: encontro em grupo', () => {
   it('encontro em grupo do Impulsão fica de fora', () => {
     expect(motivoForaDoScore({ onboarding: false, noShow: false, grupo: true })).toMatch(/grupo/);
+  });
+});
+
+describe('motivoSemTexto: quando não adianta reenviar ao ExecScore', () => {
+  it('todas apagadas em Gravações (caso Bikus 23/11)', () => {
+    expect(motivoSemTexto(['apagada'])).toBe('gravação apagada em Gravações');
+  });
+
+  it('transcritas sem fala (caso MINDSET 23/11), inclusive misturadas com apagadas', () => {
+    expect(motivoSemTexto(['sem_fala'])).toBe('gravação sem fala (transcrição vazia)');
+    expect(motivoSemTexto(['apagada', 'sem_fala'])).toBe('gravação sem fala (transcrição vazia)');
+  });
+
+  it('com transcrição ainda pendente, ou sem gravações, segue tentando', () => {
+    expect(motivoSemTexto(['pendente'])).toBeNull();
+    expect(motivoSemTexto(['apagada', 'pendente'])).toBeNull();
+    expect(motivoSemTexto([])).toBeNull();
   });
 });

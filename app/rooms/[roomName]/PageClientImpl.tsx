@@ -387,6 +387,23 @@ function VideoConferenceComponent(props: {
 
   // Gravação automática ao entrar; bucket/pasta definidos no /api/record/start.
   const recordingStartedRef = React.useRef(false);
+  // Pede ao servidor para gravar (só o anfitrião, com gravação ligada). Se já
+  // estiver gravando, o servidor responde 409 e nada muda.
+  const startRecording = React.useCallback(() => {
+    const endpoint = process.env.NEXT_PUBLIC_LK_RECORD_ENDPOINT;
+    if (!endpoint || !isHost || !props.options.record) return;
+    const params = new URLSearchParams({
+      roomName: room.name,
+      transcribe: props.options.transcribe ? '1' : '0',
+      title: props.options.title,
+      host: props.userChoices.username ?? '',
+      // Prova que o chamador é participante da sala (o endpoint exige).
+      token: props.connectionDetails.participantToken,
+    });
+    fetch(`${endpoint}/start?${params.toString()}`).catch((error) =>
+      console.error('Falha ao iniciar a gravação automática:', error),
+    );
+  }, [room, isHost, props.options, props.userChoices.username, props.connectionDetails.participantToken]);
   const handleConnected = React.useCallback(() => {
     collectParticipants();
     // Registra o próprio nome no meta já no JOIN (antes só acontecia ao sair —
@@ -403,31 +420,10 @@ function VideoConferenceComponent(props: {
     // Gravação automática: só o anfitrião dispara (o endpoint exige roomAdmin).
     // Convidado disparando vencia a corrida com o host e gravava com os
     // parâmetros da própria URL (sem transcrição, sem título).
-    const endpoint = process.env.NEXT_PUBLIC_LK_RECORD_ENDPOINT;
-    if (!endpoint || !isHost || !props.options.record || recordingStartedRef.current) {
-      return;
-    }
+    if (recordingStartedRef.current) return;
     recordingStartedRef.current = true;
-    const params = new URLSearchParams({
-      roomName: room.name,
-      transcribe: props.options.transcribe ? '1' : '0',
-      title: props.options.title,
-      host: props.userChoices.username ?? '',
-      // Prova que o chamador é participante da sala (o endpoint exige).
-      token: props.connectionDetails.participantToken,
-    });
-    fetch(`${endpoint}/start?${params.toString()}`).catch((error) =>
-      console.error('Falha ao iniciar a gravação automática:', error),
-    );
-  }, [
-    room,
-    collectParticipants,
-    props.options,
-    props.userChoices.username,
-    props.connectionDetails.participantToken,
-    participantsUrl,
-    isHost,
-  ]);
+    startRecording();
+  }, [collectParticipants, props.userChoices.username, participantsUrl, startRecording]);
 
   // Listeners do Room: registrados abaixo, depois de todos os handlers (ver
   // useRoomListeners), lendo sempre a versão mais recente de cada um.
@@ -678,7 +674,12 @@ function VideoConferenceComponent(props: {
     reconnectingSinceRef.current = null;
     reportClientEvent('reconnected', { outageMs: since ? Date.now() - since : null });
     toast.success('Conexão restabelecida');
-  }, []);
+    // A queda pode ter fechado a sala (anfitrião sozinho) e, com ela, a gravação.
+    // Caso real (MINDSET, 23/11): a executora caiu 19 s antes de o cliente entrar,
+    // a sala fechou e a reunião de 1h40 seguiu sem gravar. Ao voltar, o anfitrião
+    // pede a gravação de novo; se ela continua ativa, o servidor só responde 409.
+    if (recordingStartedRef.current) startRecording();
+  }, [startRecording]);
   // Qualidade da conexão LOCAL caindo para "ruim"/"perdida" é a evidência mais
   // direta de rede fraca — registra com o que o navegador sabe da rede.
   const lastQualityRef = React.useRef<string>('');

@@ -401,15 +401,39 @@ export async function savePillarChoice(
   });
 }
 
-async function loadTranscript(recordingIds: string[]): Promise<{ text: string; used: string[] }> {
+export type EstadoGravacao = 'com_texto' | 'apagada' | 'sem_fala' | 'pendente';
+
+/**
+ * Sem texto para enviar, quando não adianta tentar de novo: todas as gravações
+ * foram apagadas em Gravações, ou foram transcritas e não tinham fala (caso
+ * MINDSET 23/11: só o executor esperando na sala). null = vale tentar de novo.
+ */
+export function motivoSemTexto(estados: EstadoGravacao[]): string | null {
+  if (!estados.length || estados.some((e) => e === 'com_texto' || e === 'pendente')) return null;
+  if (estados.every((e) => e === 'apagada')) return 'gravação apagada em Gravações';
+  return 'gravação sem fala (transcrição vazia)';
+}
+
+async function loadTranscript(recordingIds: string[]): Promise<{ text: string; used: string[]; estados: EstadoGravacao[] }> {
   const parts: Array<{ createdAt: string; text: string; id: string }> = [];
+  const estados: EstadoGravacao[] = [];
   for (const id of recordingIds) {
     const m: RecordingManifest | null = await getManifest(id);
-    if (!m || m.transcriptionStatus !== 'complete') continue;
+    if (!m) {
+      estados.push('apagada');
+      continue;
+    }
+    if (m.transcriptionStatus !== 'complete') {
+      estados.push('pendente');
+      continue;
+    }
     const text = (m.transcriptTxtKey ? await getObjectText(m.transcriptTxtKey) : null) ?? '';
-    if (text.trim()) parts.push({ createdAt: m.createdAt, text, id });
+    if (text.trim()) {
+      parts.push({ createdAt: m.createdAt, text, id });
+      estados.push('com_texto');
+    } else estados.push('sem_fala');
   }
-  return { text: joinTranscriptParts(parts), used: parts.map((p) => p.id) };
+  return { text: joinTranscriptParts(parts), used: parts.map((p) => p.id), estados };
 }
 
 /**
@@ -448,8 +472,16 @@ export async function dispatchMeeting(meetingId: string): Promise<'enviada' | 'n
       return 'nao_pronta';
     }
 
-    const { text, used } = await loadTranscript(claimed.recording_ids);
-    if (!text) throw new Error('nenhuma transcrição completa encontrada no armazenamento');
+    const { text, used, estados } = await loadTranscript(claimed.recording_ids);
+    if (!text) {
+      // Apagada ou sem fala: nada a avaliar e nada a retentar; sai da fila de erros.
+      const semTexto = motivoSemTexto(estados);
+      if (semTexto) {
+        await descartarEnvio(meetingId, semTexto);
+        return 'nao_pronta';
+      }
+      throw new Error('nenhuma transcrição completa encontrada no armazenamento');
+    }
 
     const pilares = activePillars(claimed.pilares_desabilitados);
     const date = meeting.startedAt ?? meeting.scheduledStartAt;
