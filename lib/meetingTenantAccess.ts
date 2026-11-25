@@ -11,11 +11,12 @@
  *   é ignorado) e o usuário precisa ter acesso ao Comercial (canSeeComercial).
  * - Avulsa: sem cliente; qualquer pessoa da equipe cria, sempre na empresa
  *   interna (MEET_AVULSA_TENANT_ID, ou a mesma sentinela do Comercial).
- * - Executoria: o cliente precisa existir e ser da carteira do usuário
- *   (client_tenants.executor_id = usuário), como em /api/clients e em
+ * - Executoria: o cliente precisa existir e quem agenda precisa ter acesso à
+ *   Executoria (canSeeExecutoria). Desde 25/11/2026 todo executor agenda para
+ *   qualquer cliente (pedido do usuário), não só para os da própria carteira, como em /api/clients e em
  *   POST /api/agenda/jornadas. Admin do Meet cria para qualquer cliente.
  */
-import { canSeeComercial, type CurrentUser } from '@/lib/auth';
+import { canSeeComercial, canSeeExecutoria, type CurrentUser } from '@/lib/auth';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 import type { SetorReuniao } from '@/lib/setorReuniao';
 
@@ -24,19 +25,25 @@ export type AcessoEmpresa =
   | { ok: false; status: 400 | 403 | 404 | 500; message: string };
 
 /** Cliente pelo id (null = não existe). Lança se o banco falhar. */
-export type BuscarCliente = (tenantId: string) => Promise<{ id: string; executorId: string | null } | null>;
+export type BuscarCliente = (
+  tenantId: string,
+) => Promise<{ id: string; executorId: string | null; executorFinanceiroId?: string | null } | null>;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const buscarCliente: BuscarCliente = async (tenantId) => {
   const { data, error } = await createAdminSupabase()
     .from('client_tenants')
-    .select('id, executor_id')
+    .select('id, executor_id, executor_financeiro_id')
     .eq('id', tenantId)
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) return null;
-  return { id: data.id as string, executorId: (data.executor_id as string | null) ?? null };
+  return {
+    id: data.id as string,
+    executorId: (data.executor_id as string | null) ?? null,
+    executorFinanceiroId: ((data as { executor_financeiro_id?: string | null }).executor_financeiro_id as string | null) ?? null,
+  };
 };
 
 export async function autorizarEmpresaDaReuniao(
@@ -60,6 +67,7 @@ export async function autorizarEmpresaDaReuniao(
     return { ok: true, tenantId: interna };
   }
 
+  if (!canSeeExecutoria(user)) return { ok: false, status: 403, message: 'Sem acesso a reuniões da Executoria' };
   const pedido = typeof tenantIdDoCorpo === 'string' ? tenantIdDoCorpo.trim() : '';
   if (!pedido) return { ok: false, status: 400, message: 'Cliente (tenant) obrigatório para Executoria' };
   if (!UUID.test(pedido)) return { ok: false, status: 404, message: 'Cliente não encontrado' };
@@ -71,9 +79,6 @@ export async function autorizarEmpresaDaReuniao(
     return { ok: false, status: 500, message: 'Falha ao verificar o cliente' };
   }
   if (!cliente) return { ok: false, status: 404, message: 'Cliente não encontrado' };
-  if (!user.isAdmin && cliente.executorId !== user.id) {
-    return { ok: false, status: 403, message: 'Só clientes da sua carteira' };
-  }
   // O id que segue é o do banco, não o do corpo.
   return { ok: true, tenantId: cliente.id };
 }

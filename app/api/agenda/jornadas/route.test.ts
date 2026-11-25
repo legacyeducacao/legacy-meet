@@ -78,13 +78,20 @@ describe('POST /api/agenda/jornadas atrás da entrada da agenda', () => {
     expect(state.matriculas).toHaveLength(0);
   });
 
-  it('executor: matricula cliente da carteira; de outra carteira continua 403 pela regra da rota', async () => {
+  it('executor matricula cliente da carteira e, desde 25/11, também de outra carteira', async () => {
     state.user = executorX;
     expect((await matricular(EMPRESA_A)).status).toBe(200);
-    const fora = await matricular(EMPRESA_B);
-    expect(fora.status).toBe(403);
-    expect(await fora.text()).toBe('Só clientes da sua carteira');
-    expect(state.matriculas).toEqual([{ tenantId: EMPRESA_A, por: 'exec-x' }]);
+    expect((await matricular(EMPRESA_B)).status).toBe(200);
+    expect(state.matriculas).toEqual([
+      { tenantId: EMPRESA_A, por: 'exec-x' },
+      { tenantId: EMPRESA_B, por: 'exec-x' },
+    ]);
+  });
+
+  it('quem só tem o Comercial não matricula', async () => {
+    state.user = mk({ id: 'com', sector: 'comercial', role: 'COLLABORATOR' });
+    expect((await matricular(EMPRESA_A)).status).toBe(403);
+    expect(state.matriculas).toEqual([]);
   });
 
   it('admin continua matriculando cliente de qualquer carteira', async () => {

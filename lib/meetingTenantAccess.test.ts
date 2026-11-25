@@ -50,17 +50,15 @@ describe('autorizarEmpresaDaReuniao: Executoria', () => {
     expect(await autorizarEmpresaDaReuniao(executorX, 'executoria', EMPRESA_A, buscar)).toEqual({ ok: true, tenantId: EMPRESA_A });
   });
 
-  it('executor não cria para cliente de outro executor', async () => {
-    expect(await autorizarEmpresaDaReuniao(executorX, 'executoria', EMPRESA_B, buscar)).toEqual({
-      ok: false,
-      status: 403,
-      message: 'Só clientes da sua carteira',
-    });
+  it('desde 25/11 todo executor agenda para cliente de outro executor e para cliente sem executor', async () => {
+    expect(await autorizarEmpresaDaReuniao(executorX, 'executoria', EMPRESA_B, buscar)).toEqual({ ok: true, tenantId: EMPRESA_B });
+    expect(await autorizarEmpresaDaReuniao(executorX, 'executoria', SEM_EXECUTOR, buscar)).toEqual({ ok: true, tenantId: SEM_EXECUTOR });
+    expect(await autorizarEmpresaDaReuniao(admin, 'executoria', SEM_EXECUTOR, buscar)).toEqual({ ok: true, tenantId: SEM_EXECUTOR });
   });
 
-  it('cliente sem executor só um admin usa', async () => {
-    expect((await autorizarEmpresaDaReuniao(executorX, 'executoria', SEM_EXECUTOR, buscar)).ok).toBe(false);
-    expect(await autorizarEmpresaDaReuniao(admin, 'executoria', SEM_EXECUTOR, buscar)).toEqual({ ok: true, tenantId: SEM_EXECUTOR });
+  it('quem só tem o Comercial não agenda na Executoria (sem consultar o banco)', async () => {
+    expect(await autorizarEmpresaDaReuniao(comercial, 'executoria', EMPRESA_A, buscar)).toMatchObject({ ok: false, status: 403 });
+    expect(buscar).not.toHaveBeenCalled();
   });
 
   it('admin cria para qualquer cliente existente', async () => {
@@ -77,7 +75,7 @@ describe('autorizarEmpresaDaReuniao: Executoria', () => {
     expect(buscar).not.toHaveBeenCalled();
   });
 
-  it('equipe sem carteira não usa tenantId arbitrário', async () => {
+  it('equipe sem setor definido pelo admin não agenda na Executoria', async () => {
     expect(await autorizarEmpresaDaReuniao(equipeSemCarteira, 'executoria', EMPRESA_A, buscar)).toMatchObject({ ok: false, status: 403 });
   });
 

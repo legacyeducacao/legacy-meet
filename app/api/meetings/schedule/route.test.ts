@@ -94,11 +94,12 @@ describe('POST /api/meetings/schedule: autorização por empresa', () => {
     expect(state.criadas[0]).toMatchObject({ tenantId: EMPRESA_A, hostId: 'exec-x', sector: 'executoria' });
   });
 
-  it('executor não agenda para cliente de outro executor', async () => {
+  it('desde 25/11 o executor agenda também para cliente de outro executor; só Comercial não', async () => {
     state.user = executorX;
-    const res = await post({ sector: 'executoria', tenantId: EMPRESA_B });
-    expect(res.status).toBe(403);
-    expect(await res.text()).toBe('Só clientes da sua carteira');
+    expect((await post({ sector: 'executoria', tenantId: EMPRESA_B })).status).toBe(200);
+    state.criadas = [];
+    state.user = comercial;
+    expect((await post({ sector: 'executoria', tenantId: EMPRESA_B })).status).toBe(403);
     expect(state.criadas).toHaveLength(0);
   });
 

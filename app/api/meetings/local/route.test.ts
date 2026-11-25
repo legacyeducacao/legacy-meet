@@ -95,11 +95,13 @@ describe('POST /api/meetings/local: autorização por empresa', () => {
     expect(reunioesCriadas()[0].row).toMatchObject({ tenant_id: EMPRESA_A, host_id: 'exec-x', status: 'live' });
   });
 
-  it('executor não cria reunião para cliente de outro executor', async () => {
+  it('desde 25/11 o executor cria reunião também para cliente de outro executor; só Comercial não', async () => {
     state.user = executorX;
+    expect((await post({ sector: 'executoria', title: 'Alinhamento', tenantId: EMPRESA_B })).status).toBe(200);
+    state.inserts = [];
+    state.user = comercial;
     const res = await post({ sector: 'executoria', title: 'Invasão', tenantId: EMPRESA_B });
     expect(res.status).toBe(403);
-    expect(await res.text()).toBe('Só clientes da sua carteira');
     expect(state.inserts).toHaveLength(0);
   });
 

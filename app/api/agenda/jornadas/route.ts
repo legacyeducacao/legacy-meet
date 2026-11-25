@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 import { matricular } from '@/lib/agenda/grupos';
 import { corpo, usuarioAgenda } from '@/lib/agenda/rota';
+import { filtroCarteira } from '@/lib/carteira';
+import { canSeeExecutoria } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,7 +20,12 @@ export async function GET(req: NextRequest) {
     .limit(300);
   if (grupoId) q = q.eq('grupo_id', grupoId);
   if (tenantId) q = q.eq('tenant_id', tenantId);
-  if (!a.user.isAdmin) q = q.eq('executor_id', a.user.id);
+  if (!a.user.isAdmin) {
+    // As do próprio executor e as dos clientes da carteira (inclui o executor financeiro).
+    const { data: meus } = await createAdminSupabase().from('client_tenants').select('id').or(filtroCarteira(a.user.id));
+    const ids = ((meus ?? []) as Array<{ id: string }>).map((t) => t.id);
+    q = ids.length ? q.or(`executor_id.eq.${a.user.id},tenant_id.in.(${ids.join(',')})`) : q.eq('executor_id', a.user.id);
+  }
   const { data, error } = await q;
   if (error) return new NextResponse(error.message, { status: 500 });
   const hoje = new Date().toISOString().slice(0, 10);
@@ -37,9 +44,14 @@ export async function POST(req: NextRequest) {
   if (a.res) return a.res;
   const b = await corpo<{ tenantId?: string; grupoId?: string; diaSemana?: number; aPartirDe?: string }>(req);
   if (!b.tenantId) return new NextResponse('Selecione o cliente', { status: 400 });
-  const { data: t } = await createAdminSupabase().from('client_tenants').select('executor_id').eq('id', b.tenantId).maybeSingle();
+  const { data: t } = await createAdminSupabase()
+    .from('client_tenants')
+    .select('id')
+    .eq('id', b.tenantId)
+    .maybeSingle();
   if (!t) return new NextResponse('Cliente não encontrado', { status: 404 });
-  if (!a.user.isAdmin && t.executor_id !== a.user.id) return new NextResponse('Só clientes da sua carteira', { status: 403 });
+  // Todo executor agenda para qualquer cliente (mesma regra da criação de reunião).
+  if (!canSeeExecutoria(a.user)) return new NextResponse('Sem acesso a reuniões da Executoria', { status: 403 });
   const r = await matricular(b.tenantId, a.user, { grupoId: b.grupoId, diaSemana: b.diaSemana, aPartirDe: b.aPartirDe });
   if (!r.ok) {
     if (r.conflito) return NextResponse.json(r.conflito, { status: 409 });

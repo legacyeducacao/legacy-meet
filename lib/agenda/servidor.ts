@@ -162,19 +162,33 @@ export async function listarReunioes(user: Usuario, executores: string[], de: Da
       .order('scheduled_start_at')
       .limit(3000);
 
-  const [donos, coAnfitriao] = await Promise.all([
+  const propria = executores.includes(user.id);
+  const [donos, coAnfitriao, financeiro] = await Promise.all([
     base().in('host_id', executores),
-    executores.includes(user.id)
+    propria
       ? admin.from('meet_meeting_hosts').select('meeting_id').eq('user_id', user.id)
       : Promise.resolve({ data: [] as { meeting_id: string }[] }),
+    // Executor financeiro (Legacy Plan): acompanha as reuniões dos clientes em
+    // que foi colocado, mesmo marcadas por outro executor (só consulta).
+    propria
+      ? admin.from('client_tenants').select('id').eq('executor_financeiro_id', user.id)
+      : Promise.resolve({ data: [] as { id: string }[] }),
   ]);
   if (donos.error) throw new Error(donos.error.message);
   let linhas = (donos.data ?? []) as unknown as LinhaReuniao[];
+  const juntar = (novas: LinhaReuniao[]) => {
+    const vistos = new Set(linhas.map((l) => l.id));
+    linhas = [...linhas, ...novas.filter((l) => !vistos.has(l.id))];
+  };
   const extras = ((coAnfitriao.data ?? []) as { meeting_id: string }[]).map((x) => x.meeting_id);
   if (extras.length) {
     const { data } = await base().in('id', extras.slice(0, 500));
-    const vistos = new Set(linhas.map((l) => l.id));
-    linhas = [...linhas, ...((data ?? []) as unknown as LinhaReuniao[]).filter((l) => !vistos.has(l.id))];
+    juntar((data ?? []) as unknown as LinhaReuniao[]);
+  }
+  const clientesFinanceiro = ((financeiro.data ?? []) as { id: string }[]).map((t) => t.id);
+  if (clientesFinanceiro.length) {
+    const { data } = await base().in('tenant_id', clientesFinanceiro.slice(0, 200));
+    juntar((data ?? []) as unknown as LinhaReuniao[]);
   }
 
   const ids = linhas.map((l) => l.id);

@@ -190,12 +190,10 @@ describe('Edição e cancelamento de evento: quem pode', () => {
     expect(status('da-carteira-y')).toBe('scheduled');
   });
 
-  it('anfitrião cujo cliente saiu da carteira dele não altera (a empresa é conferida)', async () => {
+  it('desde 25/11 o anfitrião altera a própria reunião mesmo com o cliente em outra carteira', async () => {
     state.user = executorX;
-    const res = await cancelar('cliente-mudou-de-carteira');
-    expect(res.status).toBe(403);
-    expect(await res.text()).toBe('Só clientes da sua carteira');
-    expect(status('cliente-mudou-de-carteira')).toBe('scheduled');
+    expect((await cancelar('cliente-mudou-de-carteira')).status).toBe(200);
+    expect(status('cliente-mudou-de-carteira')).toBe('canceled');
   });
 
   it('reunião que não é do Meet (Planner do Plan) não é alcançada', async () => {

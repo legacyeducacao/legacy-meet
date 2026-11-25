@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import { getCurrentUser } from '@/lib/auth';
+import { canSeeExecutoria, getCurrentUser } from '@/lib/auth';
 import { createAdminSupabase } from '@/lib/supabase/admin';
+import { filtroCarteira } from '@/lib/carteira';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,9 +12,12 @@ export async function GET() {
   const admin = createAdminSupabase();
   let query = admin.from('client_tenants').select('id, name').order('name');
 
-  // MASTER vê todos; demais veem só os seus (executor_id = user.id)
-  if (!user.isAdmin) {
-    query = query.eq('executor_id', user.id);
+  // Quem tem acesso à Executoria (admin, Executoria, Acesso geral) vê todos os
+  // clientes para agendar (pedido do usuário em 25/11/2026). Os demais, só a
+  // própria carteira (executor principal ou financeiro), que costuma ser vazia.
+  if (!user.isStaff) return NextResponse.json({ clients: [] });
+  if (!canSeeExecutoria(user)) {
+    query = query.or(filtroCarteira(user.id));
   }
 
   const { data, error } = await query;

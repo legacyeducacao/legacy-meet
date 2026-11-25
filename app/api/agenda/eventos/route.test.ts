@@ -185,11 +185,16 @@ describe('POST /api/agenda/eventos: autorização por empresa', () => {
     expect(state.criadas[0]).toMatchObject({ tenantId: EMPRESA_A, hostId: 'exec-x', sector: 'executoria' });
   });
 
-  it('executor não cria evento para empresa de outra carteira', async () => {
+  it('desde 25/11 o executor agenda também para cliente de outra carteira', async () => {
     state.user = executorX;
-    const res = await post({ setor: 'executoria', tenantId: EMPRESA_B, rrule: 'FREQ=WEEKLY;COUNT=4', jornadaLegado: true });
-    expect(res.status).toBe(403);
-    expect(await res.text()).toBe('Só clientes da sua carteira');
+    const res = await post({ setor: 'executoria', tenantId: EMPRESA_B });
+    expect(res.status).toBe(200);
+    expect(state.criadas[0]).toMatchObject({ tenantId: EMPRESA_B, hostId: 'exec-x' });
+  });
+
+  it('quem só tem o Comercial não agenda na Executoria', async () => {
+    state.user = comercial;
+    expect((await post({ setor: 'executoria', tenantId: EMPRESA_A })).status).toBe(403);
     nadaCriado();
   });
 
